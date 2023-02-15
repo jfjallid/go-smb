@@ -1,0 +1,4 @@
+github.com/jfjallid/golog v0.3.0 h1:28rDJwh6S6QQtMrq4M9JUsXv5Wx2xnsZvYBZp/0Osik=
+github.com/jfjallid/golog v0.3.0/go.mod h1:19Q/zg5OgPPd0xhFllokPnMzthzhFPZmiAGAokE7k58=
+golang.org/x/crypto v0.6.0 h1:qfktjS5LUO+fFKeJXZ+ikTRijMmljikvG68fpMMruSc=
+golang.org/x/crypto v0.6.0/go.mod h1:OFC/31mSvZgRz0V1QTNCzfAI1aIRzbiufJtkMIlEp58=
