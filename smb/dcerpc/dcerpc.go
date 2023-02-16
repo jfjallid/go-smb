@@ -31,9 +31,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jfjallid/golog"
 	"github.com/jfjallid/go-smb/smb"
 	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/golog"
 )
 
 var log = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc")
@@ -399,6 +399,8 @@ type NetShare struct {
 	Name    string
 	Comment string
 	Type    string
+	TypeId  uint32
+	Hidden  bool
 }
 
 type ServiceConfig struct {
@@ -571,7 +573,7 @@ type RCloseServiceHandleRes struct {
 }
 
 func (s *ContextItems) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-    log.Debugln("In MarshalBinary for ContextItems")
+	log.Debugln("In MarshalBinary for ContextItems")
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	for _, item := range *s {
@@ -587,7 +589,7 @@ func (s *ContextItems) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 }
 
 func (s *ContextItems) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-    log.Debugln("In UnmarshalBinary for ContextItems")
+	log.Debugln("In UnmarshalBinary for ContextItems")
 
 	slice := []ContextItem{}
 	c, ok := meta.Counts[meta.CurrField]
@@ -608,7 +610,7 @@ func (s *ContextItems) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 }
 
 func (s *ContextResItems) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-    log.Debugln("In MarshalBinary for ContextResItems")
+	log.Debugln("In MarshalBinary for ContextResItems")
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	for _, item := range *s {
@@ -624,7 +626,7 @@ func (s *ContextResItems) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 }
 
 func (s *ContextResItems) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-    log.Debugln("In UnmarshalBinary for ContextResItems")
+	log.Debugln("In UnmarshalBinary for ContextResItems")
 
 	slice := []ContextResItem{}
 	c, ok := meta.Counts[meta.CurrField]
@@ -646,7 +648,7 @@ func (s *ContextResItems) UnmarshalBinary(buf []byte, meta *encoder.Metadata) er
 }
 
 func (self *ContextItem) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-    log.Debugln("In MarshalBinary for ContextItem")
+	log.Debugln("In MarshalBinary for ContextItem")
 	buf := make([]byte, 0, 43)
 	buf = binary.LittleEndian.AppendUint16(buf, self.Id)
 	buf = append(buf, self.Count)
@@ -659,7 +661,7 @@ func (self *ContextItem) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 }
 
 func (self *ContextItem) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-    log.Debugln("In UnmarshalBinary for ContextItem")
+	log.Debugln("In UnmarshalBinary for ContextItem")
 	self.Id = binary.LittleEndian.Uint16(buf)
 	self.Count = buf[2]
 	self.Reserved = buf[3]
@@ -677,7 +679,7 @@ func (self *RQueryServiceConfigWResponse) MarshalBinary(meta *encoder.Metadata) 
 }
 
 func (self *RQueryServiceConfigWResponse) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-    log.Debugln("In UnmarshalBinary for RQueryServiceconfigWResponse")
+	log.Debugln("In UnmarshalBinary for RQueryServiceconfigWResponse")
 	if len(buf) < 44 {
 		return fmt.Errorf("Buffer to small for RQueryServiceConfigWResponse")
 	}
@@ -803,7 +805,7 @@ func (self *RQueryServiceConfigWResponse) UnmarshalBinary(buf []byte, meta *enco
 }
 
 func (s *NetShareEnumAllRequest) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-    log.Debugln("In MarshalBinary for NetShareEnumAllRequest")
+	log.Debugln("In MarshalBinary for NetShareEnumAllRequest")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -834,7 +836,7 @@ func (s *NetShareEnumAllResponse) MarshalBinary(meta *encoder.Metadata) ([]byte,
 }
 
 func parseNetShareCtr1(buf []byte) (*NetShareCtr1, error) {
-    log.Debugln("In parseNetShareCtr1")
+	log.Debugln("In parseNetShareCtr1")
 	offset := 0
 	res := &NetShareCtr1{
 		Count: binary.LittleEndian.Uint32(buf[offset+4:]), // Skip over ReferentId
@@ -883,7 +885,7 @@ func parseNetShareCtr1(buf []byte) (*NetShareCtr1, error) {
 }
 
 func (s *NetShareEnumAllResponse) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-    log.Debugln("In UnmarshalBinary for NetShareEnumAllResponse")
+	log.Debugln("In UnmarshalBinary for NetShareEnumAllResponse")
 
 	res := NetShareEnumAllResponse{
 		Level: binary.LittleEndian.Uint32(buf),
@@ -924,7 +926,7 @@ func (s *NetShareEnumAllResponse) UnmarshalBinary(buf []byte, meta *encoder.Meta
 }
 
 func NewUnicodeStr(referentId uint32, s string) *UnicodeStr {
-    log.Debugln("In NewUnicodeStr")
+	log.Debugln("In NewUnicodeStr")
 	us := UnicodeStr{}
 	if referentId != 0 {
 		us.ReferentIdPtr = referentId
@@ -947,7 +949,7 @@ func NewUnicodeStr(referentId uint32, s string) *UnicodeStr {
 }
 
 func uuid_to_bin(uuid string) ([]byte, error) {
-    log.Debugln("In uuid_to_bin")
+	log.Debugln("In uuid_to_bin")
 
 	if !strings.ContainsRune(uuid, '-') {
 		return hex.DecodeString(uuid)
@@ -1000,7 +1002,7 @@ func uuid_to_bin(uuid string) ([]byte, error) {
 }
 
 func NewBindReq(callId uint32, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string) (*BindReq, error) {
-    log.Debugln("In NewBindReq")
+	log.Debugln("In NewBindReq")
 
 	srsv_uuid, err := uuid_to_bin(interface_uuid)
 	if err != nil {
@@ -1075,7 +1077,7 @@ func NewNetShareEnumAllRequest(serverName string) *NetShareEnumAllRequest {
 }
 
 func Bind(f *smb.File, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string) (bind *ServiceBind, err error) {
-    log.Debugln("In Bind")
+	log.Debugln("In Bind")
 	callId := rand.Uint32()
 	bindReq, err := NewBindReq(callId, interface_uuid, majorVersion, minorVersion, transfer_uuid)
 	if err != nil {
@@ -1124,7 +1126,7 @@ func roundup(x, align int) int {
 }
 
 func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err error) {
-    log.Debugln("In decodeServiceConfig")
+	log.Debugln("In decodeServiceConfig")
 	if _, ok := ServiceTypeStatusMap[config.ServiceType]; !ok {
 		err = fmt.Errorf("Could not identify returned service type: %d\n", config.ServiceType)
 		fmt.Println(err)
@@ -1179,7 +1181,7 @@ func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err er
 }
 
 func (sb *ServiceBind) NetShareEnumAll(host string) (res []NetShare, err error) {
-    log.Debugln("In NetShareEnumAll")
+	log.Debugln("In NetShareEnumAll")
 	netReq := NewNetShareEnumAllRequest(host)
 	netBuf, err := encoder.Marshal(netReq)
 	if err != nil {
@@ -1211,22 +1213,30 @@ func (sb *ServiceBind) NetShareEnumAll(host string) (res []NetShare, err error) 
 		t := ""
 		if (ctr1.Pointer[i].Type & StypeClusterDFS) == StypeClusterDFS {
 			t += ShareTypeMap[StypeClusterDFS]
+			res[i].TypeId = StypeClusterDFS
 		} else if (ctr1.Pointer[i].Type & StypeClusterSOFS) == StypeClusterSOFS {
 			t += ShareTypeMap[StypeClusterSOFS]
+			res[i].TypeId = StypeClusterSOFS
 		} else if (ctr1.Pointer[i].Type & StypeClusterFS) == StypeClusterFS {
 			t += ShareTypeMap[StypeClusterFS]
+			res[i].TypeId = StypeClusterFS
 		} else if (ctr1.Pointer[i].Type & StypeIPC) == StypeIPC {
 			t += ShareTypeMap[StypeIPC]
+			res[i].TypeId = StypeIPC
 		} else if (ctr1.Pointer[i].Type & StypeDevice) == StypeDevice {
 			t += ShareTypeMap[StypeDevice]
+			res[i].TypeId = StypeDevice
 		} else if (ctr1.Pointer[i].Type & StypePrintq) == StypePrintq {
 			t += ShareTypeMap[StypePrintq]
+			res[i].TypeId = StypePrintq
 		} else {
 			t += ShareTypeMap[StypeDisktree]
+			res[i].TypeId = StypeDisktree
 		}
 
 		if (ctr1.Pointer[i].Type & StypeSpecial) == StypeSpecial {
 			t += "_" + ShareTypeMap[StypeSpecial]
+			res[i].Hidden = true
 		} else if (ctr1.Pointer[i].Type & StypeTemporary) == StypeTemporary {
 			t += "_" + ShareTypeMap[StypeTemporary]
 		}
@@ -1237,7 +1247,7 @@ func (sb *ServiceBind) NetShareEnumAll(host string) (res []NetShare, err error) 
 }
 
 func (sb *ServiceBind) openSCManager(desiredAccess uint32) (handle []byte, err error) {
-    log.Debugln("In openSCManager")
+	log.Debugln("In openSCManager")
 	scReq := ROpenSCManagerWRequest{
 		MachineName:   *NewUnicodeStr(1, "DUMMY"),
 		DatabaseName:  *NewUnicodeStr(2, "ServicesActive"),
@@ -1269,7 +1279,7 @@ func (sb *ServiceBind) openSCManager(desiredAccess uint32) (handle []byte, err e
 }
 
 func (sb *ServiceBind) openService(scHandle []byte, serviceName string, desiredAccess uint32) (handle []byte, err error) {
-    log.Debugln("In openService")
+	log.Debugln("In openService")
 	serviceReq := ROpenServiceWRequest{
 		SCContextHandle: scHandle,
 		ServiceName:     NewUnicodeStr(0, serviceName),
@@ -1302,7 +1312,7 @@ func (sb *ServiceBind) openService(scHandle []byte, serviceName string, desiredA
 }
 
 func (sb *ServiceBind) GetServiceStatus(serviceName string) (status uint32, err error) {
-    log.Debugln("In GetServiceStatus")
+	log.Debugln("In GetServiceStatus")
 	handle, err := sb.openSCManager(ServiceQueryStatus)
 	if err != nil {
 		return
@@ -1346,7 +1356,7 @@ func (sb *ServiceBind) GetServiceStatus(serviceName string) (status uint32, err 
 }
 
 func (sb *ServiceBind) StartService(serviceName string) (err error) {
-    log.Debugln("In StartService")
+	log.Debugln("In StartService")
 	handle, err := sb.openSCManager(ServiceStart)
 	if err != nil {
 		return
@@ -1385,7 +1395,7 @@ func (sb *ServiceBind) StartService(serviceName string) (err error) {
 }
 
 func (sb *ServiceBind) ControlService(serviceName string, control uint32) (err error) {
-    log.Debugln("In ControlService")
+	log.Debugln("In ControlService")
 	handle, err := sb.openSCManager(SCManagerConnect)
 	if err != nil {
 		return
@@ -1429,7 +1439,7 @@ func (sb *ServiceBind) ControlService(serviceName string, control uint32) (err e
 }
 
 func (sb *ServiceBind) GetServiceConfig(serviceName string) (config ServiceConfig, err error) {
-    log.Debugln("In GetServiceConfig")
+	log.Debugln("In GetServiceConfig")
 	handle, err := sb.openSCManager(ServiceQueryConfig)
 	if err != nil {
 		return
@@ -1500,7 +1510,7 @@ func (sb *ServiceBind) ChangeServiceConfig(
 	serviceType, startType, errorControl uint32,
 	binaryPathName, serviceStartName, displayName string) (err error) {
 
-    log.Debugln("In ChangeServiceConfig")
+	log.Debugln("In ChangeServiceConfig")
 
 	handle, err := sb.openSCManager(ServiceChangeConfig)
 	if err != nil {
@@ -1565,7 +1575,7 @@ func (sb *ServiceBind) ChangeServiceConfig(
 }
 
 func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result []byte, err error) {
-    log.Debugln("In MakeIoCtlRequest")
+	log.Debugln("In MakeIoCtlRequest")
 	callId := rand.Uint32()
 	req, err := NewRequestReq(callId, opcode)
 	if err != nil {
@@ -1612,7 +1622,7 @@ func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result 
 }
 
 func (sb *ServiceBind) CloseServiceHandle(serviceHandle []byte) {
-    log.Debugln("In CloseServiceHandle")
+	log.Debugln("In CloseServiceHandle")
 	closeReq := RCloseServiceHandleReq{
 		ServiceHandle: serviceHandle,
 	}
