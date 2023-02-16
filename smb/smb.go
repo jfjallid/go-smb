@@ -54,6 +54,7 @@ const (
 	StatusAccessDenied           = 0xc0000022
 	StatusObjectNameNotFound     = 0xc0000034
 	StatusLogonFailure           = 0xc000006d
+	StatusBadNetworkName         = 0xc00000cc
 	StatusUserSessionDeleted     = 0xc0000203
 )
 
@@ -70,6 +71,7 @@ var StatusMap = map[uint32]error{
 	StatusAccessDenied:           fmt.Errorf("Access denied!"),
 	StatusObjectNameNotFound:     fmt.Errorf("Requested file does not exist"),
 	StatusLogonFailure:           fmt.Errorf("Logon failed"),
+	StatusBadNetworkName:         fmt.Errorf("Bad network name"),
 	StatusUserSessionDeleted:     fmt.Errorf("User session deleted"),
 }
 

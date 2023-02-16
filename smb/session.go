@@ -580,6 +580,8 @@ func (c *Connection) TreeConnect(name string) error {
 	}
 	if resHeader.Status == StatusAccessDenied {
 		return StatusMap[StatusAccessDenied]
+	} else if resHeader.Status == StatusBadNetworkName {
+		return StatusMap[StatusBadNetworkName]
 	}
 
 	var res TreeConnectRes
