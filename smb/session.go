@@ -322,7 +322,7 @@ func (c *Connection) SessionSetup() error {
 
 	if ssres.Header.Status != StatusMoreProcessingRequired {
 		status, _ := StatusMap[ssres.Header.Status]
-		return fmt.Errorf(fmt.Sprintf("NT Status Error: %s\n", status))
+		return fmt.Errorf(fmt.Sprintf("NT Status Error: %v\n", status))
 	}
 	c.sessionID = ssres.Header.SessionID
 	if c.IsSigningRequired {
@@ -476,7 +476,7 @@ func (c *Connection) SessionSetup() error {
 	}
 	if authResp.Status != StatusOk {
 		status, _ := StatusMap[authResp.Status]
-		return fmt.Errorf(fmt.Sprintf("NT Status Error: %s\n", status))
+		return fmt.Errorf(fmt.Sprintf("NT Status Error: %v\n", status))
 	}
 
 	c.IsAuthenticated = true
@@ -579,7 +579,9 @@ func (c *Connection) TreeConnect(name string) error {
 		return err
 	}
 	if resHeader.Status == StatusAccessDenied {
-		return AccessDeniedError
+		return StatusMap[StatusAccessDenied]
+	} else if resHeader.Status == StatusBadNetworkName {
+		return StatusMap[StatusBadNetworkName]
 	}
 
 	var res TreeConnectRes
@@ -591,7 +593,7 @@ func (c *Connection) TreeConnect(name string) error {
 	}
 
 	if res.Header.Status != StatusOk {
-		return fmt.Errorf("Failed to connect to tree: " + StatusMap[res.Header.Status])
+		return fmt.Errorf("Failed to connect to tree: %v", StatusMap[res.Header.Status])
 	}
 	c.trees[name] = res.Header.TreeID
 	c.credits += uint64(res.Header.Credits) // Add granted credits
@@ -638,7 +640,7 @@ func (c *Connection) TreeDisconnect(name string) error {
 		return err
 	}
 	if res.Header.Status != StatusOk {
-		return fmt.Errorf("Failed to disconnect from tree: " + StatusMap[res.Header.Status])
+		return fmt.Errorf("Failed to disconnect from tree: %v", StatusMap[res.Header.Status])
 	}
 	delete(c.trees, name)
 
@@ -669,7 +671,7 @@ func (f *File) CloseFile() error {
 	}
 
 	if res.Header.Status != StatusOk {
-		return fmt.Errorf("Failed to close file/dir: " + StatusMap[res.Header.Status])
+		return fmt.Errorf("Failed to close file/dir: %v", StatusMap[res.Header.Status])
 	}
 	f.Debug(fmt.Sprintf("Close of file completed [%s] fileid [%x]", f.share, f.fd), nil)
 	return nil
@@ -686,7 +688,6 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 		fileIndex,
 		bufferSize,
 	)
-
 	if err != nil {
 		f.Debug("", err)
 		return
@@ -708,10 +709,12 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 
 	if res.Header.Status == StatusNoMoreFiles {
 		return
+	} else if res.Header.Status == StatusNoSuchFile {
+		return
 	}
 
 	if res.Header.Status != StatusOk {
-		err = fmt.Errorf("Failed to QueryDirectory: " + StatusMap[res.Header.Status])
+		err = fmt.Errorf("Failed to QueryDirectory: %v", StatusMap[res.Header.Status])
 		return
 	}
 	if res.OutputBufferLength == 0 {
@@ -750,6 +753,7 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 			IsHidden:       (fs.FileAttributes & FileAttrHidden) == FileAttrHidden,
 			IsDir:          (fs.FileAttributes & FileAttrDirectory) == FileAttrDirectory,
 			IsReadOnly:     (fs.FileAttributes & FileAttrReadonly) == FileAttrReadonly,
+			IsJunction:     (fs.FileAttributes & FileAttrReparsePoint) == FileAttrReparsePoint,
 		}
 
 		sf = append(sf, sharedFile)
@@ -760,6 +764,7 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 	return
 }
 
+// Assumes a tree connect is already performed
 func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFile, err error) {
 	req, err := s.NewCreateReq(share, dir,
 		OpLockLevelNone,
@@ -791,7 +796,7 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 	}
 
 	if h.Status != StatusOk {
-		err = fmt.Errorf("Failed to Create/open file/dir: " + StatusMap[h.Status])
+		err = fmt.Errorf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
 		log.Errorln(err)
 		return
 	}
@@ -808,12 +813,8 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 
 	// QueryDirectory request
 	for {
-		/*Using a response buffer size greater than 65536 I get an error about invalid parameter since
-		  I do not set the MessageId and CreditCharge correctly.
-		*/
-		moreFiles, err := f.QueryDirectory(pattern, 0, 0, 65536) // If I use a smaller buffer I don't have to handle CreditCharge
+		moreFiles, err := f.QueryDirectory(pattern, 0, 0, 131072) // Arbitrary value of 128 KiB
 		if err != nil {
-			//fmt.Printf("Err: %v\n", err)
 			f.Debug("", err)
 			return files, err
 		}
@@ -838,6 +839,7 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 	return
 }
 
+// Assumes a tree connect is already performed
 func (s *Connection) ListRecurseDirectory(share, dir, pattern string) (files []SharedFile, err error) {
 	files, err = s.ListDirectory(share, dir, pattern)
 	if err != nil {
@@ -850,6 +852,10 @@ func (s *Connection) ListRecurseDirectory(share, dir, pattern string) (files []S
 			continue
 		}
 		if (file.Name == ".") || (file.Name == "..") {
+			continue
+		}
+		if file.IsJunction {
+			// Don't follow junctions
 			continue
 		}
 
@@ -919,7 +925,7 @@ func (s *Connection) OpenFile(tree string, filepath string) (file *File, err err
 	}
 
 	if h.Status != StatusOk {
-		err = fmt.Errorf("Failed to Create/open file/dir: " + StatusMap[h.Status])
+		err = fmt.Errorf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
 		log.Errorln(err)
 		return
 	}
@@ -988,7 +994,7 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 	}
 
 	if h.Status != StatusOk {
-		err = fmt.Errorf("Failed to Create/open file/dir: " + StatusMap[h.Status])
+		err = fmt.Errorf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
 		log.Errorln(err)
 		return
 	}
@@ -1154,7 +1160,7 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 	}
 
 	if h.Status != StatusOk {
-		err = fmt.Errorf("Failed to Create/open file/dir: " + StatusMap[h.Status])
+		err = fmt.Errorf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
 		log.Errorln(err)
 		return
 	}
@@ -1230,7 +1236,7 @@ func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
 		return n, err
 	}
 	if res.Status != StatusOk {
-		err = fmt.Errorf("Failed to write file with status code: %s\n", StatusMap[res.Status])
+		err = fmt.Errorf("Failed to write file with status code: %v\n", StatusMap[res.Status])
 		log.Errorln(err)
 		return
 	}

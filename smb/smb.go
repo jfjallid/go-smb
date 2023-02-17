@@ -41,36 +41,39 @@ const ProtocolTransformHdr = "\xFDSMB"
 
 const SHA512 = 0x001
 
-const StatusOk = 0x00000000
-const StatusAccessDenied = 0xc0000022
-const StatusPending = 0x00000103
-const StatusMoreProcessingRequired = 0xc0000016
-const StatusInvalidParameter = 0xc000000d
-const StatusLogonFailure = 0xc000006d
-const StatusUserSessionDeleted = 0xc0000203
-const StatusNoMoreFiles = 0x80000006
-const StatusInfoLengthMismatch = 0xc0000004
-const StatusBufferOverflow = 0x80000005
-const StatusObjectNameNotFound = 0xc0000034
-const StatusEndOfFile = 0xc0000011
-
-var StatusMap = map[uint32]string{
-	StatusOk:                     "OK",
-	StatusMoreProcessingRequired: "More Processing Required",
-	StatusPending:                "Status Pending",
-	StatusInvalidParameter:       "Invalid Parameter",
-	StatusLogonFailure:           "Logon failed",
-	StatusUserSessionDeleted:     "User session deleted",
-	StatusNoMoreFiles:            "No more files",
-	StatusInfoLengthMismatch:     "Insuffient size of response buffer",
-	StatusBufferOverflow:         "Response buffer overflow",
-	StatusObjectNameNotFound:     "Requested file does not exist",
-	StatusEndOfFile:              "The end-of-file marker has been reached",
-}
-
-var (
-	AccessDeniedError = fmt.Errorf("Access denied!")
+const (
+	StatusOk                     = 0x00000000
+	StatusPending                = 0x00000103
+	StatusBufferOverflow         = 0x80000005
+	StatusNoMoreFiles            = 0x80000006
+	StatusInfoLengthMismatch     = 0xc0000004
+	StatusInvalidParameter       = 0xc000000d
+	StatusNoSuchFile             = 0xc000000f
+	StatusEndOfFile              = 0xc0000011
+	StatusMoreProcessingRequired = 0xc0000016
+	StatusAccessDenied           = 0xc0000022
+	StatusObjectNameNotFound     = 0xc0000034
+	StatusLogonFailure           = 0xc000006d
+	StatusBadNetworkName         = 0xc00000cc
+	StatusUserSessionDeleted     = 0xc0000203
 )
+
+var StatusMap = map[uint32]error{
+	StatusOk:                     fmt.Errorf("OK"),
+	StatusPending:                fmt.Errorf("Status Pending"),
+	StatusBufferOverflow:         fmt.Errorf("Response buffer overflow"),
+	StatusNoMoreFiles:            fmt.Errorf("No more files"),
+	StatusInfoLengthMismatch:     fmt.Errorf("Insuffient size of response buffer"),
+	StatusInvalidParameter:       fmt.Errorf("Invalid Parameter"),
+	StatusNoSuchFile:             fmt.Errorf("No such file"),
+	StatusEndOfFile:              fmt.Errorf("The end-of-file marker has been reached"),
+	StatusMoreProcessingRequired: fmt.Errorf("More Processing Required"),
+	StatusAccessDenied:           fmt.Errorf("Access denied!"),
+	StatusObjectNameNotFound:     fmt.Errorf("Requested file does not exist"),
+	StatusLogonFailure:           fmt.Errorf("Logon failed"),
+	StatusBadNetworkName:         fmt.Errorf("Bad network name"),
+	StatusUserSessionDeleted:     fmt.Errorf("User session deleted"),
+}
 
 const DialectSmb_2_0_2 = 0x0202
 const DialectSmb_2_1 = 0x0210
@@ -266,7 +269,7 @@ const (
 	FileAttrNormal             uint32 = 0x00000080
 	FileAttrTemporary          uint32 = 0x00000100
 	FileAttrSparseFile         uint32 = 0x00000200
-	FileAttrReparsePoint       uint32 = 0x00000400
+	FileAttrReparsePoint       uint32 = 0x00000400 // Junction
 	FileAttrCompressed         uint32 = 0x00000800
 	FileAttrOffline            uint32 = 0x00001000
 	FileAttrNotContentIndexed  uint32 = 0x00002000
@@ -635,6 +638,7 @@ type SharedFile struct {
 	Size           uint64
 	IsHidden       bool
 	IsReadOnly     bool
+	IsJunction     bool
 	CreationTime   uint64
 	LastAccessTime uint64
 	LastWriteTime  uint64
@@ -1009,11 +1013,6 @@ func (s *Session) NewTreeConnectReq(name string) (TreeConnectReq, error) {
 	header.Command = CommandTreeConnect
 	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
-	//Handle window size and credits
-	//if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
-	//    //TODO Handle credits and window size and message id
-	//    header.Credits = 127
-	//}
 
 	path := fmt.Sprintf("\\\\%s\\%s", s.options.Host, name)
 	return TreeConnectReq{
@@ -1076,11 +1075,10 @@ func (s *Session) NewCreateReq(share, name string,
 	}
 
 	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
-		//TODO Handle credits and window size and message id
-		header.Credits = 256
-		//if header.CreditCharge > 127 {
-		//    header.Credits = header.CreditCharge
-		//}
+		header.Credits = 127
+		if header.CreditCharge > 127 {
+			header.Credits = header.CreditCharge
+		}
 	}
 
 	return CreateReq{
@@ -1127,29 +1125,44 @@ func (s *Session) NewQueryDirectoryReq(share, pattern string, fileId []byte,
 	fileIndex uint32,
 	outputBufferLength uint32,
 ) (QueryDirectoryReq, error) {
-
-	header := newHeader()
-	header.Command = CommandQueryDirectory
-	header.CreditCharge = 1
-	header.MessageID = s.messageID
-	header.SessionID = s.sessionID
-	header.TreeID = s.trees[share]
 	/*
 		The CreditCharge of an SMB2 operation is computed from the payload size (the size of the data within
 		the variable-length field of the request) or the maximum size of the response.
 		CreditCharge = (max(SendPayloadSize, Expected ResponsePayloadSize) – 1) / 65536 + 1
 	*/
+	header := newHeader()
+	header.Command = CommandQueryDirectory
+	header.CreditCharge = uint16((outputBufferLength-1)/65536 + 1)
+	header.MessageID = s.messageID
+	header.SessionID = s.sessionID
+	header.TreeID = s.trees[share]
 
-	var buf []byte
-	var patternLen uint16
-	if len(pattern) > 0 {
-		upattern := encoder.ToUnicode(pattern)
-		patternLen = uint16(len(upattern))
-		buf = make([]byte, patternLen)
-		copy(buf, upattern)
-	} else {
-		buf = make([]byte, 0)
+	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
+		header.Credits = 127
+		if header.CreditCharge > 127 {
+			header.Credits = header.CreditCharge
+		}
 	}
+
+	if pattern == "" {
+		/* QueryDirectory has a fixed Structure Size of 33 which seems to mean
+		   that a QueryDirectory request can not be less that 33 bytes in length.
+		   An empty pattern is supposed to be represented by a pattern offset and
+		   pattern length of 0, but that would lead to a 32 byte request which is
+		   invalid. As such at least 1 byte has to be stored in the pattern buffer
+		   but the offset and length must still be specified to 0.
+		   Due to a problem with how the generic encoder is implemented it is not
+		   possible to manually specify the length and offset of a buffer.
+		   So either implement some workaround or just replace an empty pattern
+		   with a pattern of "*" which serves as a wildcard.
+		*/
+		pattern = "*"
+	}
+	var buf []byte
+	upattern := encoder.ToUnicode(pattern)
+	patternLen := uint16(len(upattern))
+	buf = make([]byte, patternLen)
+	copy(buf, upattern)
 
 	return QueryDirectoryReq{
 		Header:               header, //Size 64 bytes
@@ -1158,8 +1171,6 @@ func (s *Session) NewQueryDirectoryReq(share, pattern string, fileId []byte,
 		Flags:                flags,
 		FileIndex:            fileIndex,
 		FileID:               fileId,
-		FileNameOffset:       96, // Header size + size of all fields in struct above Buffer
-		FileNameLength:       patternLen,
 		OutputBufferLength:   outputBufferLength,
 		Buffer:               buf,
 	}, nil
@@ -1244,6 +1255,7 @@ func (f *File) NewIoCTLReq(operation uint32, data []byte) (*IoCtlReq, error) {
 	header := newHeader()
 	header.Command = CommandIOCtl
 	header.CreditCharge = 1
+	header.Credits = 127
 	header.MessageID = f.messageID
 	header.SessionID = f.sessionID
 	header.TreeID = f.shareid
