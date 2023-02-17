@@ -813,12 +813,8 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 
 	// QueryDirectory request
 	for {
-		/*Using a response buffer size greater than 65536 I get an error about invalid parameter since
-		  I do not set the MessageId and CreditCharge correctly.
-		*/
-		moreFiles, err := f.QueryDirectory(pattern, 0, 0, 65536) // If I use a smaller buffer I don't have to handle CreditCharge
+		moreFiles, err := f.QueryDirectory(pattern, 0, 0, 131072) // Arbitrary value of 128 KiB
 		if err != nil {
-			//fmt.Printf("Err: %v\n", err)
 			f.Debug("", err)
 			return files, err
 		}

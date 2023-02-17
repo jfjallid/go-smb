@@ -1013,11 +1013,6 @@ func (s *Session) NewTreeConnectReq(name string) (TreeConnectReq, error) {
 	header.Command = CommandTreeConnect
 	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
-	//Handle window size and credits
-	//if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
-	//    //TODO Handle credits and window size and message id
-	//    header.Credits = 127
-	//}
 
 	path := fmt.Sprintf("\\\\%s\\%s", s.options.Host, name)
 	return TreeConnectReq{
@@ -1080,11 +1075,10 @@ func (s *Session) NewCreateReq(share, name string,
 	}
 
 	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
-		//TODO Handle credits and window size and message id
-		header.Credits = 256
-		//if header.CreditCharge > 127 {
-		//    header.Credits = header.CreditCharge
-		//}
+		header.Credits = 127
+		if header.CreditCharge > 127 {
+			header.Credits = header.CreditCharge
+		}
 	}
 
 	return CreateReq{
@@ -1131,18 +1125,24 @@ func (s *Session) NewQueryDirectoryReq(share, pattern string, fileId []byte,
 	fileIndex uint32,
 	outputBufferLength uint32,
 ) (QueryDirectoryReq, error) {
-
-	header := newHeader()
-	header.Command = CommandQueryDirectory
-	header.CreditCharge = 1
-	header.MessageID = s.messageID
-	header.SessionID = s.sessionID
-	header.TreeID = s.trees[share]
 	/*
 		The CreditCharge of an SMB2 operation is computed from the payload size (the size of the data within
 		the variable-length field of the request) or the maximum size of the response.
 		CreditCharge = (max(SendPayloadSize, Expected ResponsePayloadSize) – 1) / 65536 + 1
 	*/
+	header := newHeader()
+	header.Command = CommandQueryDirectory
+	header.CreditCharge = uint16((outputBufferLength-1)/65536 + 1)
+	header.MessageID = s.messageID
+	header.SessionID = s.sessionID
+	header.TreeID = s.trees[share]
+
+	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
+		header.Credits = 127
+		if header.CreditCharge > 127 {
+			header.Credits = header.CreditCharge
+		}
+	}
 
 	if pattern == "" {
 		/* QueryDirectory has a fixed Structure Size of 33 which seems to mean
@@ -1255,6 +1255,7 @@ func (f *File) NewIoCTLReq(operation uint32, data []byte) (*IoCtlReq, error) {
 	header := newHeader()
 	header.Command = CommandIOCtl
 	header.CreditCharge = 1
+	header.Credits = 127
 	header.MessageID = f.messageID
 	header.SessionID = f.sessionID
 	header.TreeID = f.shareid
