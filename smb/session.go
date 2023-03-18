@@ -35,7 +35,8 @@ import (
 	"hash"
 	"io"
 	"net"
-	"runtime/debug"
+	"sync"
+	"time"
 
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/ntlmssp"
@@ -45,10 +46,21 @@ import (
 
 type File struct {
 	*Connection
+	FileMetadata
 	shareid  uint32
 	fd       []byte
 	share    string
 	filename string
+}
+
+type FileMetadata struct {
+	CreateAction   uint32
+	CreationTime   uint64 //Filetime
+	LastAccessTime uint64 //Filetime
+	LastWriteTime  uint64 //Filetime
+	ChangeTime     uint64 //Filetime
+	Attributes     uint32
+	EndOfFile      uint64
 }
 
 type Session struct {
@@ -56,7 +68,6 @@ type Session struct {
 	IsSigningDisabled   bool
 	IsAuthenticated     bool
 	supportsEncryption  bool
-	debug               bool
 	clientGuid          []byte
 	securityMode        uint16
 	messageID           uint64
@@ -77,6 +88,7 @@ type Session struct {
 	dialect                   uint16
 	options                   Options
 	trees                     map[string]uint32
+	lock                      sync.RWMutex
 }
 
 type Options struct {
@@ -92,6 +104,7 @@ type Options struct {
 	DisableEncryption     bool
 	ForceSMB2             bool
 	Initiator             Initiator
+	DialTimeout           time.Duration
 }
 
 func validateOptions(opt Options) error {
@@ -107,12 +120,25 @@ func validateOptions(opt Options) error {
 	return nil
 }
 
-func (s *Session) Debug(msg string, err error) {
-	if s.debug {
-		fmt.Printf("[ DEBUG ] %s\n", msg)
-		if err != nil {
-			debug.PrintStack()
-		}
+type CreateReqOpts struct {
+	OpLockLevel        byte
+	ImpersonationLevel uint32
+	DesiredAccess      uint32
+	FileAttr           uint32
+	ShareAccess        uint32
+	CreateDisp         uint32
+	CreateOpts         uint32
+}
+
+func NewCreateReqOpts() *CreateReqOpts {
+	return &CreateReqOpts{
+		OpLockLevel:        OpLockLevelNone,
+		ImpersonationLevel: ImpersonationLevelImpersonation,
+		DesiredAccess:      FAccMaskFileReadData | FAccMaskFileReadEA | FAccMaskFileReadAttributes | FAccMaskReadControl | FAccMaskSynchronize,
+		FileAttr:           0,
+		ShareAccess:        FileShareRead | FileShareWrite,
+		CreateDisp:         FileOpen,
+		CreateOpts:         FileNonDirectoryFile,
 	}
 }
 
@@ -122,25 +148,23 @@ func (c *Connection) NegotiateProtocol() error {
 		log.Errorln(err)
 		return err
 	}
-	c.Debug("Sending NegotiateProtocol request", nil)
+	log.Debugln("Sending NegotiateProtocol request")
 	rr, err := c.send(negReq)
 	if err != nil {
-		log.Errorln(err)
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 
 	buf, err := c.recv(rr)
 	if err != nil {
-		log.Errorln(err)
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 
 	negRes := NewNegotiateRes()
-	c.Debug("Unmarshalling NegotiateProtocol response", nil)
+	log.Debugln("Unmarshalling NegotiateProtocol response")
 	if err := encoder.Unmarshal(buf, &negRes); err != nil {
-		c.Debug("Raw:\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return err
 	}
 
@@ -284,15 +308,15 @@ func (c *Connection) NegotiateProtocol() error {
 
 func (c *Connection) SessionSetup() error {
 	spnegoClient := newSpnegoClient([]Initiator{c.options.Initiator})
-	c.Debug("Sending SessionSetup1 request", nil)
+	log.Debugln("Sending SessionSetup1 request")
 	ssreq, err := c.NewSessionSetup1Req(spnegoClient)
 	if err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 	ssres, err := NewSessionSetup1Res()
 	if err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 
@@ -307,16 +331,16 @@ func (c *Connection) SessionSetup() error {
 		return err
 	}
 
-	c.Debug("Unmarshalling SessionSetup1 response", nil)
+	log.Debugln("Unmarshalling SessionSetup1 response")
 	if err := encoder.Unmarshal(ssresbuf, &ssres); err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 
 	challenge := ntlmssp.NewChallenge()
 	resp := ssres.SecurityBlob
 	if err := encoder.Unmarshal(resp.ResponseToken, &challenge); err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 
@@ -362,10 +386,10 @@ func (c *Connection) SessionSetup() error {
 		}
 	}
 
-	c.Debug("Sending SessionSetup2 request", nil)
+	log.Debugln("Sending SessionSetup2 request")
 	ss2req, err := c.NewSessionSetup2Req(spnegoClient, &ssres)
 	if err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 
@@ -374,7 +398,7 @@ func (c *Connection) SessionSetup() error {
 	rr, err = c.send(ss2req)
 	if err != nil {
 		log.Errorln(err)
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 
@@ -468,10 +492,10 @@ func (c *Connection) SessionSetup() error {
 		log.Errorln(err)
 		return err
 	}
-	c.Debug("Unmarshalling SessionSetup2 response", nil)
+	log.Debugln("Unmarshalling SessionSetup2 response")
 	var authResp Header
 	if err := encoder.Unmarshal(ss2resbuf, &authResp); err != nil {
-		c.Debug("Raw:\n"+hex.Dump(ss2resbuf), err)
+		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(ss2resbuf))
 		return err
 	}
 	if authResp.Status != StatusOk {
@@ -481,7 +505,7 @@ func (c *Connection) SessionSetup() error {
 
 	c.IsAuthenticated = true
 
-	c.Debug("Completed NegotiateProtocol and SessionSetup", nil)
+	log.Debugln("Completed NegotiateProtocol and SessionSetup")
 
 	c.enableSession()
 
@@ -560,22 +584,22 @@ func (s *Session) decrypt(buf []byte) ([]byte, error) {
 }
 
 func (c *Connection) TreeConnect(name string) error {
-	c.Debug("Sending TreeConnect request ["+name+"]", nil)
+	log.Debugf("Sending TreeConnect request [%s]\n", name)
 	req, err := c.NewTreeConnectReq(name)
 	if err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 	buf, err := c.sendrecv(req)
 	if err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 
 	var resHeader Header
-	c.Debug("Unmarshalling TreeConnect response Header ["+name+"]", nil)
+	log.Debugf("Unmarshalling TreeConnect response Header [%s]\n", name)
 	if err := encoder.Unmarshal(buf[:64], &resHeader); err != nil {
-		c.Debug("Raw:\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return err
 	}
 	if resHeader.Status == StatusAccessDenied {
@@ -586,9 +610,9 @@ func (c *Connection) TreeConnect(name string) error {
 
 	var res TreeConnectRes
 
-	c.Debug("Unmarshalling TreeConnect response ["+name+"]", nil)
+	log.Debugf("Unmarshalling TreeConnect response [%s]\n", name)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
-		c.Debug("Raw:\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return err
 	}
 
@@ -598,7 +622,7 @@ func (c *Connection) TreeConnect(name string) error {
 	c.trees[name] = res.Header.TreeID
 	c.credits += uint64(res.Header.Credits) // Add granted credits
 
-	c.Debug("Completed TreeConnect ["+name+"]", nil)
+	log.Debugf("Completed TreeConnect [%s]\n", name)
 	return nil
 }
 
@@ -618,25 +642,25 @@ func (c *Connection) TreeDisconnect(name string) error {
 
 	if !pathFound {
 		err := fmt.Errorf("Unable to find tree path for disconnect")
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 
-	c.Debug("Sending TreeDisconnect request ["+name+"]", nil)
+	log.Debugf("Sending TreeDisconnect request [%s]\n", name)
 	req, err := c.NewTreeDisconnectReq(treeid)
 	if err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 	buf, err := c.sendrecv(req)
 	if err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
-	c.Debug("Unmarshalling TreeDisconnect response for ["+name+"]", nil)
+	log.Debugf("Unmarshalling TreeDisconnect response for [%s]\n", name)
 	var res TreeDisconnectRes
 	if err := encoder.Unmarshal(buf, &res); err != nil {
-		c.Debug("Raw:\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return err
 	}
 	if res.Header.Status != StatusOk {
@@ -644,36 +668,40 @@ func (c *Connection) TreeDisconnect(name string) error {
 	}
 	delete(c.trees, name)
 
-	c.Debug("TreeDisconnect completed ["+name+"]", nil)
+	log.Debugf("TreeDisconnect completed [%s]\n", name)
 	return nil
 }
 
 func (f *File) CloseFile() error {
 
-	f.Debug(fmt.Sprintf("Sending Close request [%s] for fileid [%x]", f.share, f.fd), nil)
+	if f.fd == nil {
+		// Already closed
+		return nil
+	}
+	log.Debugf("Sending Close request [%s] for fileid [%x]\n", f.share, f.fd)
 	req, err := f.NewCloseReq(f.share, f.fd)
 	if err != nil {
-		f.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 
 	buf, err := f.sendrecv(req)
 	if err != nil {
-		f.Debug("", err)
+		log.Debugln(err)
 		return err
 	}
 	var res CloseRes
-	f.Debug(fmt.Sprintf("Unmarshalling Close response [%s] for fileid [%x]", f.share, f.fd), nil)
+	log.Debugf("Unmarshalling Close response [%s] for fileid [%x]\n", f.share, f.fd)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
-		log.Errorln(err)
-		f.Debug("Raw:\n"+hex.Dump(buf), err)
+		log.Debugln(err)
 		return err
 	}
 
 	if res.Header.Status != StatusOk {
 		return fmt.Errorf("Failed to close file/dir: %v", StatusMap[res.Header.Status])
 	}
-	f.Debug(fmt.Sprintf("Close of file completed [%s] fileid [%x]", f.share, f.fd), nil)
+	log.Debugf("Close of file completed [%s] fileid [%x]\n", f.share, f.fd)
+	f.fd = nil
 	return nil
 }
 
@@ -689,21 +717,20 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 		bufferSize,
 	)
 	if err != nil {
-		f.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
 	buf, err := f.sendrecv(req)
 	if err != nil {
-		f.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
 	var res QueryDirectoryRes
-	f.Debug(fmt.Sprintf("Unmarshalling QueryDirectory response [%s]", f.share), nil)
+	log.Debugf("Unmarshalling QueryDirectory response [%s]\n", f.share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
-		log.Errorln(err)
-		f.Debug("Raw:\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return sf, err
 	}
 
@@ -726,13 +753,12 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 	for {
 		var fs FileBothDirectoryInformationStruct
 		if err = encoder.Unmarshal(res.Buffer[start:stop], &fs); err != nil {
-			log.Errorln(err)
-			f.Debug("Raw:\n"+hex.Dump(buf), err)
+			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 			return sf, err
 		}
 		fileName, err := encoder.FromUnicodeString(fs.FileName[:fs.FileNameLength])
 		if err != nil {
-			f.Debug("", err)
+			log.Debugln(err)
 			return sf, err
 		}
 		start += fs.NextEntryOffset
@@ -777,35 +803,31 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 	)
 
 	if err != nil {
-		log.Errorln(err)
-		s.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
 	buf, err := s.sendrecv(req)
 	if err != nil {
-		log.Errorln(err)
-		s.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 	var h Header
 	if err := encoder.Unmarshal(buf, &h); err != nil {
-		log.Errorln(err)
-		s.Debug("Raw\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return files, err
 	}
 
 	if h.Status != StatusOk {
 		err = fmt.Errorf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
-		log.Errorln(err)
+		log.Debugln(err)
 		return
 	}
 
 	var res CreateRes
-	s.Debug("Unmarshalling Create response ["+share+"]", nil)
+	log.Debugf("Unmarshalling Create response [%s]\n", share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
-		log.Errorln(err)
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return files, err
 	}
 	f := &File{Connection: s, share: share, fd: res.FileId, filename: dir, shareid: s.trees[share]}
@@ -815,7 +837,7 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 	for {
 		moreFiles, err := f.QueryDirectory(pattern, 0, 0, 131072) // Arbitrary value of 128 KiB
 		if err != nil {
-			f.Debug("", err)
+			log.Debugln(err)
 			return files, err
 		}
 		if len(moreFiles) == 0 {
@@ -843,8 +865,7 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 func (s *Connection) ListRecurseDirectory(share, dir, pattern string) (files []SharedFile, err error) {
 	files, err = s.ListDirectory(share, dir, pattern)
 	if err != nil {
-		log.Errorln(err)
-		s.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 	for _, file := range files {
@@ -861,8 +882,7 @@ func (s *Connection) ListRecurseDirectory(share, dir, pattern string) (files []S
 
 		moreFiles, err := s.ListRecurseDirectory(share, file.FullPath, pattern)
 		if err != nil {
-			log.Errorln(err)
-			s.Debug("", err)
+			log.Debugln(err)
 			return files, err
 		}
 		files = append(files, moreFiles...)
@@ -876,8 +896,7 @@ func (s *Connection) ListShare(share, dir string, recurse bool) (files []SharedF
 	// Connect to Tree
 	err = s.TreeConnect(share)
 	if err != nil {
-		log.Errorln(err)
-		s.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 	// Defer tree disconnect
@@ -892,72 +911,93 @@ func (s *Connection) ListShare(share, dir string, recurse bool) (files []SharedF
 	return
 }
 
-func (s *Connection) OpenFile(tree string, filepath string) (file *File, err error) {
+func (s *Connection) OpenFileExt(tree string, filepath string, opts *CreateReqOpts) (file *File, err error) {
+	// If tree is not connected, connect to it
+	if _, ok := s.trees[tree]; !ok {
+		err = s.TreeConnect(tree)
+		if err != nil {
+			log.Debugln(err)
+			return
+		}
+		//defer s.TreeDisconnect(tree)
+	}
+
 	req, err := s.NewCreateReq(tree, filepath,
-		OpLockLevelNone,
-		ImpersonationLevelImpersonation,
-		FAccMaskFileReadData|FAccMaskFileReadEA|FAccMaskFileReadAttributes|FAccMaskReadControl|FAccMaskSynchronize,
-		0,
-		FileShareRead|FileShareWrite,
-		FileOpen,
-		FileNonDirectoryFile,
+		opts.OpLockLevel,
+		opts.ImpersonationLevel,
+		opts.DesiredAccess,
+		opts.FileAttr,
+		opts.ShareAccess,
+		opts.CreateDisp,
+		opts.CreateOpts,
 	)
 
 	//req.Credits = 256
 	if err != nil {
-		log.Errorln(err)
-		s.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
 	buf, err := s.sendrecv(req)
 	if err != nil {
-		log.Errorln(err)
-		s.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
 	var h Header
 	if err := encoder.Unmarshal(buf, &h); err != nil {
-		log.Errorln(err)
-		s.Debug("Raw\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return nil, err
 	}
 
 	if h.Status != StatusOk {
 		err = fmt.Errorf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
-		log.Errorln(err)
+		log.Debugln(err)
 		return
 	}
 
 	var res CreateRes
-	s.Debug("Unmarshalling Create response ["+tree+"]", nil)
+	log.Debugf("Unmarshalling Create response [%s]\n", tree)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
-		log.Errorln(err)
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return nil, err
 	}
 
+	//TODO Perhaps change to contain date objects instead of uint32
 	return &File{
 		Connection: s,
-		shareid:    s.trees[tree],
-		fd:         res.FileId,
-		share:      tree,
-		filename:   filepath,
+		FileMetadata: FileMetadata{
+			CreateAction:   res.CreateAction,
+			CreationTime:   res.CreationTime,
+			LastAccessTime: res.LastAccessTime,
+			LastWriteTime:  res.LastWriteTime,
+			ChangeTime:     res.ChangeTime,
+			Attributes:     res.FileAttributes,
+			EndOfFile:      res.EndOfFile,
+		},
+		shareid:  s.trees[tree],
+		fd:       res.FileId,
+		share:    tree,
+		filename: filepath,
 	}, nil
+
+}
+
+func (s *Connection) OpenFile(tree string, filepath string) (file *File, err error) {
+	return s.OpenFileExt(tree, filepath, NewCreateReqOpts())
+
 }
 
 func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, callback func([]byte) (int, error)) (err error) {
 
 	if callback == nil {
 		err = fmt.Errorf("Must specify a callback function to handle retrieved data.")
-		log.Errorln(err)
+		log.Debugln(err)
 		return
 	}
 	err = s.TreeConnect(share)
 	if err != nil {
-		log.Errorln(err)
-		s.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
@@ -974,36 +1014,32 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 	)
 
 	if err != nil {
-		log.Errorln(err)
-		s.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
 	buf, err := s.sendrecv(req)
 	if err != nil {
-		log.Errorln(err)
-		s.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
 	var h Header
 	if err := encoder.Unmarshal(buf, &h); err != nil {
-		log.Errorln(err)
-		s.Debug("Raw\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err
 	}
 
 	if h.Status != StatusOk {
 		err = fmt.Errorf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
-		log.Errorln(err)
+		log.Debugln(err)
 		return
 	}
 
 	var res CreateRes
-	s.Debug("Unmarshalling Create response ["+share+"]", nil)
+	log.Debugf("Unmarshalling Create response [%s]\n", share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
-		log.Errorln(err)
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err
 	}
 	f := &File{
@@ -1032,16 +1068,16 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 				err = fmt.Errorf("Got EOF before finished reading")
 				return err
 			}
-			log.Errorln(err)
+			log.Debugln(err)
 			return err
 		}
 		nw, err := callback(data[:n])
 		if err != nil {
-			log.Errorln(err)
+			log.Debugln(err)
 			return err
 		} else if n != nw {
 			err = fmt.Errorf("Failed to write all the data to callback")
-			log.Errorln(err)
+			log.Debugln(err)
 			return err
 		}
 		readOffset += uint64(n)
@@ -1060,7 +1096,7 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 		//f.MaxReadSize,
 		uint32(len(b)),
 		offset,
-		1, // Read at least 1 byte
+		0, // Read at least 1 byte
 	)
 	if err != nil {
 		log.Errorln(err)
@@ -1069,19 +1105,17 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 
 	buf, err := f.sendrecv(req)
 	if err != nil {
-		log.Errorln(err)
-		f.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
 	log.Debugln("Reading response")
-	var res ReadRes
-	f.Debug("Unmarshalling Read response ["+f.share+"]", nil)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
-		log.Errorln(err)
-		f.Debug("Raw:\n"+hex.Dump(buf), err)
+	var h Header
+	if err := encoder.Unmarshal(buf[:64], &h); err != nil {
+		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return n, err
 	}
+
 	/*
 	   Handle EOF:
 	   MS-SMB2 Section 2.2.20 SMB2 READ Response
@@ -1089,8 +1123,17 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 	   underlying object store, the server MUST send a failure response with status equal to
 	   STATUS_END_OF_FILE
 	*/
-	if res.Status == StatusEndOfFile {
+	if h.Status == StatusEndOfFile {
 		return 0, io.EOF
+	} else if h.Status == FsctlStatusPipeDisconnected {
+		return 0, FsctlStatusMap[FsctlStatusPipeDisconnected]
+	}
+
+	var res ReadRes
+	log.Debugf("Unmarshalling Read response [%s]\n", f.share)
+	if err := encoder.Unmarshal(buf, &res); err != nil {
+		log.Debugln(err)
+		return n, err
 	}
 
 	// An offset to indicate if the file data is the first thing
@@ -1098,14 +1141,14 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 	bufferOffset := int(res.DataOffset - 64 - 16)
 	if len(res.Buffer) < bufferOffset {
 		err = fmt.Errorf("Returned offset is outside response buffer")
-		log.Errorln(err)
+		log.Debugln(err)
 		return
 	}
 	nCopy := copy(b, res.Buffer[bufferOffset:])
 	n = int(res.DataLength)
 	if nCopy != n {
 		err = fmt.Errorf("Failed to copy result data into supplied buffer")
-		log.Errorln(err)
+		log.Debugln(err)
 		return
 	}
 	return
@@ -1114,8 +1157,7 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 func (s *Connection) PutFile(share string, filepath string, offset uint64, callback func([]byte) (int, error)) (err error) {
 	err = s.TreeConnect(share)
 	if err != nil {
-		log.Errorln(err)
-		s.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 	defer s.TreeDisconnect(share)
@@ -1140,36 +1182,32 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 	)
 
 	if err != nil {
-		log.Errorln(err)
-		s.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
 	buf, err := s.sendrecv(req)
 	if err != nil {
-		log.Errorln(err)
-		s.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
 	var h Header
 	if err := encoder.Unmarshal(buf, &h); err != nil {
-		log.Errorln(err)
-		s.Debug("Raw\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err
 	}
 
 	if h.Status != StatusOk {
 		err = fmt.Errorf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
-		log.Errorln(err)
+		log.Debugln(err)
 		return
 	}
 
 	var res CreateRes
-	s.Debug("Unmarshalling Create response ["+share+"]", nil)
+	log.Debugf("Unmarshalling Create response [%s]\n", share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
-		log.Errorln(err)
-		s.Debug("Raw:\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err
 	}
 	f := &File{
@@ -1198,7 +1236,7 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 
 		n, err := f.WriteFile(outBuffer[:nr], writeOffset)
 		if err != nil {
-			log.Errorln(err)
+			log.Debugln(err)
 			return err
 		}
 		writeOffset += uint64(n)
@@ -1216,53 +1254,138 @@ func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
 	req, err := f.NewWriteReq(f.share, f.fd, offset, data)
 
 	if err != nil {
-		log.Errorln(err)
-		f.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
 	buf, err := f.sendrecv(req)
 	if err != nil {
-		log.Errorln(err)
-		f.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
 	var res WriteRes
-	f.Debug("Unmarshalling Write response ["+f.share+"]", nil)
+	log.Debugf("Unmarshalling Write response [%s]\n", f.share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
-		log.Errorln(err)
-		f.Debug("Raw:\n"+hex.Dump(buf), err)
+		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return n, err
 	}
 	if res.Status != StatusOk {
 		err = fmt.Errorf("Failed to write file with status code: %v\n", StatusMap[res.Status])
-		log.Errorln(err)
+		log.Debugln(err)
 		return
 	}
 	n = int(res.Count)
 	return
 }
 
+func (s *Connection) DeleteFile(share string, filepath string) (err error) {
+	err = s.TreeConnect(share)
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+	defer s.TreeDisconnect(share)
+	accessMask := FAccMaskFileReadData |
+		FAccMaskFileReadAttributes |
+		FAccMaskDelete
+
+	req, err := s.NewCreateReq(share, filepath,
+		OpLockLevelNone,
+		ImpersonationLevelImpersonation,
+		accessMask,
+		0,
+		FileShareRead|FileShareWrite|FileShareDelete,
+		FileOpen,
+		FileNonDirectoryFile,
+	)
+
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+
+	buf, err := s.sendrecv(req)
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+
+	var h Header
+	if err := encoder.Unmarshal(buf, &h); err != nil {
+		return err
+	}
+
+	if h.Status != StatusOk {
+		log.Debugf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
+		err = StatusMap[h.Status]
+		return
+	}
+
+	var res CreateRes
+	log.Debugf("Unmarshalling Create response [%s]\n", share)
+	if err := encoder.Unmarshal(buf, &res); err != nil {
+		log.Debugln(err)
+		return err
+	}
+	f := &File{
+		Connection: s,
+		filename:   filepath,
+		fd:         res.FileId,
+		share:      share,
+		shareid:    s.trees[share],
+	}
+	defer f.CloseFile()
+
+	// Set Info
+	sReq, err := s.NewSetInfoReq(share, f.fd)
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+	sReq.InfoType = OInfoFile
+	sReq.FileInfoClass = FileDispositionInformation
+
+	// Simple structure of the FileDispositionInformation request to delete a file
+	sReq.Buffer = make([]byte, 1)
+	sReq.Buffer[0] = 1
+
+	buf, err = s.sendrecv(sReq)
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+
+	var h2 Header
+	if err := encoder.Unmarshal(buf, &h2); err != nil {
+		log.Debugln(err)
+		return err
+	}
+
+	if h2.Status != StatusOk {
+		err = fmt.Errorf("Failed to delete file: %v", StatusMap[h2.Status])
+		log.Debugln(err)
+		return
+	}
+
+	return
+}
+
 func (s *Connection) WriteIoCtlReq(req *IoCtlReq) (res IoCtlRes, err error) {
 	buf, err := s.sendrecv(req)
 	if err != nil {
-		s.Debug("", err)
+		log.Debugln(err)
 		return res, err
 	}
 	var h Header
 	if err = encoder.Unmarshal(buf[:64], &h); err != nil {
-		s.Debug("", err)
+		log.Debugln(err)
 		return res, err
 	}
 
 	if err = encoder.Unmarshal(buf, &res); err != nil {
-		s.Debug("", err)
-		fmt.Println("here1")
+		log.Debugln(err)
 		return res, err
-	}
-	if res.MessageID != req.MessageID {
-		return res, fmt.Errorf("Incorrect MessageID on response. Sent %d and received %d\n", req.MessageID, res.MessageID)
 	}
 
 	if res.Status != StatusOk {

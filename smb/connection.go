@@ -228,8 +228,7 @@ func (c *Connection) runReceiver() {
 	case <-c.rdone:
 		err = nil
 	default:
-		c.Debug("", err)
-		log.Errorln(err)
+		log.Debugln(err)
 	}
 
 	c.m.Lock()
@@ -289,7 +288,7 @@ func NewConnection(opt Options, debug bool) (c *Connection, err error) {
 		werr:                make(chan error, 1),
 	}
 
-	c.conn, err = net.Dial("tcp", fmt.Sprintf("%s:%d", opt.Host, opt.Port))
+	c.conn, err = net.DialTimeout("tcp", fmt.Sprintf("%s:%d", opt.Host, opt.Port), opt.DialTimeout)
 	if err != nil {
 		return
 	}
@@ -298,7 +297,6 @@ func NewConnection(opt Options, debug bool) (c *Connection, err error) {
 		IsSigningRequired: opt.RequireMessageSigning,
 		IsAuthenticated:   false,
 		IsSigningDisabled: opt.DisableSigning,
-		debug:             debug,
 		clientGuid:        make([]byte, 16),
 		securityMode:      0,
 		messageID:         0,
@@ -312,7 +310,7 @@ func NewConnection(opt Options, debug bool) (c *Connection, err error) {
 	if !opt.ForceSMB2 {
 		_, err = rand.Read(c.Session.clientGuid)
 		if err != nil {
-			log.Errorln(err)
+			log.Debugln(err)
 			return
 		}
 	} else {
@@ -323,7 +321,7 @@ func NewConnection(opt Options, debug bool) (c *Connection, err error) {
 	go c.runSender()
 	go c.runReceiver()
 
-	c.Debug("Negotiating protocol", nil)
+	log.Debugln("Negotiating protocol")
 	err = c.NegotiateProtocol()
 	if err != nil {
 		return
@@ -340,10 +338,22 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 	var h Header
 	err = encoder.Unmarshal(buf[:64], &h)
 	if err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 	//NOTE Perhaps support Cancel requests?
+
+	// Make sure the same messageID is not used twice. Might result in wasted messageIDs though.
+	c.lock.Lock()
+	h.MessageID = c.messageID
+	c.messageID += uint64(h.CreditCharge)
+	c.lock.Unlock()
+	hBuf, err := encoder.Marshal(h)
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+	copy(buf[:64], hBuf[:64])
 
 	if c.Session != nil {
 		if h.Command != CommandSessionSetup {
@@ -403,19 +413,19 @@ func (c *Connection) send(req interface{}) (rr *requestResponse, err error) {
 
 	buf, err := encoder.Marshal(req)
 	if err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return nil, err
 	}
 
 	rr, err = c.makeRequestResponse(buf)
 	if err != nil {
-		log.Errorln(err)
+		log.Debugln(err)
 		return nil, err
 	}
 
 	b := new(bytes.Buffer)
 	if err = binary.Write(b, binary.BigEndian, uint32(len(rr.pkt))); err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
@@ -436,7 +446,6 @@ func (c *Connection) send(req interface{}) (rr *requestResponse, err error) {
 		return nil, nil
 	}
 
-	c.messageID += uint64(rr.creditCharge)
 	return
 }
 
