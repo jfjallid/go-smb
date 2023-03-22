@@ -37,8 +37,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jfjallid/golog"
 	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/golog"
 )
 
 var le = binary.LittleEndian
@@ -79,6 +79,7 @@ func (c *Client) Negotiate() ([]byte, error) {
 			FlgNegTargetInfo |
 			FlgNegExtendedSessionSecurity |
 			FlgNegNtLm |
+			FlgNegSign |
 			FlgNegRequestTarget |
 			FlgNegUnicode |
 			FlgNegVersion,
@@ -97,10 +98,9 @@ func (c *Client) Negotiate() ([]byte, error) {
 		req.NegotiateFlags |= FlgNegSeal
 	}
 
-	if !c.SigningDisabled {
-		req.NegotiateFlags |= FlgNegSign
-		req.NegotiateFlags |= FlgNegAlwaysSign
-	}
+	//if !c.SigningDisabled {
+	//	req.NegotiateFlags |= FlgNegAlwaysSign
+	//}
 	req.NegotiateFlags |= FlgNegKeyExch
 	req.Version = le.Uint64(version)
 	c.neg = &req
@@ -383,10 +383,8 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	mic := h.Sum(nil)
 	copy(auth.MIC, mic[:16])
 
-	if !c.SigningDisabled {
-		session.clientSigningKey = signKey(flags, session.exportedSessionKey, true)
-		session.serverSigningKey = signKey(flags, session.exportedSessionKey, false)
-	}
+	session.clientSigningKey = signKey(flags, session.exportedSessionKey, true)
+	session.serverSigningKey = signKey(flags, session.exportedSessionKey, false)
 
 	session.clientHandle, err = rc4.NewCipher(sealKey(flags, session.exportedSessionKey, true))
 	if err != nil {

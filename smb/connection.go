@@ -363,7 +363,9 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 					log.Errorln(err)
 					return
 				}
-			} else if !c.Session.IsSigningDisabled {
+			} else if !c.Session.IsSigningDisabled || (c.dialect == DialectSmb_3_1_1) {
+                // Must sign or encrypt with SMB 3.1.1
+                // TODO fix this control to check if encryption is performed instead.
 				if c.Session.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {
 					if c.signer != nil {
 						buf, err = c.sign(buf)

@@ -437,19 +437,18 @@ func (c *Connection) SessionSetup() error {
 				return err
 			}
 
-			if !c.IsSigningDisabled {
-				signingKey := kdf(sessionKey, []byte("SMBSigningKey\x00"), c.Session.preauthIntegrityHashValue[:], l)
+			// SMB 3.1.1 requires either signing or encryption of requests, so can't disable signing.
+			signingKey := kdf(sessionKey, []byte("SMBSigningKey\x00"), c.Session.preauthIntegrityHashValue[:], l)
 
-				c.Session.signer, err = cmac.New(signingKey)
-				if err != nil {
-					log.Errorln(err)
-					return err
-				}
-				c.Session.verifier, err = cmac.New(signingKey)
-				if err != nil {
-					log.Errorln(err)
-					return err
-				}
+			c.Session.signer, err = cmac.New(signingKey)
+			if err != nil {
+				log.Errorln(err)
+				return err
+			}
+			c.Session.verifier, err = cmac.New(signingKey)
+			if err != nil {
+				log.Errorln(err)
+				return err
 			}
 
 			encryptionKey := kdf(sessionKey, []byte("SMBC2SCipherKey\x00"), c.Session.preauthIntegrityHashValue[:], l)

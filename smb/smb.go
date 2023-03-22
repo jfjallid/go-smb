@@ -24,6 +24,7 @@ package smb
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -850,6 +851,66 @@ type IoCtlRes struct {
 	Buffer        []byte
 }
 
+func (self *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+	log.Debugln("In MarshalBinary for NegotiateReq")
+	fmt.Println("Here in marshal binary")
+	buf := make([]byte, 0, 100)
+	padding := 0
+	hBuf, err := encoder.Marshal(self.Header)
+	if err != nil {
+		log.Debugln(err)
+		return nil, err
+	}
+	buf = append(buf, hBuf...)
+	// StructureSize
+	buf = binary.LittleEndian.AppendUint16(buf, self.StructureSize)
+	// DialectCount
+	buf = binary.LittleEndian.AppendUint16(buf, uint16(len(self.Dialects)))
+	// SecurityMode
+	buf = binary.LittleEndian.AppendUint16(buf, self.SecurityMode)
+	//Reserved
+	buf = binary.LittleEndian.AppendUint16(buf, 0)
+	// Capabilities
+	buf = binary.LittleEndian.AppendUint32(buf, self.Capabilities)
+	buf = append(buf, make([]byte, 16)...)
+	//buf = append(buf, self.ClientGuid...)
+	if len(self.ContextList) == 0 {
+		buf = binary.LittleEndian.AppendUint32(buf, 0)
+		buf = binary.LittleEndian.AppendUint16(buf, 0)
+	} else {
+		fmt.Printf("Len of contextlist is : %d\n", len(self.ContextList))
+		padding = 8 - ((36 + len(self.Dialects)*2) % 8)
+		offset := 64 + 36 + len(self.Dialects)*2 + padding
+		buf = binary.LittleEndian.AppendUint32(buf, uint32(offset))
+		buf = binary.LittleEndian.AppendUint16(buf, self.NegotiateContextCount)
+	}
+	// Reserved2
+	buf = binary.LittleEndian.AppendUint16(buf, 0)
+
+	if len(self.Dialects) != 0 {
+		for _, d := range self.Dialects {
+			buf = binary.LittleEndian.AppendUint16(buf, d)
+		}
+	}
+	if len(self.ContextList) != 0 {
+		// Padding
+		buf = append(buf, make([]byte, padding)...)
+		for _, c := range self.ContextList {
+			contextBuf, err := encoder.Marshal(c)
+			if err != nil {
+				log.Debugln(err)
+				return nil, err
+			}
+			buf = append(buf, contextBuf...)
+		}
+	}
+	return buf, nil
+}
+
+func (self *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for NegotiateReq")
+}
+
 func newHeader() Header {
 	return Header{
 		ProtocolID:    []byte(ProtocolSmb2),
@@ -957,10 +1018,6 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 				Padd:        make([]byte, (8-(len(picBuf)%8))%8),
 			},
 		}
-		//TODO Would like to not send this Context if encryption is disabled, but
-		// when I do the session setup fails. Must be something in the requests that
-		// should be different when encryption is not negotiated.
-		//if !s.options.DisableEncryption {
 		n := NegContext{
 			ContextType: EncryptionCapabilities,
 			Data:        ccBuf,
@@ -968,16 +1025,13 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			Padd:        make([]byte, (8-(len(ccBuf)%8))%8),
 		}
 		req.ContextList = append(req.ContextList, n)
-		//}
-		if !s.IsSigningDisabled {
-			n := NegContext{
-				ContextType: SigningCapabilities,
-				Data:        scBuf,
-				DataLength:  uint16(len(scBuf)),
-				Padd:        make([]byte, (8-(len(scBuf)%8))%8),
-			}
-			req.ContextList = append(req.ContextList, n)
+		n = NegContext{
+			ContextType: SigningCapabilities,
+			Data:        scBuf,
+			DataLength:  uint16(len(scBuf)),
+			Padd:        make([]byte, (8-(len(scBuf)%8))%8),
 		}
+		req.ContextList = append(req.ContextList, n)
 
 		req.NegotiateContextCount = uint16(len(req.ContextList))
 	}
@@ -1044,7 +1098,7 @@ func (s *Connection) NewSessionSetup1Req(spnegoClient *spnegoClient) (req Sessio
 
 	if s.IsSigningRequired {
 		req.SecurityMode = byte(SecurityModeSigningRequired)
-	} else if !s.IsSigningDisabled {
+	} else {
 		req.SecurityMode = byte(SecurityModeSigningEnabled)
 	}
 
@@ -1089,10 +1143,10 @@ func (s *Connection) NewSessionSetup2Req(client *spnegoClient, msg *SessionSetup
 
 	// Session setup request #2
 	req := SessionSetup2Req{
-		Header:               header,
-		StructureSize:        25,
-		Flags:                0x00,
-		SecurityMode:         byte(SecurityModeSigningEnabled),
+		Header:        header,
+		StructureSize: 25,
+		Flags:         0x00,
+		//SecurityMode:         byte(SecurityModeSigningEnabled),
 		Capabilities:         s.capabilities,
 		Channel:              0,
 		SecurityBufferOffset: 88,
