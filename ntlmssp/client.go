@@ -57,6 +57,7 @@ type Client struct {
 	Hash               []byte // Password Hash
 	NTHash             []byte // Output from Ntowfv2
 	LMHash             []byte // Output from Lmowfv2
+	LocalUser          bool   // Don't use domain name from server
 	Domain             string
 	Workstation        string
 	SigningDisabled    bool
@@ -158,7 +159,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	var domain []byte
 	if c.Domain != "" {
 		domain = encoder.ToUnicode(c.Domain)
-	} else {
+	} else if !c.LocalUser {
 		domain = targetName
 	}
 

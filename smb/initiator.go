@@ -49,6 +49,7 @@ type NTLMInitiator struct {
 	Password           string
 	Hash               []byte
 	Domain             string
+	LocalUser          bool
 	Workstation        string
 	TargetSPN          string
 	DisableSigning     bool
@@ -70,6 +71,7 @@ func (i *NTLMInitiator) initSecContext() ([]byte, error) {
 		User:               i.User,
 		Password:           i.Password,
 		Domain:             i.Domain,
+		LocalUser:          i.LocalUser,
 		Hash:               i.Hash,
 		Workstation:        i.Workstation,
 		TargetSPN:          i.TargetSPN,
