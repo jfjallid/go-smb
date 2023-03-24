@@ -101,6 +101,7 @@ clear the packet from the map and forward the packet down the recv channel.
 func (c *Connection) runReceiver() {
 	var err error
 	var size uint32
+    var encrypted bool
 	for {
 		if err = binary.Read(c.conn, binary.BigEndian, &size); err != nil {
 			// Error is handled at the end of the method.
@@ -160,6 +161,7 @@ func (c *Connection) runReceiver() {
 					log.Errorf("Skip: Failed to decrypt packet with error: %s\n", err)
 					continue
 				}
+                encrypted = true
 
 				fallthrough
 			case ProtocolSmb2:
@@ -179,7 +181,7 @@ func (c *Connection) runReceiver() {
 				}
 			}
 
-			if c.Session.IsSigningRequired {
+			if c.Session.IsSigningRequired && !encrypted {
 				if (h.Flags & SMB2_FLAGS_SIGNED) != SMB2_FLAGS_SIGNED {
 					err = fmt.Errorf("Skip: Signing is required but PDU is not signed")
 					log.Errorln(err)
