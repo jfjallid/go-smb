@@ -109,10 +109,10 @@ type Options struct {
 
 func validateOptions(opt Options) error {
 	if opt.Host == "" {
-		return fmt.Errorf("Missing required option: Host")
+		return fmt.Errorf("Missing required option: Host. Use -h for help on usage.")
 	}
 	if opt.Port < 1 || opt.Port > 65535 {
-		return fmt.Errorf("Invalid or missing value: Port")
+		return fmt.Errorf("Invalid or missing value: Port. Use -h for help on usage.")
 	}
 	if opt.Initiator == nil {
 		return fmt.Errorf("Initiator empty")
@@ -195,24 +195,26 @@ func (c *Connection) NegotiateProtocol() error {
 
 	// Determine whether signing is required
 	mode := uint16(c.securityMode)
-	if mode&SecurityModeSigningEnabled > 0 {
-		if mode&SecurityModeSigningRequired > 0 {
-			c.IsSigningRequired = true
-		} else {
-			c.IsSigningRequired = false
+	if !c.IsSigningRequired {
+		if mode&SecurityModeSigningEnabled > 0 {
+			if mode&SecurityModeSigningRequired > 0 {
+				c.IsSigningRequired = true
+			} else {
+				c.IsSigningRequired = false
+			}
 		}
-	} else {
-		c.IsSigningRequired = false
 	}
 
 	// Check if server supports multi-credit operations
 	if (negRes.Capabilities & GlobalCapLargeMTU) == GlobalCapLargeMTU {
 		c.supportsMultiCredit = true
+		c.capabilities |= GlobalCapLargeMTU
 	}
 
 	// Check if encryption is enabled
 	if (negRes.Capabilities & GlobalCapEncryption) == GlobalCapEncryption {
 		c.supportsEncryption = true
+		c.capabilities |= GlobalCapEncryption
 	}
 
 	// Update MaxReadSize and MaxWriteSize from response
@@ -276,6 +278,8 @@ func (c *Connection) NegotiateProtocol() error {
 				log.Errorln(err)
 				return err
 			}
+			c.supportsEncryption = true
+
 		case SigningCapabilities: // Only supported by Windows 11/Window Server 2022 and later
 			sc := SigningContext{}
 			err = encoder.Unmarshal(context.Data, &sc)
@@ -363,10 +367,11 @@ func (c *Connection) SessionSetup() error {
 
 	//TODO Validate Challenge security options?
 
+	c.sessionFlags = ssres.Flags
 	if c.Session.options.DisableEncryption {
-		c.sessionFlags = ssres.Flags
-	} else {
-		c.sessionFlags = ssres.Flags | SessionFlagEncryptData
+		c.sessionFlags &= ^SessionFlagEncryptData
+	} else if c.supportsEncryption {
+		c.sessionFlags |= SessionFlagEncryptData
 	}
 
 	switch c.dialect {
@@ -544,8 +549,14 @@ func (s *Session) verify(buf []byte) (ok bool) {
 	h.Write(buf)
 	// Restore signature
 	copy(buf[48:64], signature)
+	newSig := h.Sum(nil)
+	// Not sure this is entirely correct, but smb 2.1 uses sha256 which generates too long hashes
+	// Might be worth to investigate if signature is ever more than 16 bytes
+	if s.dialect <= DialectSmb_2_1 {
+		newSig = newSig[:16]
+	}
 
-	return bytes.Equal(signature, h.Sum(nil))
+	return bytes.Equal(signature, newSig)
 }
 
 func (s *Session) encrypt(buf []byte) ([]byte, error) {

@@ -2,11 +2,12 @@ package gss
 
 import (
 	"encoding/asn1"
-	"log"
 
 	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/golog"
 )
 
+var log = golog.Get("github.com/jfjallid/go-smb/gss")
 var SpnegoOid = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 5, 5, 2})
 var MsKerberosOid = asn1.ObjectIdentifier([]int{1, 2, 840, 48018, 1, 2, 2})
 var KerberosOid = asn1.ObjectIdentifier([]int{1, 2, 840, 113554, 1, 2, 2})
@@ -63,7 +64,7 @@ func NewNegTokenResp() (NegTokenResp, error) {
 func (n *NegTokenInit) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	buf, err := asn1.Marshal(*n)
 	if err != nil {
-		log.Panicln(err)
+		log.Criticalln(err)
 		return nil, err
 	}
 
@@ -76,6 +77,7 @@ func (n *NegTokenInit) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 func (n *NegTokenInit) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	data := NegTokenInit{}
 	if _, err := asn1.UnmarshalWithParams(buf, &data, "application"); err != nil {
+		log.Debugln(err)
 		return err
 	}
 	*n = data
@@ -93,6 +95,7 @@ func (r *NegTokenResp) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 func (r *NegTokenResp) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	data := NegTokenResp{}
 	if _, err := asn1.UnmarshalWithParams(buf, &data, "explicit,tag:1"); err != nil {
+		log.Criticalln(err)
 		return err
 	}
 	*r = data

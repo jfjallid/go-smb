@@ -164,7 +164,7 @@ func (c *Connection) runReceiver() {
 				fallthrough
 			case ProtocolSmb2:
 				if err = encoder.Unmarshal(data[:64], &h); err != nil {
-					fmt.Println("Skip: Failed to decode header of packet")
+					log.Errorln("Skip: Failed to decode header of packet")
 					continue
 				}
 				// Check structure size
@@ -174,7 +174,7 @@ func (c *Connection) runReceiver() {
 				}
 				// Check sessionID
 				if h.SessionID != c.sessionID {
-					fmt.Printf("Skip: Unknown session id %d expected %d\n", h.SessionID, c.sessionID)
+					log.Errorf("Skip: Unknown session id %d expected %d\n", h.SessionID, c.sessionID)
 					continue
 				}
 			}
@@ -364,8 +364,8 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 					return
 				}
 			} else if !c.Session.IsSigningDisabled || (c.dialect == DialectSmb_3_1_1) {
-                // Must sign or encrypt with SMB 3.1.1
-                // TODO fix this control to check if encryption is performed instead.
+				// Must sign or encrypt with SMB 3.1.1
+				// TODO fix this control to check if encryption is performed instead.
 				if c.Session.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {
 					if c.signer != nil {
 						buf, err = c.sign(buf)

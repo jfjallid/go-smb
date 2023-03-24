@@ -60,6 +60,8 @@ type Client struct {
 	LocalUser          bool   // Don't use domain name from server
 	Domain             string
 	Workstation        string
+	NullSession        bool
+	guestSession       bool
 	SigningDisabled    bool
 	EncryptionDisabled bool
 	session            *Session
@@ -90,6 +92,7 @@ func (c *Client) Negotiate() ([]byte, error) {
 		req.DomainName = []byte(c.Domain)
 		req.NegotiateFlags |= FlgNegOEMDomainSupplied
 	}
+
 	if c.Workstation != "" {
 		req.Workstation = []byte(c.Workstation)
 		req.NegotiateFlags |= FlgNegOEMWorkstationSupplied
@@ -153,6 +156,10 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 		err := fmt.Errorf("invalid target info format")
 		log.Errorln(err)
 		return nil, err
+	}
+
+	if c.User == "" && (!c.NullSession) {
+		c.guestSession = true
 	}
 
 	// Assumes domain, user, and workstation are not unicode
@@ -309,12 +316,21 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 			Signature:   []byte(Signature),
 			MessageType: TypeNtLmAuthenticate,
 		},
-		DomainName:          domain,
-		UserName:            encoder.ToUnicode(c.User),
-		Workstation:         encoder.ToUnicode(c.Workstation),
-		NtChallengeResponse: response,
-		LmChallengeResponse: lmChallengeResponse,
-		MIC:                 make([]byte, 16),
+		DomainName:  domain,
+		Workstation: encoder.ToUnicode(c.Workstation),
+		MIC:         make([]byte, 16),
+	}
+	// Anonymous auth attempt
+	if c.NullSession {
+		auth.NtChallengeResponse = nil //make([]byte, 8)
+		auth.LmChallengeResponse = nil //make([]byte, 8)
+	} else if c.guestSession {
+		auth.NtChallengeResponse = response
+		auth.LmChallengeResponse = lmChallengeResponse
+	} else {
+		auth.NtChallengeResponse = response
+		auth.LmChallengeResponse = lmChallengeResponse
+		auth.UserName = encoder.ToUnicode(c.User)
 	}
 
 	session := new(Session)
@@ -323,6 +339,11 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	/* In connection-oriented mode, a NEGOTIATE structure (section 2.2.2.5)
 	   that contains the set of bit flags negotiated in the previous messages. */
 	//NOTE According to MS-NLMP Section 2.2.1.3 this should be set to the flags from the challenge received
+
+	if c.guestSession || c.NullSession {
+		flags |= FlgNegAnonymous
+	}
+
 	session.negotiateFlags = flags
 
 	//Create SessionKey
@@ -375,7 +396,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	}
 	h.Write(cmsgBuf)
 
-	authBytes, err := encoder.Marshal(auth)
+	authBytes, err := encoder.Marshal(&auth)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -400,7 +421,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 
 	c.session = session
 
-	return encoder.Marshal(auth)
+	return encoder.Marshal(&auth)
 }
 
 func (c *Client) Session() *Session {

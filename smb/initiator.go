@@ -28,7 +28,6 @@ package smb
 
 import (
 	"encoding/asn1"
-	"fmt"
 
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/ntlmssp"
@@ -50,6 +49,7 @@ type NTLMInitiator struct {
 	Hash               []byte
 	Domain             string
 	LocalUser          bool
+	NullSession        bool
 	Workstation        string
 	TargetSPN          string
 	DisableSigning     bool
@@ -64,14 +64,15 @@ func (i *NTLMInitiator) oid() asn1.ObjectIdentifier {
 }
 
 func (i *NTLMInitiator) initSecContext() ([]byte, error) {
-	if !((i.User != "") && (i.Password != "")) && !((i.User != "") && (i.Hash != nil)) {
-		return nil, fmt.Errorf("Invalid NTLMInitiator! Must specify username + password or username + hash")
-	}
+	//if !((i.User != "") && (i.Password != "")) && !((i.User != "") && (i.Hash != nil)) {
+	//	return nil, fmt.Errorf("Invalid NTLMInitiator! Must specify username + password or username + hash")
+	//}
 	i.ntlm = &ntlmssp.Client{
 		User:               i.User,
 		Password:           i.Password,
 		Domain:             i.Domain,
 		LocalUser:          i.LocalUser,
+		NullSession:        i.NullSession,
 		Hash:               i.Hash,
 		Workstation:        i.Workstation,
 		TargetSPN:          i.TargetSPN,
