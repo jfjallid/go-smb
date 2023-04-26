@@ -322,8 +322,8 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	}
 	// Anonymous auth attempt
 	if c.NullSession {
-		auth.NtChallengeResponse = nil //make([]byte, 8)
-		auth.LmChallengeResponse = nil //make([]byte, 8)
+		auth.NtChallengeResponse = nil
+		auth.LmChallengeResponse = nil
 	} else if c.guestSession {
 		auth.NtChallengeResponse = response
 		auth.LmChallengeResponse = lmChallengeResponse

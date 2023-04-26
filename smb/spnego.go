@@ -78,17 +78,17 @@ func (c *spnegoClient) acceptSecContext(negTokenRespBytes []byte) (res []byte, e
 
 	responseToken, err := c.selectedMech.acceptSecContext(token.ResponseToken)
 
+	negTokenResp, _ := gss.NewNegTokenResp()
+	negTokenResp.ResponseToken = responseToken
+	negTokenResp.State = 1
+
 	ms, err := asn1.Marshal(c.mechTypes)
 	if err != nil {
 		return
 	}
 
 	mecListMIC := c.selectedMech.sum(ms)
-
-	negTokenResp, _ := gss.NewNegTokenResp()
-	negTokenResp.ResponseToken = responseToken
 	negTokenResp.MechListMIC = mecListMIC
-	negTokenResp.State = 1
 
 	return encoder.Marshal(&negTokenResp)
 }

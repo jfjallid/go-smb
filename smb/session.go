@@ -406,6 +406,11 @@ func (c *Connection) SessionSetup() error {
 		log.Debugln(err)
 		return err
 	}
+	if c.options.Initiator.isNullSession() {
+		// Anonymous auth
+		c.sessionFlags |= SessionFlagIsNull
+		c.sessionFlags &= ^SessionFlagEncryptData
+	}
 
 	// Handle signing and encryption options
 	if c.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {
@@ -594,9 +599,9 @@ func (s *Session) decrypt(buf []byte) ([]byte, error) {
 }
 
 func (c *Connection) TreeConnect(name string) error {
-    // Check if already connected
+	// Check if already connected
 	if _, ok := c.trees[name]; ok {
-        return nil
+		return nil
 	}
 
 	log.Debugf("Sending TreeConnect request [%s]\n", name)

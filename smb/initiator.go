@@ -39,6 +39,7 @@ type Initiator interface {
 	acceptSecContext(sc []byte) ([]byte, error) // GSS_Accept_sec_context
 	sum(bs []byte) []byte                       // GSS_getMIC
 	sessionKey() []byte                         // QueryContextAttributes(ctx, SECPKG_ATTR_SESSION_KEY, &out)
+	isNullSession() bool
 }
 
 // NTLMInitiator implements session setup through NTLMv2.
@@ -106,4 +107,8 @@ func (i *NTLMInitiator) sum(bs []byte) []byte {
 
 func (i *NTLMInitiator) sessionKey() []byte {
 	return i.ntlm.Session().SessionKey()
+}
+
+func (i *NTLMInitiator) isNullSession() bool {
+	return i.NullSession
 }

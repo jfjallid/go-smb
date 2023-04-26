@@ -66,6 +66,11 @@ func (s *Session) Sum(plaintext []byte, seqNum uint32) ([]byte, uint32) {
 	if s.negotiateFlags&FlgNegSign == 0 {
 		return nil, 0
 	}
+	// Don't use MIC if using anonymous authentication
+	if s.negotiateFlags&FlgNegAnonymous != 0 {
+		return nil, 0
+	}
+
 	if s.isClientSide {
 		return mac(nil, s.negotiateFlags, s.clientHandle, s.clientSigningKey, seqNum, plaintext)
 	}

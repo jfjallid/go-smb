@@ -215,7 +215,9 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 	if len(self.LmChallengeResponse) == 0 {
 		// Anonymous auth attempt
 		// Encode empty LM ChallengeResponse
-		err = binary.Write(w, le, make([]byte, 8))
+		buf := make([]byte, 8)
+		buf[4] = byte(offset)
+		err = binary.Write(w, le, buf)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
@@ -243,7 +245,9 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 	if len(self.NtChallengeResponse) == 0 {
 		// Anonymous auth attempt
 		// Encode empty NT ChallengeResponse
-		err = binary.Write(w, le, make([]byte, 8))
+		buf := make([]byte, 8)
+		buf[4] = byte(offset)
+		err = binary.Write(w, le, buf)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
@@ -270,7 +274,9 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 
 	// Encode DomainName
 	if len(self.DomainName) == 0 {
-		err = binary.Write(w, le, make([]byte, 8))
+		buf := make([]byte, 8)
+		buf[4] = byte(offset)
+		err = binary.Write(w, le, buf)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
@@ -297,7 +303,9 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 
 	// Encode UserName
 	if len(self.UserName) == 0 {
-		err = binary.Write(w, le, make([]byte, 8))
+		buf := make([]byte, 8)
+		buf[4] = byte(offset)
+		err = binary.Write(w, le, buf)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
@@ -324,7 +332,9 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 
 	// Encode Workstation
 	if len(self.Workstation) == 0 {
-		err = binary.Write(w, le, make([]byte, 8))
+		buf := make([]byte, 8)
+		buf[4] = byte(offset)
+		err = binary.Write(w, le, buf)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
@@ -351,7 +361,9 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 
 	// Encode EncryptedRandomSessionKey
 	if len(self.EncryptedRandomSessionKey) == 0 {
-		err = binary.Write(w, le, make([]byte, 8))
+		buf := make([]byte, 8)
+		buf[4] = byte(offset)
+		err = binary.Write(w, le, buf)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
