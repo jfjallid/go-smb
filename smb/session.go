@@ -594,6 +594,11 @@ func (s *Session) decrypt(buf []byte) ([]byte, error) {
 }
 
 func (c *Connection) TreeConnect(name string) error {
+    // Check if already connected
+	if _, ok := c.trees[name]; ok {
+        return nil
+	}
+
 	log.Debugf("Sending TreeConnect request [%s]\n", name)
 	req, err := c.NewTreeConnectReq(name)
 	if err != nil {
@@ -829,8 +834,8 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 	}
 
 	if h.Status != StatusOk {
-		err = fmt.Errorf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
-		log.Debugln(err)
+		err = StatusMap[h.Status]
+		log.Debugf("Failed to Create/open file/dir: %v", err)
 		return
 	}
 
@@ -961,8 +966,8 @@ func (s *Connection) OpenFileExt(tree string, filepath string, opts *CreateReqOp
 	}
 
 	if h.Status != StatusOk {
-		err = fmt.Errorf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
-		log.Debugln(err)
+		err = StatusMap[h.Status]
+		log.Debugf("Failed to Create/open file/dir: %v", err)
 		return
 	}
 
@@ -1041,8 +1046,8 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 	}
 
 	if h.Status != StatusOk {
-		err = fmt.Errorf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
-		log.Debugln(err)
+		err = StatusMap[h.Status]
+		log.Debugf("Failed to Create/open file/dir: %v", err)
 		return
 	}
 
@@ -1209,8 +1214,8 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 	}
 
 	if h.Status != StatusOk {
-		err = fmt.Errorf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
-		log.Debugln(err)
+		err = StatusMap[h.Status]
+		log.Debugf("Failed to Create/open file/dir: %v", err)
 		return
 	}
 
@@ -1327,8 +1332,8 @@ func (s *Connection) DeleteFile(share string, filepath string) (err error) {
 	}
 
 	if h.Status != StatusOk {
-		log.Debugf("Failed to Create/open file/dir: %v", StatusMap[h.Status])
 		err = StatusMap[h.Status]
+		log.Debugf("Failed to Create/open file/dir: %v", err)
 		return
 	}
 

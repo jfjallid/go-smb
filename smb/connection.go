@@ -276,7 +276,7 @@ func (r *outstandingRequests) shutdown(err error) {
 	}
 }
 
-func NewConnection(opt Options, debug bool) (c *Connection, err error) {
+func NewConnection(opt Options) (c *Connection, err error) {
 
 	if err := validateOptions(opt); err != nil {
 		log.Errorln(err)
