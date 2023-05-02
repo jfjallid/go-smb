@@ -169,7 +169,14 @@ func (c *Connection) NegotiateProtocol() error {
 	}
 
 	if negRes.Header.Status != StatusOk {
-		return fmt.Errorf(fmt.Sprintf("NT Status Error: %d\n", negRes.Header.Status))
+		status, found := StatusMap[negRes.Header.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for Negotiate response: 0x%x\n", negRes.Header.Status)
+			log.Errorln(err)
+			return err
+		}
+		log.Debugf("NT Status Error: %v\n", status)
+		return status
 	}
 
 	oid := negRes.SecurityBlob.OID
@@ -349,9 +356,16 @@ func (c *Connection) SessionSetup() error {
 	}
 
 	if ssres.Header.Status != StatusMoreProcessingRequired {
-		status, _ := StatusMap[ssres.Header.Status]
-		return fmt.Errorf(fmt.Sprintf("NT Status Error: %v\n", status))
+		status, found := StatusMap[ssres.Header.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for SessionSetup1 response: 0x%x\n", ssres.Header.Status)
+			log.Errorln(err)
+			return err
+		}
+		log.Debugf("NT Status Error: %v\n", status)
+		return status
 	}
+
 	c.sessionID = ssres.Header.SessionID
 	if c.IsSigningRequired {
 		if ssres.Flags&SessionFlagIsGuest != 0 {
@@ -508,8 +522,14 @@ func (c *Connection) SessionSetup() error {
 		return err
 	}
 	if authResp.Status != StatusOk {
-		status, _ := StatusMap[authResp.Status]
-		return fmt.Errorf(fmt.Sprintf("NT Status Error: %v\n", status))
+		status, found := StatusMap[authResp.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for SessionSetup2 response: 0x%x\n", authResp.Status)
+			log.Errorln(err)
+			return err
+		}
+		log.Debugf("NT Status Error: %v\n", status)
+		return status
 	}
 
 	c.IsAuthenticated = true
@@ -637,7 +657,14 @@ func (c *Connection) TreeConnect(name string) error {
 	}
 
 	if res.Header.Status != StatusOk {
-		return fmt.Errorf("Failed to connect to tree: %v", StatusMap[res.Header.Status])
+		status, found := StatusMap[res.Header.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for TreeConnect response: 0x%x\n", res.Header.Status)
+			log.Errorln(err)
+			return err
+		}
+		log.Debugf("Failed to perform TreeConnect with NT Status Error: %v\n", status)
+		return status
 	}
 	c.trees[name] = res.Header.TreeID
 	c.credits += uint64(res.Header.Credits) // Add granted credits
@@ -684,7 +711,14 @@ func (c *Connection) TreeDisconnect(name string) error {
 		return err
 	}
 	if res.Header.Status != StatusOk {
-		return fmt.Errorf("Failed to disconnect from tree: %v", StatusMap[res.Header.Status])
+		status, found := StatusMap[res.Header.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for TreeDisconnect response: 0x%x\n", res.Header.Status)
+			log.Errorln(err)
+			return err
+		}
+		log.Debugf("Failed to perform TreeDisconnect with NT Status Error: %v\n", status)
+		return status
 	}
 	delete(c.trees, name)
 
@@ -718,7 +752,14 @@ func (f *File) CloseFile() error {
 	}
 
 	if res.Header.Status != StatusOk {
-		return fmt.Errorf("Failed to close file/dir: %v", StatusMap[res.Header.Status])
+		status, found := StatusMap[res.Header.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for CloseFile response: 0x%x\n", res.Header.Status)
+			log.Errorln(err)
+			return err
+		}
+		log.Debugf("Failed to CloseFile with NT Status Error: %v\n", status)
+		return status
 	}
 	log.Debugf("Close of file completed [%s] fileid [%x]\n", f.share, f.fd)
 	f.fd = nil
@@ -761,7 +802,14 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 	}
 
 	if res.Header.Status != StatusOk {
-		err = fmt.Errorf("Failed to QueryDirectory: %v", StatusMap[res.Header.Status])
+		status, found := StatusMap[res.Header.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for QueryDirectory response: 0x%x\n", res.Header.Status)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("Failed QueryDirectory with NT Status Error: %v\n", status)
+		err = status
 		return
 	}
 	if res.OutputBufferLength == 0 {
@@ -839,8 +887,14 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 	}
 
 	if h.Status != StatusOk {
-		err = StatusMap[h.Status]
-		log.Debugf("Failed to Create/open file/dir: %v", err)
+		status, found := StatusMap[h.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for Create/open file response attempting to list files in directory: 0x%x\n", h.Status)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("Failed to Create/open file for list directory with NT Status Error: %v\n", status)
+		err = status
 		return
 	}
 
@@ -971,8 +1025,14 @@ func (s *Connection) OpenFileExt(tree string, filepath string, opts *CreateReqOp
 	}
 
 	if h.Status != StatusOk {
-		err = StatusMap[h.Status]
-		log.Debugf("Failed to Create/open file/dir: %v", err)
+		status, found := StatusMap[h.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for Create/open file response when opening with special options: 0x%x\n", h.Status)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("Failed to Create/open file using custom options with NT Status Error: %v\n", status)
+		err = status
 		return
 	}
 
@@ -1051,8 +1111,14 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 	}
 
 	if h.Status != StatusOk {
-		err = StatusMap[h.Status]
-		log.Debugf("Failed to Create/open file/dir: %v", err)
+		status, found := StatusMap[h.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for Create/open file response when attempting to download a file: 0x%x\n", h.Status)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("Failed to Create/open file for reading with NT Status Error: %v\n", status)
+		err = status
 		return
 	}
 
@@ -1219,8 +1285,14 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 	}
 
 	if h.Status != StatusOk {
-		err = StatusMap[h.Status]
-		log.Debugf("Failed to Create/open file/dir: %v", err)
+		status, found := StatusMap[h.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for Create/open file response when attempting to upload a file: 0x%x\n", h.Status)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("Failed to Create/open file for writing with NT Status Error: %v\n", status)
+		err = status
 		return
 	}
 
@@ -1291,8 +1363,14 @@ func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
 		return n, err
 	}
 	if res.Status != StatusOk {
-		err = fmt.Errorf("Failed to write file with status code: %v\n", StatusMap[res.Status])
-		log.Debugln(err)
+		status, found := StatusMap[res.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for Write response when writing to file: 0x%x\n", res.Status)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("Failed to write file with NT Status Error: %v\n", status)
+		err = status
 		return
 	}
 	n = int(res.Count)
@@ -1337,8 +1415,13 @@ func (s *Connection) DeleteFile(share string, filepath string) (err error) {
 	}
 
 	if h.Status != StatusOk {
-		err = StatusMap[h.Status]
-		log.Debugf("Failed to Create/open file/dir: %v", err)
+		status, found := StatusMap[h.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for Create response when opening file for deletion: 0x%x\n", h.Status)
+			log.Errorln(err)
+			return err
+		}
+		log.Debugf("Failed to Create/open file for deletion with NT Status Error: %v\n", status)
 		return
 	}
 
@@ -1383,9 +1466,14 @@ func (s *Connection) DeleteFile(share string, filepath string) (err error) {
 	}
 
 	if h2.Status != StatusOk {
-		err = fmt.Errorf("Failed to delete file: %v", StatusMap[h2.Status])
-		log.Debugln(err)
-		return
+		status, found := StatusMap[h2.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for SetInfo response when deleting file: 0x%x\n", h2.Status)
+			log.Errorln(err)
+			return err
+		}
+		log.Debugf("Failed to delete file with NT Status Error: %v\n", status)
+		return status
 	}
 
 	return
