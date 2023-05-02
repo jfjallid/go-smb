@@ -24,6 +24,7 @@ package smb
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -291,12 +292,12 @@ const (
 
 // File Create Disposition
 const (
-	FileSupersede uint32 = iota
-	FileOpen
-	FileCreate
-	FileOpenIf
-	FileOverwrite
-	FileOverwriteIf
+	FileSupersede   uint32 = iota // If the file already exists, supersede it. Otherwise, create the file. This value SHOULD NOT be used for a printer object.
+	FileOpen                      // If the file already exists, return success; otherwise, fail the operation MUST NOT be used for a printer object.
+	FileCreate                    // If the file already exists, fail the operation; otherwise, create the file.
+	FileOpenIf                    // Open the file if it already exists; otherwise, create the file. This value SHOULD NOT be used for a printer object.
+	FileOverwrite                 // Overwrite the file if it already exists; otherwise, fail the operation. MUST NOT be used for a printer object.
+	FileOverwriteIf               // Overwrite the file if it already exists; otherwise, create the file. This value SHOULD NOT be used for a printer object.
 )
 
 // File Create Options
@@ -324,16 +325,24 @@ const (
 	FileOpenForFreeSpaceQuery   uint32 = 0x00800000
 )
 
-// File information class
+// File CreateActions
 const (
-	FileDirectoryInformation       byte = 0x01
-	FileFullDirectoryInformation   byte = 0x02
-	FileIdFullDirectoryInformation byte = 0x26
-	FileBothDirectoryInformation   byte = 0x03
-	FileIdBothDirectoryInformation byte = 0x25
-	FileNamesInformation           byte = 0x0c
-	FileIdExtDirectoryInformation  byte = 0x3c
+	FileSuperseded uint32 = iota
+	FileOpened
+	FileCreated
+	FileOverwritten
 )
+
+//// File information class
+//const (
+//	FileDirectoryInformation       byte = 0x01
+//	FileFullDirectoryInformation   byte = 0x02
+//	FileIdFullDirectoryInformation byte = 0x26
+//	FileBothDirectoryInformation   byte = 0x03
+//	FileIdBothDirectoryInformation byte = 0x25
+//	FileNamesInformation           byte = 0x0c
+//	FileIdExtDirectoryInformation  byte = 0x3c
+//)
 
 // Query Directory Flags
 const (
@@ -353,9 +362,102 @@ const (
 	// ...
 )
 
+// MS-FSCC Status codes
+const (
+	FsctlStatusPipeDisconnected      uint32 = 0xC00000B0 //The specified named pipe is in the disconnected state.
+	FsctlStatusInvalidPipeState      uint32 = 0xC00000AD //The named pipe is not in the connected state or not in the full-duplex message mode.
+	FsctlStatusPipeBusy              uint32 = 0xC00000AE //The named pipe contains unread data.
+	FsctlStatusInvalidUserBuffer     uint32 = 0xC00000E8 //An exception was raised while accessing a user buffer.
+	FsctlStatusInsufficientResources uint32 = 0xC000009A //There were insufficient resources to complete the operation.
+	FsctlStatusInvalidDeviceRequest  uint32 = 0xC0000010 //The type of the handle is not a pipe.
+	FsctlStatusBufferOverflow        uint32 = 0x80000005 //The data was too large to fit into
+)
+
+var FsctlStatusMap = map[uint32]error{
+	FsctlStatusPipeDisconnected:      fmt.Errorf("FSCTL_STATUS_PIPE_DISCONNECTED"),
+	FsctlStatusInvalidPipeState:      fmt.Errorf("FSCTL_STATUS_INVALID_PIPE_STATE"),
+	FsctlStatusPipeBusy:              fmt.Errorf("FSCTL_STATUS_PIPE_BUSY"),
+	FsctlStatusInvalidUserBuffer:     fmt.Errorf("FSCTL_STATUS_INVALID_USER_BUFFER"),
+	FsctlStatusInsufficientResources: fmt.Errorf("FSCTL_STATUS_INSUFFICIENT_RESOURCES"),
+	FsctlStatusInvalidDeviceRequest:  fmt.Errorf("FSCTL_STATUS_INVALID_DEVICE_REQUEST"),
+	FsctlStatusBufferOverflow:        fmt.Errorf("FSCTL_STATUS_BUFFER_OVERFLOW"),
+}
+
 // IOCTL Flags
 const (
 	IoctlIsFsctl uint32 = 0x00000001
+)
+
+// MS-SMB2 Section 2.2.39 Info Type
+const (
+	OInfoFile       byte = 0x01
+	OInfoFilesystem byte = 0x02
+	OInfoSecurity   byte = 0x03
+	OInfoQuota      byte = 0x04
+)
+
+// MS-SMB2 Section 2.2.39 AdditionalInformation
+const (
+	OwnerSecurityInformation     uint32 = 0x00000001 // The client is setting the owner in the security descriptor of the file or named pipe.
+	GroupSecurityInformation     uint32 = 0x00000002 // The client is setting the group in the security descriptor of the file or named pipe.
+	DACLSecurityInformation      uint32 = 0x00000004 // The client is setting the discretionary access control list in the security descriptor of the file or named pipe.
+	SACLSecurityInformation      uint32 = 0x00000008 // The client is setting the system access control list in the security descriptor of the file or named pipe.
+	LabelSecurityInformation     uint32 = 0x00000010 // The client is setting the integrity label in the security descriptor of the file or named pipe.
+	AttributeSecurityInformation uint32 = 0x00000020 // The client is setting the resource attribute in the security descriptor of the file or named pipe.
+	ScopeSecurityInformation     uint32 = 0x00000040 // The client is setting the central access policy of the resource in the security descriptor of the file or named pipe.
+	BackupSecurityInformation    uint32 = 0x00010000 // The client is setting the backup operation information in the security descriptor of the file or named pipe
+)
+
+// MS-FSCC Section 2.4 File Information Class
+const (
+	FileDirectoryInformation           byte = 0x01 // Query
+	FileFullDirectoryInformation       byte = 0x02 // Query
+	FileBothDirectoryInformation       byte = 0x03 // Query
+	FileBasicInformation               byte = 0x04 // Query, Set
+	FileStandardInformation            byte = 0x05 // Query
+	FileInternalInformation            byte = 0x06 // Query
+	FileEaInformation                  byte = 0x07 // Query
+	FileAccessInformation              byte = 0x08 // Query
+	FileNameInformation                byte = 0x09 // LOCAL
+	FileRenameInformation              byte = 0x0a // Set
+	FileLinkInformation                byte = 0x0b // Set
+	FileNamesInformation               byte = 0x0c // Query
+	FileDispositionInformation         byte = 0x0d // Set
+	FilePositionInformation            byte = 0x0e // Query, Set
+	FileFullEaInformation              byte = 0x0f // Query, Set
+	FileModeInformation                byte = 0x10 // Query, Set
+	FileAlignmentInformation           byte = 0x11 // Query
+	FileAllInformation                 byte = 0x12 // Query
+	FileAllocationInformation          byte = 0x13 // Set
+	FileEndOfFileInformation           byte = 0x14 // Set
+	FileAlternateNameInformation       byte = 0x15 // Query
+	FileStreamInformation              byte = 0x16 // Query
+	FilePipeInformation                byte = 0x17 // Query, Set
+	FilePipeLocalInformation           byte = 0x18 // Query
+	FilePipeRemoteInformation          byte = 0x19 // Query
+	FileMailslotQueryInformation       byte = 0x1a // LOCAL
+	FileMailslotSetInformation         byte = 0x1b // LOCAL
+	FileCompressionInformation         byte = 0x1c // Query
+	FileObjectIdInformation            byte = 0x1d // LOCAL
+	FileMoveClusterInformation         byte = 0x1f //
+	FileQuotaInformation               byte = 0x20 // Query, Set
+	FileReparsePointInformation        byte = 0x21 // LOCAL
+	FileNetworkOpenInformation         byte = 0x22 // Query
+	FileAttributeTagInformation        byte = 0x23 // Query
+	FileTrackingInformation            byte = 0x24 // LOCAL
+	FileIdBothDirectoryInformation     byte = 0x25 // Query
+	FileIdFullDirectoryInformation     byte = 0x26 // Query
+	FileValidDataLengthInformation     byte = 0x27 // Set
+	FileShortNameInformation           byte = 0x28 // Set
+	FileSfioReserveInformation         byte = 0x2c // LOCAL
+	FileSfioVolumeInformation          byte = 0x2d
+	FileHardLinkInformation            byte = 0x2e // LOCAL
+	FileNormalizedNameInformation      byte = 0x30 // Query
+	FileIdGlobalTxDirectoryInformation byte = 0x32 // LOCAL
+	FileStandardLinkInformation        byte = 0x36 // LOCAL
+	FileIdInformation                  byte = 0x3b // Query
+	FileIdExtdDirectoryInformation     byte = 0x3c // Query
+
 )
 
 type Header struct { // 64 bytes
@@ -698,6 +800,24 @@ type WriteRes struct {
 	WriteChannelInfoLength uint16 // Must not be used
 }
 
+type SetInfoReq struct {
+	Header
+	StructureSize         uint16 // Must always be 33 regardless of Buffer size
+	InfoType              byte
+	FileInfoClass         byte
+	BufferLength          uint32 `smb:"len:Buffer"`    // The length of the data being written, in bytes. Can be zero bytes.
+	BufferOffset          uint16 `smb:"offset:Buffer"` // 0x70. The offset, in bytes, from the beginning of the SMB2 header to the data being written.
+	Reserved              uint16
+	AdditionalInformation uint32
+	FileId                []byte `smb:"fixed:16"`
+	Buffer                []byte // 0 length for smb 2.1
+}
+
+type SetInfoRes struct {
+	Header
+	StructureSize uint16 // Must be 2
+}
+
 // NOTE Might be problematic and not work with multiple offset tags for same buffer?
 type IoCtlReq struct { // 120 + len of Buffer
 	Header                   // 64 bytes
@@ -731,6 +851,66 @@ type IoCtlRes struct {
 	Buffer        []byte
 }
 
+func (self *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+	log.Debugln("In MarshalBinary for NegotiateReq")
+	fmt.Println("Here in marshal binary")
+	buf := make([]byte, 0, 100)
+	padding := 0
+	hBuf, err := encoder.Marshal(self.Header)
+	if err != nil {
+		log.Debugln(err)
+		return nil, err
+	}
+	buf = append(buf, hBuf...)
+	// StructureSize
+	buf = binary.LittleEndian.AppendUint16(buf, self.StructureSize)
+	// DialectCount
+	buf = binary.LittleEndian.AppendUint16(buf, uint16(len(self.Dialects)))
+	// SecurityMode
+	buf = binary.LittleEndian.AppendUint16(buf, self.SecurityMode)
+	//Reserved
+	buf = binary.LittleEndian.AppendUint16(buf, 0)
+	// Capabilities
+	buf = binary.LittleEndian.AppendUint32(buf, self.Capabilities)
+	buf = append(buf, make([]byte, 16)...)
+	//buf = append(buf, self.ClientGuid...)
+	if len(self.ContextList) == 0 {
+		buf = binary.LittleEndian.AppendUint32(buf, 0)
+		buf = binary.LittleEndian.AppendUint16(buf, 0)
+	} else {
+		fmt.Printf("Len of contextlist is : %d\n", len(self.ContextList))
+		padding = 8 - ((36 + len(self.Dialects)*2) % 8)
+		offset := 64 + 36 + len(self.Dialects)*2 + padding
+		buf = binary.LittleEndian.AppendUint32(buf, uint32(offset))
+		buf = binary.LittleEndian.AppendUint16(buf, self.NegotiateContextCount)
+	}
+	// Reserved2
+	buf = binary.LittleEndian.AppendUint16(buf, 0)
+
+	if len(self.Dialects) != 0 {
+		for _, d := range self.Dialects {
+			buf = binary.LittleEndian.AppendUint16(buf, d)
+		}
+	}
+	if len(self.ContextList) != 0 {
+		// Padding
+		buf = append(buf, make([]byte, padding)...)
+		for _, c := range self.ContextList {
+			contextBuf, err := encoder.Marshal(c)
+			if err != nil {
+				log.Debugln(err)
+				return nil, err
+			}
+			buf = append(buf, contextBuf...)
+		}
+	}
+	return buf, nil
+}
+
+func (self *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for NegotiateReq")
+}
+
 func newHeader() Header {
 	return Header{
 		ProtocolID:    []byte(ProtocolSmb2),
@@ -762,7 +942,6 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 	header := newHeader()
 	header.Command = CommandNegotiate
 	header.CreditCharge = 1
-	header.MessageID = s.messageID
 
 	var dialects []uint16
 
@@ -839,10 +1018,6 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 				Padd:        make([]byte, (8-(len(picBuf)%8))%8),
 			},
 		}
-		//TODO Would like to not send this Context if encryption is disabled, but
-		// when I do the session setup fails. Must be something in the requests that
-		// should be different when encryption is not negotiated.
-		//if !s.options.DisableEncryption {
 		n := NegContext{
 			ContextType: EncryptionCapabilities,
 			Data:        ccBuf,
@@ -850,16 +1025,13 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			Padd:        make([]byte, (8-(len(ccBuf)%8))%8),
 		}
 		req.ContextList = append(req.ContextList, n)
-		//}
-		if !s.IsSigningDisabled {
-			n := NegContext{
-				ContextType: SigningCapabilities,
-				Data:        scBuf,
-				DataLength:  uint16(len(scBuf)),
-				Padd:        make([]byte, (8-(len(scBuf)%8))%8),
-			}
-			req.ContextList = append(req.ContextList, n)
+		n = NegContext{
+			ContextType: SigningCapabilities,
+			Data:        scBuf,
+			DataLength:  uint16(len(scBuf)),
+			Padd:        make([]byte, (8-(len(scBuf)%8))%8),
 		}
+		req.ContextList = append(req.ContextList, n)
 
 		req.NegotiateContextCount = uint16(len(req.ContextList))
 	}
@@ -893,7 +1065,6 @@ func (s *Connection) NewSessionSetup1Req(spnegoClient *spnegoClient) (req Sessio
 	header := newHeader()
 	header.Command = CommandSessionSetup
 	header.CreditCharge = 1
-	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 
 	negTokenInitbytes, err := spnegoClient.initSecContext()
@@ -927,7 +1098,7 @@ func (s *Connection) NewSessionSetup1Req(spnegoClient *spnegoClient) (req Sessio
 
 	if s.IsSigningRequired {
 		req.SecurityMode = byte(SecurityModeSigningRequired)
-	} else if !s.IsSigningDisabled {
+	} else {
 		req.SecurityMode = byte(SecurityModeSigningEnabled)
 	}
 
@@ -950,7 +1121,6 @@ func (s *Connection) NewSessionSetup2Req(client *spnegoClient, msg *SessionSetup
 	header := newHeader()
 	header.Command = CommandSessionSetup
 	header.CreditCharge = 1
-	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 
 	securityBlob, err := encoder.Marshal(msg.SecurityBlob)
@@ -973,10 +1143,10 @@ func (s *Connection) NewSessionSetup2Req(client *spnegoClient, msg *SessionSetup
 
 	// Session setup request #2
 	req := SessionSetup2Req{
-		Header:               header,
-		StructureSize:        25,
-		Flags:                0x00,
-		SecurityMode:         byte(SecurityModeSigningEnabled),
+		Header:        header,
+		StructureSize: 25,
+		Flags:         0x00,
+		//SecurityMode:         byte(SecurityModeSigningEnabled),
 		Capabilities:         s.capabilities,
 		Channel:              0,
 		SecurityBufferOffset: 88,
@@ -1011,7 +1181,6 @@ func NewSessionSetup2Res() (SessionSetup2Res, error) {
 func (s *Session) NewTreeConnectReq(name string) (TreeConnectReq, error) {
 	header := newHeader()
 	header.Command = CommandTreeConnect
-	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 
 	path := fmt.Sprintf("\\\\%s\\%s", s.options.Host, name)
@@ -1033,7 +1202,6 @@ func (s *Session) NewTreeDisconnectReq(treeId uint32) (TreeDisconnectReq, error)
 	header := newHeader()
 	header.Command = CommandTreeDisconnect
 	header.CreditCharge = 1
-	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 	header.TreeID = treeId
 
@@ -1060,7 +1228,6 @@ func (s *Session) NewCreateReq(share, name string,
 	header := newHeader()
 	header.Command = CommandCreate
 	header.CreditCharge = 1
-	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 	var buf []byte
@@ -1106,7 +1273,6 @@ func (s *Session) NewCloseReq(share string, fileId []byte) (CloseReq, error) {
 	header := newHeader()
 	header.Command = CommandClose
 	header.CreditCharge = 1
-	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1133,7 +1299,6 @@ func (s *Session) NewQueryDirectoryReq(share, pattern string, fileId []byte,
 	header := newHeader()
 	header.Command = CommandQueryDirectory
 	header.CreditCharge = uint16((outputBufferLength-1)/65536 + 1)
-	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1185,7 +1350,6 @@ func (s *Session) NewReadReq(share string, fileid []byte,
 	header := newHeader()
 	header.Command = CommandRead
 	header.CreditCharge = uint16((length-1)/65536 + 1)
-	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1194,6 +1358,7 @@ func (s *Session) NewReadReq(share string, fileid []byte,
 		if header.CreditCharge > 127 {
 			header.Credits = header.CreditCharge
 		}
+		header.Credits = header.CreditCharge
 	}
 
 	return ReadReq{
@@ -1221,7 +1386,6 @@ func (s *Session) NewWriteReq(share string, fileid []byte,
 	header := newHeader()
 	header.Command = CommandWrite
 	header.CreditCharge = uint16((len(data)-1)/65536 + 1)
-	header.MessageID = s.messageID
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1230,6 +1394,7 @@ func (s *Session) NewWriteReq(share string, fileid []byte,
 		if header.CreditCharge > 127 {
 			header.Credits = header.CreditCharge
 		}
+		header.Credits = header.CreditCharge
 	}
 
 	fileSize := len(data)
@@ -1256,7 +1421,6 @@ func (f *File) NewIoCTLReq(operation uint32, data []byte) (*IoCtlReq, error) {
 	header.Command = CommandIOCtl
 	header.CreditCharge = 1
 	header.Credits = 127
-	header.MessageID = f.messageID
 	header.SessionID = f.sessionID
 	header.TreeID = f.shareid
 
@@ -1281,5 +1445,29 @@ func (f *File) NewIoCTLReq(operation uint32, data []byte) (*IoCtlReq, error) {
 		Flags:             IoctlIsFsctl,
 		Reserved2:         0,
 		Buffer:            buf,
+	}, nil
+}
+
+func (s *Session) NewSetInfoReq(share string, fileId []byte) (SetInfoReq, error) {
+
+	header := newHeader()
+	header.Command = CommandSetInfo
+	header.CreditCharge = 1
+	header.SessionID = s.sessionID
+	header.TreeID = s.trees[share]
+
+	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
+		header.Credits = 127
+		if header.CreditCharge > 127 {
+			header.Credits = header.CreditCharge
+		}
+	}
+
+	return SetInfoReq{
+		Header:        header,
+		StructureSize: 33,
+		InfoType:      OInfoFile,
+		FileInfoClass: FileDispositionInformation,
+		FileId:        fileId,
 	}, nil
 }

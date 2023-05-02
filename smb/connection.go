@@ -101,6 +101,7 @@ clear the packet from the map and forward the packet down the recv channel.
 func (c *Connection) runReceiver() {
 	var err error
 	var size uint32
+	var encrypted bool
 	for {
 		if err = binary.Read(c.conn, binary.BigEndian, &size); err != nil {
 			// Error is handled at the end of the method.
@@ -160,11 +161,12 @@ func (c *Connection) runReceiver() {
 					log.Errorf("Skip: Failed to decrypt packet with error: %s\n", err)
 					continue
 				}
+				encrypted = true
 
 				fallthrough
 			case ProtocolSmb2:
 				if err = encoder.Unmarshal(data[:64], &h); err != nil {
-					fmt.Println("Skip: Failed to decode header of packet")
+					log.Errorln("Skip: Failed to decode header of packet")
 					continue
 				}
 				// Check structure size
@@ -174,12 +176,12 @@ func (c *Connection) runReceiver() {
 				}
 				// Check sessionID
 				if h.SessionID != c.sessionID {
-					fmt.Printf("Skip: Unknown session id %d expected %d\n", h.SessionID, c.sessionID)
+					log.Errorf("Skip: Unknown session id %d expected %d\n", h.SessionID, c.sessionID)
 					continue
 				}
 			}
 
-			if c.Session.IsSigningRequired {
+			if c.Session.IsSigningRequired && !encrypted {
 				if (h.Flags & SMB2_FLAGS_SIGNED) != SMB2_FLAGS_SIGNED {
 					err = fmt.Errorf("Skip: Signing is required but PDU is not signed")
 					log.Errorln(err)
@@ -228,8 +230,7 @@ func (c *Connection) runReceiver() {
 	case <-c.rdone:
 		err = nil
 	default:
-		c.Debug("", err)
-		log.Errorln(err)
+		log.Debugln(err)
 	}
 
 	c.m.Lock()
@@ -275,7 +276,7 @@ func (r *outstandingRequests) shutdown(err error) {
 	}
 }
 
-func NewConnection(opt Options, debug bool) (c *Connection, err error) {
+func NewConnection(opt Options) (c *Connection, err error) {
 
 	if err := validateOptions(opt); err != nil {
 		log.Errorln(err)
@@ -289,7 +290,7 @@ func NewConnection(opt Options, debug bool) (c *Connection, err error) {
 		werr:                make(chan error, 1),
 	}
 
-	c.conn, err = net.Dial("tcp", fmt.Sprintf("%s:%d", opt.Host, opt.Port))
+	c.conn, err = net.DialTimeout("tcp", fmt.Sprintf("%s:%d", opt.Host, opt.Port), opt.DialTimeout)
 	if err != nil {
 		return
 	}
@@ -298,7 +299,6 @@ func NewConnection(opt Options, debug bool) (c *Connection, err error) {
 		IsSigningRequired: opt.RequireMessageSigning,
 		IsAuthenticated:   false,
 		IsSigningDisabled: opt.DisableSigning,
-		debug:             debug,
 		clientGuid:        make([]byte, 16),
 		securityMode:      0,
 		messageID:         0,
@@ -312,7 +312,7 @@ func NewConnection(opt Options, debug bool) (c *Connection, err error) {
 	if !opt.ForceSMB2 {
 		_, err = rand.Read(c.Session.clientGuid)
 		if err != nil {
-			log.Errorln(err)
+			log.Debugln(err)
 			return
 		}
 	} else {
@@ -323,7 +323,7 @@ func NewConnection(opt Options, debug bool) (c *Connection, err error) {
 	go c.runSender()
 	go c.runReceiver()
 
-	c.Debug("Negotiating protocol", nil)
+	log.Debugln("Negotiating protocol")
 	err = c.NegotiateProtocol()
 	if err != nil {
 		return
@@ -332,6 +332,7 @@ func NewConnection(opt Options, debug bool) (c *Connection, err error) {
 	if err != nil {
 		return
 	}
+	log.Debugf("IsSigningRequired: %v, RequireMessageSigning: %v, EncryptData: %v, IsNullSession: %v, IsGuestSession: %v\n", c.IsSigningRequired, c.options.RequireMessageSigning, c.Session.sessionFlags&SessionFlagEncryptData == SessionFlagEncryptData, c.Session.sessionFlags&SessionFlagIsNull == SessionFlagIsNull, c.Session.sessionFlags&SessionFlagIsGuest == SessionFlagIsGuest)
 
 	return c, nil
 }
@@ -340,10 +341,22 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 	var h Header
 	err = encoder.Unmarshal(buf[:64], &h)
 	if err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 	//NOTE Perhaps support Cancel requests?
+
+	// Make sure the same messageID is not used twice. Might result in wasted messageIDs though.
+	c.lock.Lock()
+	h.MessageID = c.messageID
+	c.messageID += uint64(h.CreditCharge)
+	c.lock.Unlock()
+	hBuf, err := encoder.Marshal(h)
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+	copy(buf[:64], hBuf[:64])
 
 	if c.Session != nil {
 		if h.Command != CommandSessionSetup {
@@ -353,7 +366,9 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 					log.Errorln(err)
 					return
 				}
-			} else if !c.Session.IsSigningDisabled {
+			} else if !c.Session.IsSigningDisabled || (c.dialect == DialectSmb_3_1_1) {
+				// Must sign or encrypt with SMB 3.1.1
+				// TODO fix this control to check if encryption is performed instead.
 				if c.Session.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {
 					if c.signer != nil {
 						buf, err = c.sign(buf)
@@ -403,19 +418,19 @@ func (c *Connection) send(req interface{}) (rr *requestResponse, err error) {
 
 	buf, err := encoder.Marshal(req)
 	if err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return nil, err
 	}
 
 	rr, err = c.makeRequestResponse(buf)
 	if err != nil {
-		log.Errorln(err)
+		log.Debugln(err)
 		return nil, err
 	}
 
 	b := new(bytes.Buffer)
 	if err = binary.Write(b, binary.BigEndian, uint32(len(rr.pkt))); err != nil {
-		c.Debug("", err)
+		log.Debugln(err)
 		return
 	}
 
@@ -436,7 +451,6 @@ func (c *Connection) send(req interface{}) (rr *requestResponse, err error) {
 		return nil, nil
 	}
 
-	c.messageID += uint64(rr.creditCharge)
 	return
 }
 

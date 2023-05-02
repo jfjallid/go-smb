@@ -187,6 +187,287 @@ type Authenticate struct {
 	EncryptedRandomSessionKey             []byte
 }
 
+func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+	w := bytes.NewBuffer(make([]byte, 0, 64))
+	le := binary.LittleEndian
+	offset := 64 // Start of payload bytes
+	if self.Version != 0 {
+		offset += 8
+	}
+	if len(self.MIC) != 0 {
+		offset += 16
+	}
+
+	// Encode header signature
+	err := binary.Write(w, le, self.Header.Signature[:8])
+	if err != nil {
+		log.Debugln(err)
+		return nil, err
+	}
+
+	// Encode header message type
+	err = binary.Write(w, le, self.Header.MessageType)
+	if err != nil {
+		log.Debugln(err)
+		return nil, err
+	}
+
+	if len(self.LmChallengeResponse) == 0 {
+		// Anonymous auth attempt
+		// Encode empty LM ChallengeResponse
+		buf := make([]byte, 8)
+		buf[4] = byte(offset)
+		err = binary.Write(w, le, buf)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	} else {
+		// Encode LM ChallengeResponse
+		err = binary.Write(w, le, uint16(len(self.LmChallengeResponse)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+		err = binary.Write(w, le, uint16(len(self.LmChallengeResponse)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+
+		lmBufferOffset := offset + len(self.DomainName) + len(self.UserName) + len(self.Workstation) + len(self.EncryptedRandomSessionKey)
+		err = binary.Write(w, le, uint32(lmBufferOffset))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+	if len(self.NtChallengeResponse) == 0 {
+		// Anonymous auth attempt
+		// Encode empty NT ChallengeResponse
+		buf := make([]byte, 8)
+		buf[4] = byte(offset)
+		err = binary.Write(w, le, buf)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	} else {
+		// Encode NT ChallengeResponse
+		err = binary.Write(w, le, uint16(len(self.NtChallengeResponse)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+		err = binary.Write(w, le, uint16(len(self.NtChallengeResponse)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+		ntBufferOffset := offset + len(self.DomainName) + len(self.UserName) + len(self.Workstation) + len(self.EncryptedRandomSessionKey) + len(self.LmChallengeResponse)
+		err = binary.Write(w, le, uint32(ntBufferOffset))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+
+	// Encode DomainName
+	if len(self.DomainName) == 0 {
+		buf := make([]byte, 8)
+		buf[4] = byte(offset)
+		err = binary.Write(w, le, buf)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	} else {
+		err = binary.Write(w, le, uint16(len(self.DomainName)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+
+		err = binary.Write(w, le, uint16(len(self.DomainName)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+
+		err = binary.Write(w, le, uint32(offset))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+
+	// Encode UserName
+	if len(self.UserName) == 0 {
+		buf := make([]byte, 8)
+		buf[4] = byte(offset)
+		err = binary.Write(w, le, buf)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	} else {
+		err = binary.Write(w, le, uint16(len(self.UserName)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+
+		err = binary.Write(w, le, uint16(len(self.UserName)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+
+		err = binary.Write(w, le, uint32(offset+len(self.DomainName)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+
+	// Encode Workstation
+	if len(self.Workstation) == 0 {
+		buf := make([]byte, 8)
+		buf[4] = byte(offset)
+		err = binary.Write(w, le, buf)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	} else {
+		err = binary.Write(w, le, uint16(len(self.Workstation)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+
+		err = binary.Write(w, le, uint16(len(self.Workstation)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+
+		err = binary.Write(w, le, uint32(offset+len(self.DomainName)+len(self.UserName)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+
+	// Encode EncryptedRandomSessionKey
+	if len(self.EncryptedRandomSessionKey) == 0 {
+		buf := make([]byte, 8)
+		buf[4] = byte(offset)
+		err = binary.Write(w, le, buf)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	} else {
+		err = binary.Write(w, le, uint16(len(self.EncryptedRandomSessionKey)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+
+		err = binary.Write(w, le, uint16(len(self.EncryptedRandomSessionKey)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+
+		err = binary.Write(w, le, uint32(offset+len(self.DomainName)+len(self.UserName)+len(self.Workstation)))
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+
+	// Encode NegotiateFlags
+	err = binary.Write(w, le, self.NegotiateFlags)
+	if err != nil {
+		log.Debugln(err)
+		return nil, err
+	}
+
+	// Encode Version (Specific for SMB 3.1.1? So skip if 0)
+	if self.Version != 0 {
+		err = binary.Write(w, le, self.Version)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+	// Encode MIC (Specific for SMB 3.1.1? So skip of empty)
+	if len(self.MIC) != 0 {
+		err = binary.Write(w, le, self.MIC[:16])
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+
+	// Encode the payload buffers
+	if len(self.DomainName) != 0 {
+		err = binary.Write(w, le, self.DomainName)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+
+	if len(self.UserName) != 0 {
+		err = binary.Write(w, le, self.UserName)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+
+	if len(self.Workstation) != 0 {
+		err = binary.Write(w, le, self.Workstation)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+
+	if len(self.EncryptedRandomSessionKey) != 0 {
+		err = binary.Write(w, le, self.EncryptedRandomSessionKey)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+
+	if len(self.LmChallengeResponse) != 0 {
+		err = binary.Write(w, le, self.LmChallengeResponse)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+
+	if len(self.NtChallengeResponse) != 0 {
+		err = binary.Write(w, le, self.NtChallengeResponse)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
+		}
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for Authenticate")
+}
+
 func NewChallenge() Challenge {
 	return Challenge{
 		Header: Header{

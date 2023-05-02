@@ -69,8 +69,10 @@ const (
 const (
 	SvcCtlRCloseServiceHandle   uint16 = 0
 	SvcCtlRControlService       uint16 = 1
+	SvcCtlRDeleteService        uint16 = 2
 	SvcCtlRQueryServiceStatus   uint16 = 6
 	SvcCtlRChangeServiceConfigW uint16 = 11
+	SvcCtlRCreateServiceW       uint16 = 12
 	SvcCtlROpenSCManagerW       uint16 = 15
 	SvcCtlROpenServiceW         uint16 = 16
 	SvcCtlRQueryServiceConfigW  uint16 = 17
@@ -205,6 +207,7 @@ const (
 	ErrorInvalidServiceAccount      uint32 = 1057 // The user account name specified in the lpServiceStartName parameter does not exist.
 	ErrorServiceDisabled            uint32 = 1058 // The service cannot be started because the Start field in the service record is set to SERVICE_DISABLED.
 	ErrorCircularDependency         uint32 = 1059 // A circular dependency was specified.
+	ErrorServiceDoesNotExist        uint32 = 1060 // The service record with a specified display name does not exist in the SCM database
 	ErrorServiceCannotAcceptControl uint32 = 1061
 	ErrorServiceNotActive           uint32 = 1062
 	ErrorServiceDependencyFail      uint32 = 1068 // The specified service depends on another service that has failed to start.
@@ -215,31 +218,32 @@ const (
 	ErrorShutdownInProgress         uint32 = 1115 // The system is shutting down.
 )
 
-var ServiceResponseCodeMap = map[uint32]string{
-	ErrorSuccess:                    "Successfully started the service",
-	ErrorFileNotFound:               "The system cannot find the file specified.",
-	ErrorPathNotFound:               "The system cannot find the path specified.",
-	ErrorAccessDenied:               "ERROR_ACCESS_DENIED",
-	ErrorInvalidHandle:              "The handle is no longer valid.",
-	ErrorInvalidParameter:           "A parameter that was specified is invalid.",
-	ErrorInsufficientBuffer:         "ERROR_INSUFFICIENT_BUFFER",
-	ErrorDependentServicesRunning:   "ERROR_DEPENDENT_SERVICES_RUNNING",
-	ErrorInvalidServiceControl:      "ERROR_INVALID_SERVICE_CONTROL",
-	ErrorServiceRequestTimeout:      "Error service request timeout",
-	ErrorServiceNoThread:            "A thread could not be created for the service.",
-	ErrorServiceDatabaseLocked:      "The service database is locked by the call to the BlockServiceDatabase method.",
-	ErrorServiceAlreadyRunning:      "Service already running!",
-	ErrorInvalidServiceAccount:      "ERROR_INVALID_SERVICE_ACCOUNT",
-	ErrorServiceDisabled:            "ERROR_SERVICE_DISABLED",
-	ErrorCircularDependency:         "ERROR_CIRCULAR_DEPENDENCY",
-	ErrorServiceCannotAcceptControl: "ERROR_SERVICE_CANNOT_ACCEPT_CONTROL",
-	ErrorServiceNotActive:           "ERROR_SERVICE_NOT_ACTIVE",
-	ErrorServiceDependencyFail:      "The specified service depends on another service that has failed to start.",
-	ErrorServiceLogonFailed:         "The service did not start due to a logon failure.",
-	ErrorServiceMarkedForDelete:     "Service marked for delete.",
-	ErrorServiceDependencyDeleted:   "The specified service depends on a service that does not exist or has been marked for deletion.",
-	ErrorDuplicateServiceName:       "ERROR_DUPLICATE_SERVICE_NAME",
-	ErrorShutdownInProgress:         "The system is shutting down.",
+var ServiceResponseCodeMap = map[uint32]error{
+	ErrorSuccess:                    fmt.Errorf("Successfully started the service"),
+	ErrorFileNotFound:               fmt.Errorf("The system cannot find the file specified."),
+	ErrorPathNotFound:               fmt.Errorf("The system cannot find the path specified."),
+	ErrorAccessDenied:               fmt.Errorf("ERROR_ACCESS_DENIED"),
+	ErrorInvalidHandle:              fmt.Errorf("The handle is no longer valid."),
+	ErrorInvalidParameter:           fmt.Errorf("A parameter that was specified is invalid."),
+	ErrorInsufficientBuffer:         fmt.Errorf("ERROR_INSUFFICIENT_BUFFER"),
+	ErrorDependentServicesRunning:   fmt.Errorf("ERROR_DEPENDENT_SERVICES_RUNNING"),
+	ErrorInvalidServiceControl:      fmt.Errorf("ERROR_INVALID_SERVICE_CONTROL"),
+	ErrorServiceRequestTimeout:      fmt.Errorf("Error service request timeout"),
+	ErrorServiceNoThread:            fmt.Errorf("A thread could not be created for the service."),
+	ErrorServiceDatabaseLocked:      fmt.Errorf("The service database is locked by the call to the BlockServiceDatabase method."),
+	ErrorServiceAlreadyRunning:      fmt.Errorf("Service already running!"),
+	ErrorInvalidServiceAccount:      fmt.Errorf("ERROR_INVALID_SERVICE_ACCOUNT"),
+	ErrorServiceDisabled:            fmt.Errorf("ERROR_SERVICE_DISABLED"),
+	ErrorCircularDependency:         fmt.Errorf("ERROR_CIRCULAR_DEPENDENCY"),
+	ErrorServiceDoesNotExist:        fmt.Errorf("ERROR_SERVICE_DOES_NOT_EXIST"),
+	ErrorServiceCannotAcceptControl: fmt.Errorf("ERROR_SERVICE_CANNOT_ACCEPT_CONTROL"),
+	ErrorServiceNotActive:           fmt.Errorf("ERROR_SERVICE_NOT_ACTIVE"),
+	ErrorServiceDependencyFail:      fmt.Errorf("The specified service depends on another service that has failed to start."),
+	ErrorServiceLogonFailed:         fmt.Errorf("The service did not start due to a logon failure."),
+	ErrorServiceMarkedForDelete:     fmt.Errorf("Service marked for delete."),
+	ErrorServiceDependencyDeleted:   fmt.Errorf("The specified service depends on a service that does not exist or has been marked for deletion."),
+	ErrorDuplicateServiceName:       fmt.Errorf("ERROR_DUPLICATE_SERVICE_NAME"),
+	ErrorShutdownInProgress:         fmt.Errorf("The system is shutting down."),
 }
 
 const (
@@ -528,6 +532,30 @@ type RChangeServiceConfigWResponse struct {
 	ReturnCode uint32
 }
 
+type RCreateServiceRequest struct {
+	SCContextHandle  []byte `smb:"fixed:20"`
+	ServiceName      *UnicodeStr
+	DisplayName      *UnicodeStr
+	DesiredAccess    uint32
+	ServiceType      uint32
+	StartType        uint32
+	ErrorControl     uint32
+	BinaryPathName   *UnicodeStr
+	LoadOrderGroup   *UnicodeStr
+	TagId            uint32
+	Dependencies     *UnicodeStr
+	DependSize       uint32
+	ServiceStartName *UnicodeStr
+	Password         *UnicodeStr
+	PwSize           uint32
+}
+
+type RCreateServiceResponse struct {
+	TagId         uint32
+	ContextHandle []byte `smb:"fixed:20"`
+	ReturnCode    uint32
+}
+
 type RQueryServiceStatusRequest struct {
 	ContextHandle []byte `smb:"fixed:20"`
 }
@@ -561,6 +589,14 @@ type RControlServiceRequest struct {
 type RControlServiceResponse struct {
 	ServiceStatus
 	ReturnValue uint32
+}
+
+type RDeleteServiceRequest struct {
+	ServiceHandle []byte `smb:"fixed:20"`
+}
+
+type RDeleteServiceResponse struct {
+	ReturnCode uint32
 }
 
 type RCloseServiceHandleReq struct {
@@ -1271,7 +1307,7 @@ func (sb *ServiceBind) openSCManager(desiredAccess uint32) (handle []byte, err e
 	}
 
 	if res.ReturnCode != ErrorSuccess {
-		err = fmt.Errorf(ServiceResponseCodeMap[res.ReturnCode])
+		err = ServiceResponseCodeMap[res.ReturnCode]
 	}
 
 	handle = res.ContextHandle
@@ -1304,7 +1340,7 @@ func (sb *ServiceBind) openService(scHandle []byte, serviceName string, desiredA
 	}
 
 	if res.ReturnCode != ErrorSuccess {
-		err = fmt.Errorf(ServiceResponseCodeMap[res.ReturnCode])
+		err = ServiceResponseCodeMap[res.ReturnCode]
 	}
 
 	handle = res.ContextHandle
@@ -1343,15 +1379,12 @@ func (sb *ServiceBind) GetServiceStatus(serviceName string) (status uint32, err 
 		return
 	}
 
-	fmt.Println("Checking status of service")
 	if res.ReturnCode != ErrorSuccess {
-		err = fmt.Errorf(ServiceResponseCodeMap[res.ReturnCode])
+		err = ServiceResponseCodeMap[res.ReturnCode]
 		return
 	}
 
 	status = res.ServiceStatus.CurrentState
-	fmt.Printf("Service status: %s\n", ServiceStatusMap[status])
-
 	return
 }
 
@@ -1386,9 +1419,7 @@ func (sb *ServiceBind) StartService(serviceName string) (err error) {
 	// Retrieve context handle from response
 	returnValue := binary.LittleEndian.Uint32(buffer)
 	if returnValue != ErrorSuccess {
-		fmt.Println(ServiceResponseCodeMap[returnValue])
-	} else {
-		fmt.Println("Sucessfully started the service!")
+		return ServiceResponseCodeMap[returnValue]
 	}
 
 	return
@@ -1430,9 +1461,7 @@ func (sb *ServiceBind) ControlService(serviceName string, control uint32) (err e
 
 	// Retrieve context handle from response
 	if res.ReturnValue != ErrorSuccess {
-		err = fmt.Errorf(ServiceResponseCodeMap[res.ReturnValue])
-	} else {
-		fmt.Println("Sucessfully completed service control operation!")
+		return ServiceResponseCodeMap[res.ReturnValue]
 	}
 
 	return
@@ -1474,7 +1503,7 @@ func (sb *ServiceBind) GetServiceConfig(serviceName string) (config ServiceConfi
 	}
 
 	if res.ErrorCode != ErrorInsufficientBuffer {
-		err = fmt.Errorf(ServiceResponseCodeMap[res.ErrorCode])
+		err = ServiceResponseCodeMap[res.ErrorCode]
 		return
 	}
 
@@ -1498,7 +1527,7 @@ func (sb *ServiceBind) GetServiceConfig(serviceName string) (config ServiceConfi
 	}
 
 	if res.ErrorCode != ErrorSuccess {
-		err = fmt.Errorf(ServiceResponseCodeMap[res.ErrorCode])
+		err = ServiceResponseCodeMap[res.ErrorCode]
 		return
 	}
 
@@ -1569,7 +1598,153 @@ func (sb *ServiceBind) ChangeServiceConfig(
 		return
 	}
 	if res.ReturnCode != ErrorSuccess {
-		err = fmt.Errorf(ServiceResponseCodeMap[res.ReturnCode])
+		return ServiceResponseCodeMap[res.ReturnCode]
+	}
+
+	return
+}
+
+// func (sb *ServiceBind) CreateService(
+//
+//	serviceName string,
+//	serviceType, startType, errorControl uint32,
+//	binaryPathName, serviceStartName, password, displayName string, startService bool) (err error) {
+func (sb *ServiceBind) CreateService(
+	serviceName string,
+	serviceType, startType, errorControl uint32,
+	binaryPathName, serviceStartName, displayName string, startService bool) (err error) {
+
+	log.Debugln("In CreateService")
+
+	scHandle, err := sb.openSCManager(SCManagerCreateService)
+	if err != nil {
+		return
+	}
+	defer sb.CloseServiceHandle(scHandle)
+
+	innerReq := RCreateServiceRequest{
+		SCContextHandle:  scHandle,
+		ServiceName:      NewUnicodeStr(0, serviceName),
+		DisplayName:      NewUnicodeStr(1, displayName),
+		DesiredAccess:    ServiceAllAccess,
+		ServiceType:      serviceType,
+		StartType:        startType,
+		ErrorControl:     errorControl,
+		BinaryPathName:   NewUnicodeStr(0, binaryPathName),
+		LoadOrderGroup:   nil,
+		TagId:            0,
+		Dependencies:     nil,
+		DependSize:       0,
+		ServiceStartName: NewUnicodeStr(2, serviceStartName),
+	}
+
+	log.Debugf("ServiceName: %s\n", innerReq.ServiceName.EncodedString)
+	// To support specifying a password I must figure out how the encryption is
+	// performed as thisI paramter expects an encrypted passphrase with some
+	// session key
+	//if password != "" {
+	//    innerReq.Password = NewUnicodeStr(0, password)
+	//    innerReq.PwSize = uint32((len(password)+1) * 2) // Null-terminated unicode string
+	//}
+
+	innerBuf, err := encoder.Marshal(innerReq)
+	if err != nil {
+		return
+	}
+
+	buffer, err := sb.MakeIoCtlRequest(SvcCtlRCreateServiceW, innerBuf)
+	if err != nil {
+		return
+	}
+
+	// Parse ServiceConfig
+	res := RCreateServiceResponse{}
+	err = encoder.Unmarshal(buffer, &res)
+	if err != nil {
+		return
+	}
+	if res.ReturnCode != ErrorSuccess {
+		err = ServiceResponseCodeMap[res.ReturnCode]
+		return
+	}
+	defer sb.CloseServiceHandle(res.ContextHandle)
+
+	if startService {
+		ssReq := RStartServiceWRequest{ServiceHandle: res.ContextHandle}
+		ssReq.Argc = 0
+		ssReq.Argv = make([]UnicodeStr, 0) // Marshal of an empty pointer or like this doesn't create any bytes.
+		// When Argc is 0 I need to marshal 0x00000000 for Argc and same for Argv e.g., 4 bytes combined of 0s
+
+		ssBuf, err2 := encoder.Marshal(ssReq)
+		if err != nil {
+			return err2
+		}
+
+		buffer, err2 := sb.MakeIoCtlRequest(SvcCtlRStartServiceW, ssBuf)
+		if err != nil {
+			return err2
+		}
+
+		returnValue := binary.LittleEndian.Uint32(buffer)
+		if returnValue != ErrorSuccess {
+			return ServiceResponseCodeMap[returnValue]
+		}
+	}
+
+	return
+}
+
+func (sb *ServiceBind) DeleteService(serviceName string) (err error) {
+	scHandle, err := sb.openSCManager(SCManagerConnect)
+	if err != nil {
+		return
+	}
+	defer sb.CloseServiceHandle(scHandle)
+	handle, err := sb.openService(scHandle, serviceName, ServiceAllAccess)
+	if err != nil {
+		return
+	}
+	defer sb.CloseServiceHandle(handle)
+
+	// Attempt to stop the service before deletion
+	csReq := RControlServiceRequest{
+		ServiceHandle: handle,
+		Control:       ServiceControlStop,
+	}
+	csBuf, err := encoder.Marshal(csReq)
+	if err != nil {
+		return
+	}
+
+	_, err = sb.MakeIoCtlRequest(SvcCtlRControlService, csBuf)
+	if err != nil {
+		log.Errorln(err)
+		// Continue with deletion even if stop failed for some reason
+	}
+
+	innerReq := RDeleteServiceRequest{
+		ServiceHandle: handle,
+	}
+
+	innerBuf, err := encoder.Marshal(innerReq)
+	if err != nil {
+		return
+	}
+
+	buffer, err := sb.MakeIoCtlRequest(SvcCtlRDeleteService, innerBuf)
+	if err != nil {
+		return
+	}
+
+	// Parse ServiceConfig
+	res := RDeleteServiceResponse{}
+	err = encoder.Unmarshal(buffer, &res)
+	if err != nil {
+		return
+	}
+	if res.ReturnCode != ErrorSuccess {
+		err = ServiceResponseCodeMap[res.ReturnCode]
+		return
 	}
 	return
 }
@@ -1647,7 +1822,7 @@ func (sb *ServiceBind) CloseServiceHandle(serviceHandle []byte) {
 	// Retrieve context handle from response
 	//returnValue := binary.LittleEndian.Uint32(buffer)
 	if res.ReturnCode != ErrorSuccess {
-		fmt.Printf("Failed to close service handle with error (return value: 0x%x): %s\n", res.ReturnCode, ServiceResponseCodeMap[res.ReturnCode])
+		log.Errorf("Failed to close service handle with error (return value: 0x%x): %v\n", res.ReturnCode, ServiceResponseCodeMap[res.ReturnCode])
 	}
 
 	return

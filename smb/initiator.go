@@ -28,7 +28,6 @@ package smb
 
 import (
 	"encoding/asn1"
-	"fmt"
 
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/ntlmssp"
@@ -40,6 +39,7 @@ type Initiator interface {
 	acceptSecContext(sc []byte) ([]byte, error) // GSS_Accept_sec_context
 	sum(bs []byte) []byte                       // GSS_getMIC
 	sessionKey() []byte                         // QueryContextAttributes(ctx, SECPKG_ATTR_SESSION_KEY, &out)
+	isNullSession() bool
 }
 
 // NTLMInitiator implements session setup through NTLMv2.
@@ -49,6 +49,8 @@ type NTLMInitiator struct {
 	Password           string
 	Hash               []byte
 	Domain             string
+	LocalUser          bool
+	NullSession        bool
 	Workstation        string
 	TargetSPN          string
 	DisableSigning     bool
@@ -63,13 +65,15 @@ func (i *NTLMInitiator) oid() asn1.ObjectIdentifier {
 }
 
 func (i *NTLMInitiator) initSecContext() ([]byte, error) {
-	if !((i.User != "") && (i.Password != "")) && !((i.User != "") && (i.Hash != nil)) {
-		return nil, fmt.Errorf("Invalid NTLMInitiator! Must specify username + password or username + hash")
-	}
+	//if !((i.User != "") && (i.Password != "")) && !((i.User != "") && (i.Hash != nil)) {
+	//	return nil, fmt.Errorf("Invalid NTLMInitiator! Must specify username + password or username + hash")
+	//}
 	i.ntlm = &ntlmssp.Client{
 		User:               i.User,
 		Password:           i.Password,
 		Domain:             i.Domain,
+		LocalUser:          i.LocalUser,
+		NullSession:        i.NullSession,
 		Hash:               i.Hash,
 		Workstation:        i.Workstation,
 		TargetSPN:          i.TargetSPN,
@@ -103,4 +107,8 @@ func (i *NTLMInitiator) sum(bs []byte) []byte {
 
 func (i *NTLMInitiator) sessionKey() []byte {
 	return i.ntlm.Session().SessionKey()
+}
+
+func (i *NTLMInitiator) isNullSession() bool {
+	return i.NullSession
 }
