@@ -319,7 +319,7 @@ func (r *RPCCon) OpenBaseKey(baseName byte) (handle []byte, err error) {
 	}
 	var opCode uint16
 
-	log.Debugln("Trying to open basekey (%d)\n", baseName)
+	log.Debugf("Trying to open basekey (%d)\n", baseName)
 	switch baseName {
 	case HKEYClassesRoot:
 		opCode = OpenClassesRoot
@@ -363,7 +363,7 @@ func (r *RPCCon) CloseKeyHandle(hKey []byte) (err error) {
 		HKey: hKey,
 	}
 
-	log.Debugln("Trying to close basekey handle (0x%x)\n", hKey)
+	log.Debugf("Trying to close basekey handle (0x%x)\n", hKey)
 	reqBuf, err := req.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
@@ -407,7 +407,7 @@ func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 		LastWriteTime: &PFiletime{1, 2},
 	}
 
-	log.Debugln("Trying to enumerate subkey (%d) for key handle (0x%x)\n", index, hKey)
+	log.Debugf("Trying to enumerate subkey (%d) for key handle (0x%x)\n", index, hKey)
 	reqBuf, err := req.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
@@ -453,7 +453,7 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 		DataLen: 0,
 	}
 
-	log.Debugln("Trying to enumerate value name for index (%d) for key handle (0x%x)\n", index, hKey)
+	log.Debugf("Trying to enumerate value name for index (%d) for key handle (0x%x)\n", index, hKey)
 	reqBuf, err := req.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
@@ -564,7 +564,7 @@ func (r *RPCCon) OpenSubKey(hKey []byte, subkey string) (handle []byte, err erro
 		//DesiredAccess: KeyEnumerateSubKeys|KeyQueryValue, // These permissions result in AccessDenied for certain keys
 	}
 
-	log.Debugln("Trying to open subkey (%s)\n", subkey)
+	log.Debugf("Trying to open subkey (%s)\n", subkey)
 	reqBuf, err := req.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
@@ -603,7 +603,7 @@ func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 		},
 	}
 
-	log.Debugln("Trying to Query key info for key handle (0x%x)\n", hKey)
+	log.Debugf("Trying to Query key info for key handle (0x%x)\n", hKey)
 	reqBuf, err := req.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
@@ -661,7 +661,7 @@ func (r *RPCCon) QueryValue(hKey []byte, name string) (result []byte, err error)
 		DataLen:   0,
 	}
 
-	log.Debugln("Trying to Query key value for (%s)\n", name)
+	log.Debugf("Trying to Query key value for (%s)\n", name)
 	reqBuf, err := req.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
@@ -758,7 +758,7 @@ func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err err
 		SecurityAttributes: *sa,
 	}
 
-	log.Debugln("Trying to save reg key to file (%s)\n", filename)
+	log.Debugf("Trying to save reg key to file (%s)\n", filename)
 	reqBuf, err := req.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
@@ -797,7 +797,7 @@ func (r *RPCCon) GetKeySecurity(hKey []byte) (sd *SecurityDescriptor, err error)
 		},
 	}
 
-	//log.Debugln("Trying to Query key value for (%s)\n", name)
+	//log.Debugf("Trying to Query key value for (%s)\n", name)
 	reqBuf, err := req.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
@@ -862,7 +862,7 @@ func (r *RPCCon) SetKeySecurity(hKey []byte, sd *SecurityDescriptor) (err error)
 		req.SecurityInformation |= GroupSecurityInformation
 	}
 
-	//log.Debugln("Trying to Query key value for (%s)\n", name)
+	//log.Debugf("Trying to Query key value for (%s)\n", name)
 	reqBuf, err := req.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
