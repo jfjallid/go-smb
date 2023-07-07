@@ -44,7 +44,7 @@ func main() {
     }
     defer session.Close()
 
-    if session.IsSigningRequired {
+    if session.IsSigningRequired.Load() {
         fmt.Println("[-] Signing is required")
     } else {
         fmt.Println("[+] Signing is NOT required")

@@ -36,6 +36,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jfjallid/go-smb/gss"
@@ -64,7 +65,7 @@ type FileMetadata struct {
 }
 
 type Session struct {
-	IsSigningRequired   bool
+	IsSigningRequired   atomic.Bool
 	IsSigningDisabled   bool
 	IsAuthenticated     bool
 	supportsEncryption  bool
@@ -202,12 +203,12 @@ func (c *Connection) NegotiateProtocol() error {
 
 	// Determine whether signing is required
 	mode := uint16(c.securityMode)
-	if !c.IsSigningRequired {
+	if !c.IsSigningRequired.Load() {
 		if mode&SecurityModeSigningEnabled > 0 {
 			if mode&SecurityModeSigningRequired > 0 {
-				c.IsSigningRequired = true
+				c.IsSigningRequired.Store(true)
 			} else {
-				c.IsSigningRequired = false
+				c.IsSigningRequired.Store(false)
 			}
 		}
 	}
@@ -367,7 +368,8 @@ func (c *Connection) SessionSetup() error {
 	}
 
 	c.sessionID = ssres.Header.SessionID
-	if c.IsSigningRequired {
+
+	if c.IsSigningRequired.Load() {
 		if ssres.Flags&SessionFlagIsGuest != 0 {
 			err = fmt.Errorf("guest account doesn't support signing")
 			log.Errorln(err)
@@ -405,6 +407,12 @@ func (c *Connection) SessionSetup() error {
 		}
 	}
 
+	if c.options.Initiator.isNullSession() {
+		// Anonymous auth
+		c.sessionFlags |= SessionFlagIsNull
+		c.sessionFlags &= ^SessionFlagEncryptData
+	}
+
 	log.Debugln("Sending SessionSetup2 request")
 	ss2req, err := c.NewSessionSetup2Req(spnegoClient, &ssres)
 	if err != nil {
@@ -420,11 +428,57 @@ func (c *Connection) SessionSetup() error {
 		log.Debugln(err)
 		return err
 	}
-	if c.options.Initiator.isNullSession() {
-		// Anonymous auth
-		c.sessionFlags |= SessionFlagIsNull
-		c.sessionFlags &= ^SessionFlagEncryptData
+
+	ss2resbuf, err := c.recv(rr)
+	if err != nil {
+		log.Errorln(err)
+		return err
 	}
+	log.Debugln("Unmarshalling SessionSetup2 response header")
+	var authResp Header
+	if err := encoder.Unmarshal(ss2resbuf, &authResp); err != nil {
+		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(ss2resbuf))
+		return err
+	}
+	if authResp.Status != StatusOk {
+		status, found := StatusMap[authResp.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for SessionSetup2 response: 0x%x\n", authResp.Status)
+			log.Errorln(err)
+			return err
+		}
+		log.Debugf("NT Status Error: %v\n", status)
+		return status
+	}
+
+	log.Debugln("Unmarshalling SessionSetup2 response")
+	ssres2, err := NewSessionSetup2Res()
+	if err != nil {
+		log.Debugln(err)
+		return err
+	}
+	if err := encoder.Unmarshal(ss2resbuf, &ssres2); err != nil {
+		log.Debugln(err)
+		return err
+	}
+
+	//TODO Unmarshal the Security Blob as well?
+
+	// Check if we authenticated as guest or with a null session. If so, disable signing and encryption
+	if ((ssres2.Flags & SessionFlagIsGuest) == SessionFlagIsGuest) || ((ssres.Flags & SessionFlagIsNull) == SessionFlagIsNull) {
+		c.IsSigningRequired.Store(false)
+		c.options.DisableEncryption = true
+		c.sessionFlags = ssres2.Flags             //NOTE Replace all sessionFlags here?
+		c.sessionFlags &= ^SessionFlagEncryptData // Make sure encryption is disabled
+
+		if (ssres2.Flags & SessionFlagIsGuest) == SessionFlagIsGuest {
+			c.sessionFlags |= SessionFlagIsGuest
+		} else {
+			c.sessionFlags |= SessionFlagIsNull
+		}
+	}
+
+	c.IsAuthenticated = true
 
 	// Handle signing and encryption options
 	if c.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {
@@ -509,30 +563,6 @@ func (c *Connection) SessionSetup() error {
 			}
 		}
 	}
-
-	ss2resbuf, err := c.recv(rr)
-	if err != nil {
-		log.Errorln(err)
-		return err
-	}
-	log.Debugln("Unmarshalling SessionSetup2 response")
-	var authResp Header
-	if err := encoder.Unmarshal(ss2resbuf, &authResp); err != nil {
-		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(ss2resbuf))
-		return err
-	}
-	if authResp.Status != StatusOk {
-		status, found := StatusMap[authResp.Status]
-		if !found {
-			err = fmt.Errorf("Received unknown SMB Header status for SessionSetup2 response: 0x%x\n", authResp.Status)
-			log.Errorln(err)
-			return err
-		}
-		log.Debugf("NT Status Error: %v\n", status)
-		return status
-	}
-
-	c.IsAuthenticated = true
 
 	log.Debugln("Completed NegotiateProtocol and SessionSetup")
 
@@ -1508,7 +1538,7 @@ func (c *Connection) Close() {
 	for k := range c.trees {
 		c.TreeDisconnect(k)
 	}
-	c.outstandingRequests.shutdown(nil)
+	//c.outstandingRequests.shutdown(nil)
 	close(c.rdone)
 
 	log.Debug("Closing TCP connection")

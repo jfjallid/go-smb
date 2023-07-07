@@ -964,7 +964,7 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 		ClientGuid:    s.clientGuid,
 		Dialects:      dialects,
 	}
-	if s.IsSigningRequired {
+	if s.IsSigningRequired.Load() {
 		req.SecurityMode = SecurityModeSigningRequired
 	}
 
@@ -1096,7 +1096,7 @@ func (s *Connection) NewSessionSetup1Req(spnegoClient *spnegoClient) (req Sessio
 		SecurityBlob:         &init,
 	}
 
-	if s.IsSigningRequired {
+	if s.IsSigningRequired.Load() {
 		req.SecurityMode = byte(SecurityModeSigningRequired)
 	} else {
 		req.SecurityMode = byte(SecurityModeSigningEnabled)
@@ -1155,7 +1155,7 @@ func (s *Connection) NewSessionSetup2Req(client *spnegoClient, msg *SessionSetup
 		SecurityBlob:         &resp,
 	}
 
-	if s.IsSigningRequired {
+	if s.IsSigningRequired.Load() {
 		req.SecurityMode = byte(SecurityModeSigningRequired)
 	} else {
 		req.SecurityMode = byte(SecurityModeSigningEnabled)

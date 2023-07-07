@@ -181,7 +181,7 @@ func (c *Connection) runReceiver() {
 				}
 			}
 
-			if c.Session.IsSigningRequired && !encrypted {
+			if c.Session.IsSigningRequired.Load() && !encrypted {
 				if (h.Flags & SMB2_FLAGS_SIGNED) != SMB2_FLAGS_SIGNED {
 					err = fmt.Errorf("Skip: Signing is required but PDU is not signed")
 					log.Errorln(err)
@@ -296,7 +296,7 @@ func NewConnection(opt Options) (c *Connection, err error) {
 	}
 
 	c.Session = &Session{
-		IsSigningRequired: opt.RequireMessageSigning,
+		IsSigningRequired: atomic.Bool{},
 		IsAuthenticated:   false,
 		IsSigningDisabled: opt.DisableSigning,
 		clientGuid:        make([]byte, 16),
@@ -307,6 +307,7 @@ func NewConnection(opt Options) (c *Connection, err error) {
 		options:           opt,
 		trees:             make(map[string]uint32),
 	}
+	c.Session.IsSigningRequired.Store(opt.RequireMessageSigning)
 
 	// SMB Dialects other than 3.x requires clientGuid to be zero
 	if !opt.ForceSMB2 {
@@ -332,7 +333,7 @@ func NewConnection(opt Options) (c *Connection, err error) {
 	if err != nil {
 		return
 	}
-	log.Debugf("IsSigningRequired: %v, RequireMessageSigning: %v, EncryptData: %v, IsNullSession: %v, IsGuestSession: %v\n", c.IsSigningRequired, c.options.RequireMessageSigning, c.Session.sessionFlags&SessionFlagEncryptData == SessionFlagEncryptData, c.Session.sessionFlags&SessionFlagIsNull == SessionFlagIsNull, c.Session.sessionFlags&SessionFlagIsGuest == SessionFlagIsGuest)
+	log.Debugf("IsSigningRequired: %v, RequireMessageSigning: %v, EncryptData: %v, IsNullSession: %v, IsGuestSession: %v\n", c.IsSigningRequired.Load(), c.options.RequireMessageSigning, c.Session.sessionFlags&SessionFlagEncryptData == SessionFlagEncryptData, c.Session.sessionFlags&SessionFlagIsNull == SessionFlagIsNull, c.Session.sessionFlags&SessionFlagIsGuest == SessionFlagIsGuest)
 
 	return c, nil
 }
