@@ -1105,13 +1105,23 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 		log.Debugln(err)
 		return
 	}
+
+	disconnectFromTree := false
+	// Only disconnect from share if it wasn't already connected.
+	// Otherwise, allow reuse of existing connection.
+	if _, ok := s.trees[share]; !ok {
+		disconnectFromTree = true
+	}
+
 	err = s.TreeConnect(share)
 	if err != nil {
 		log.Debugln(err)
 		return
 	}
 
-	defer s.TreeDisconnect(share)
+	if disconnectFromTree {
+		defer s.TreeDisconnect(share)
+	}
 
 	req, err := s.NewCreateReq(share, filepath,
 		OpLockLevelNone,
@@ -1271,12 +1281,23 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 }
 
 func (s *Connection) PutFile(share string, filepath string, offset uint64, callback func([]byte) (int, error)) (err error) {
+	disconnectFromTree := false
+	// Only disconnect from share if it wasn't already connected.
+	// Otherwise, allow reuse of existing connection.
+	if _, ok := s.trees[share]; !ok {
+		disconnectFromTree = true
+	}
+
 	err = s.TreeConnect(share)
 	if err != nil {
 		log.Debugln(err)
 		return
 	}
-	defer s.TreeDisconnect(share)
+
+	if disconnectFromTree {
+		defer s.TreeDisconnect(share)
+	}
+
 	accessMask := FAccMaskFileReadData |
 		FAccMaskFileWriteData |
 		FAccMaskFileAppendData |
@@ -1408,12 +1429,23 @@ func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
 }
 
 func (s *Connection) DeleteFile(share string, filepath string) (err error) {
+	disconnectFromTree := false
+	// Only disconnect from share if it wasn't already connected.
+	// Otherwise, allow reuse of existing connection.
+	if _, ok := s.trees[share]; !ok {
+		disconnectFromTree = true
+	}
+
 	err = s.TreeConnect(share)
 	if err != nil {
 		log.Debugln(err)
 		return
 	}
-	defer s.TreeDisconnect(share)
+
+	if disconnectFromTree {
+		defer s.TreeDisconnect(share)
+	}
+
 	accessMask := FAccMaskFileReadData |
 		FAccMaskFileReadAttributes |
 		FAccMaskDelete
