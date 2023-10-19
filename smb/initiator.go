@@ -40,6 +40,7 @@ type Initiator interface {
 	sum(bs []byte) []byte                       // GSS_getMIC
 	sessionKey() []byte                         // QueryContextAttributes(ctx, SECPKG_ATTR_SESSION_KEY, &out)
 	isNullSession() bool
+	getUsername() string
 }
 
 // NTLMInitiator implements session setup through NTLMv2.
@@ -111,4 +112,11 @@ func (i *NTLMInitiator) sessionKey() []byte {
 
 func (i *NTLMInitiator) isNullSession() bool {
 	return i.NullSession
+}
+
+func (i *NTLMInitiator) getUsername() string {
+	if i.ntlm.Domain != "" {
+		return i.ntlm.Domain + "\\" + i.ntlm.User
+	}
+	return i.ntlm.User
 }

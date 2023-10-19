@@ -254,7 +254,7 @@ func marshal(v interface{}, meta *Metadata) ([]byte, error) {
 			return nil, err
 		}
 		return buf, nil
-    }
+	}
 
 	if typev.Kind() == reflect.Ptr {
 		valuev = reflect.Indirect(reflect.ValueOf(v))
@@ -622,7 +622,12 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 				//} else {
 				//	diff = align - diff
 				//}
-				meta.CurrOffset += uint64(diff)
+				if len(meta.ParentBuf) > int(meta.CurrOffset) {
+					// Don't increment CurrOffset if we've reached the end of the buffer
+					// Meant to handle situations where the alignment padding is located
+					// before an optional last element of the struct
+					meta.CurrOffset += uint64(diff)
+				}
 				// NOTE This assumes that length is 0 so nothing is read into data below
 			} else {
 				if val, ok := meta.Lens[meta.CurrField]; ok {

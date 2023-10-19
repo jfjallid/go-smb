@@ -167,6 +167,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	if c.Domain != "" {
 		domain = encoder.ToUnicode(c.Domain)
 	} else if !c.LocalUser {
+		c.Domain, _ = encoder.FromUnicodeString(targetName)
 		domain = targetName
 	}
 

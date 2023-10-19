@@ -90,6 +90,7 @@ type Session struct {
 	options                   Options
 	trees                     map[string]uint32
 	lock                      sync.RWMutex
+	authUsername              string // Combined domain and username as sent in SessionSetup2 request
 }
 
 type Options struct {
@@ -420,6 +421,10 @@ func (c *Connection) SessionSetup() error {
 		return err
 	}
 
+	// Retrieve the full username used in the authentication attempt
+	// <domain\username> or just <username> if domain component is empty
+	c.Session.authUsername = c.options.Initiator.getUsername()
+
 	ss2req.Header.Credits = 127
 
 	rr, err = c.send(ss2req)
@@ -646,6 +651,10 @@ func (s *Session) decrypt(buf []byte) ([]byte, error) {
 	ciphertext := append(buf[52:], tHdr.Signature...)
 	// Not sure where it is specified that part of the transform header is used as AdditionalData
 	return s.decrypter.Open(ciphertext[:0], tHdr.Nonce[:s.decrypter.NonceSize()], ciphertext, buf[20:52])
+}
+
+func (c *Connection) GetAuthUsername() string {
+	return c.authUsername
 }
 
 func (c *Connection) TreeConnect(name string) error {

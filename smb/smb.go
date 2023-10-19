@@ -486,6 +486,7 @@ type TransformHeader struct { // 52 bytes
 	SessionId           uint64
 }
 
+// MS-SMB2 Section 2.2.3
 type NegotiateReq struct {
 	Header
 	StructureSize          uint16
@@ -502,6 +503,7 @@ type NegotiateReq struct {
 	ContextList            []NegContext
 }
 
+// MS-SMB2 Section 2.2.4
 type NegotiateRes struct {
 	Header
 	StructureSize          uint16
@@ -519,7 +521,7 @@ type NegotiateRes struct {
 	SecurityBufferLength   uint16 `smb:"len:SecurityBlob"`
 	NegotiateContextOffset uint32 `smb:"offset:ContextList"`
 	SecurityBlob           *gss.NegTokenInit
-	Padding                []byte `smb:"align:8"` // Perhaps remove this and move padding from NegContext to beginning of struct?
+	Padding                []byte `smb:"align:8"`
 	ContextList            []NegContext
 }
 
@@ -853,7 +855,6 @@ type IoCtlRes struct {
 
 func (self *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	log.Debugln("In MarshalBinary for NegotiateReq")
-	fmt.Println("Here in marshal binary")
 	buf := make([]byte, 0, 100)
 	padding := 0
 	hBuf, err := encoder.Marshal(self.Header)
