@@ -502,25 +502,10 @@ func (c *Connection) SessionSetup() error {
 				h.Write(rr.pkt)
 				h.Sum(c.Session.preauthIntegrityHashValue[:0])
 			}
-			// Determine size of L variable for the KDF
-			var l uint32
-			switch c.cipherId {
-			case AES128GCM:
-				l = 128
-			case AES128CCM:
-				l = 128
-			case AES256CCM:
-				l = 256
-			case AES256GCM:
-				l = 256
-			default:
-				err = fmt.Errorf("Cipher algorithm (%d) not implemented", c.cipherId)
-				log.Errorln(err)
-				return err
-			}
 
 			// SMB 3.1.1 requires either signing or encryption of requests, so can't disable signing.
-			signingKey := kdf(sessionKey, []byte("SMBSigningKey\x00"), c.Session.preauthIntegrityHashValue[:], l)
+			// Signingkey is always 128bit
+			signingKey := kdf(sessionKey, []byte("SMBSigningKey\x00"), c.Session.preauthIntegrityHashValue[:], 128)
 
 			switch c.signingId {
 			case HMAC_SHA256:
@@ -543,11 +528,28 @@ func (c *Connection) SessionSetup() error {
 				return err
 			}
 
+			// Determine size of L variable for the KDF
+			var l uint32
+			switch c.cipherId {
+			case AES128GCM:
+				l = 128
+			case AES128CCM:
+				l = 128
+			case AES256CCM:
+				l = 256
+			case AES256GCM:
+				l = 256
+			default:
+				err = fmt.Errorf("Cipher algorithm (%d) not implemented", c.cipherId)
+				log.Errorln(err)
+				return err
+			}
+
 			encryptionKey := kdf(sessionKey, []byte("SMBC2SCipherKey\x00"), c.Session.preauthIntegrityHashValue[:], l)
 			decryptionKey := kdf(sessionKey, []byte("SMBS2CCipherKey\x00"), c.Session.preauthIntegrityHashValue[:], l)
 
 			switch c.cipherId {
-			case AES128GCM:
+			case AES128GCM, AES256GCM:
 				ciph, err := aes.NewCipher(encryptionKey)
 				if err != nil {
 					log.Errorln(err)
