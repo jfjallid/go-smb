@@ -303,9 +303,8 @@ func (c *Connection) NegotiateProtocol() error {
 			}
 			c.signingId = sc.SigningAlgorithms[0]
 			switch c.signingId {
-			//case HMAC_SHA256:
+			case HMAC_SHA256:
 			case AES_CMAC:
-			case AES_GMAC:
 			default:
 				err = fmt.Errorf("Unknown signing algorithm (%d)\n", c.signingId)
 				log.Errorln(err)
@@ -523,13 +522,23 @@ func (c *Connection) SessionSetup() error {
 			// SMB 3.1.1 requires either signing or encryption of requests, so can't disable signing.
 			signingKey := kdf(sessionKey, []byte("SMBSigningKey\x00"), c.Session.preauthIntegrityHashValue[:], l)
 
-			c.Session.signer, err = cmac.New(signingKey)
-			if err != nil {
-				log.Errorln(err)
-				return err
-			}
-			c.Session.verifier, err = cmac.New(signingKey)
-			if err != nil {
+			switch c.signingId {
+			case HMAC_SHA256:
+				c.Session.signer = hmac.New(sha256.New, signingKey)
+				c.Session.verifier = hmac.New(sha256.New, signingKey)
+			case AES_CMAC:
+				c.Session.signer, err = cmac.New(signingKey)
+				if err != nil {
+					log.Errorln(err)
+					return err
+				}
+				c.Session.verifier, err = cmac.New(signingKey)
+				if err != nil {
+					log.Errorln(err)
+					return err
+				}
+			default:
+				err = fmt.Errorf("Unknown signing algorithm (%d) not implemented", c.signingId)
 				log.Errorln(err)
 				return err
 			}

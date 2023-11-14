@@ -989,8 +989,8 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			Ciphers:     []uint16{AES128GCM, AES256GCM},
 		}
 		sc := SigningContext{
-			SigningAlgorithmCount: 3,
-			SigningAlgorithms:     []uint16{HMAC_SHA256, AES_CMAC, AES_GMAC},
+			SigningAlgorithmCount: 2,
+			SigningAlgorithms:     []uint16{HMAC_SHA256, AES_CMAC},
 		}
 
 		picBuf, err := encoder.Marshal(pic)
