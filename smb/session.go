@@ -41,6 +41,7 @@ import (
 
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/ntlmssp"
+	"github.com/jfjallid/go-smb/smb/crypto/ccm"
 	"github.com/jfjallid/go-smb/smb/crypto/cmac"
 	"github.com/jfjallid/go-smb/smb/encoder"
 )
@@ -282,6 +283,8 @@ func (c *Connection) NegotiateProtocol() error {
 			switch c.cipherId {
 			case AES128GCM:
 			case AES256GCM:
+			case AES128CCM:
+			case AES256CCM:
 			default:
 				err = fmt.Errorf("Unknown cipher algorithm (%d)\n", c.cipherId)
 				log.Errorln(err)
@@ -572,6 +575,19 @@ func (c *Connection) SessionSetup() error {
 					return err
 				}
 				log.Infoln("Initialized encrypter and decrypter with GCM")
+			case AES128CCM, AES256CCM:
+				ciph, err := aes.NewCipher(encryptionKey)
+				if err != nil {
+					log.Errorln(err)
+					return err
+				}
+				c.Session.encrypter, err = ccm.NewCCMWithNonceAndTagSizes(ciph, 11, 16)
+				ciph, err = aes.NewCipher(decryptionKey)
+				if err != nil {
+					log.Errorln(err)
+					return err
+				}
+				c.Session.decrypter, err = ccm.NewCCMWithNonceAndTagSizes(ciph, 11, 16)
 			default:
 				err = fmt.Errorf("Cipher algorithm (%d) not implemented", c.cipherId)
 				log.Errorln(err)

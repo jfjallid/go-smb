@@ -479,7 +479,7 @@ type Header struct { // 64 bytes
 type TransformHeader struct { // 52 bytes
 	ProtcolID           uint32
 	Signature           []byte `smb:"fixed:16"`
-	Nonce               []byte `smb:"fixed:16"` // 12 bytes nonce + 4 bytes set to 0
+	Nonce               []byte `smb:"fixed:16"` // 11 bytes nonce + 5 bytes reversed if CCM, 12 bytes nonce + 4 bytes reversed if GCM
 	OriginalMessageSize uint32
 	Reserved            uint16
 	Flags               uint16 //SMB 3.1.1
@@ -985,8 +985,8 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			return req, err
 		}
 		cc := EncryptionContext{
-			CipherCount: 2,
-			Ciphers:     []uint16{AES128GCM, AES256GCM},
+			CipherCount: 4,
+			Ciphers:     []uint16{AES128CCM, AES128GCM, AES256CCM, AES256GCM},
 		}
 		sc := SigningContext{
 			SigningAlgorithmCount: 2,
