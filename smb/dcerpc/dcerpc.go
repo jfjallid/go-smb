@@ -609,7 +609,7 @@ type RCloseServiceHandleRes struct {
 }
 
 func (s *ContextItems) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	log.Debugln("In MarshalBinary for ContextItems")
+	//log.Debugln("In MarshalBinary for ContextItems")
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	for _, item := range *s {
@@ -625,7 +625,7 @@ func (s *ContextItems) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 }
 
 func (s *ContextItems) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	log.Debugln("In UnmarshalBinary for ContextItems")
+	//log.Debugln("In UnmarshalBinary for ContextItems")
 
 	slice := []ContextItem{}
 	c, ok := meta.Counts[meta.CurrField]
@@ -962,7 +962,6 @@ func (s *NetShareEnumAllResponse) UnmarshalBinary(buf []byte, meta *encoder.Meta
 }
 
 func NewUnicodeStr(referentId uint32, s string) *UnicodeStr {
-	log.Debugln("In NewUnicodeStr")
 	us := UnicodeStr{}
 	if referentId != 0 {
 		us.ReferentIdPtr = referentId
@@ -985,7 +984,7 @@ func NewUnicodeStr(referentId uint32, s string) *UnicodeStr {
 }
 
 func uuid_to_bin(uuid string) ([]byte, error) {
-	log.Debugln("In uuid_to_bin")
+	//log.Debugln("In uuid_to_bin")
 
 	if !strings.ContainsRune(uuid, '-') {
 		return hex.DecodeString(uuid)
@@ -1750,7 +1749,6 @@ func (sb *ServiceBind) DeleteService(serviceName string) (err error) {
 }
 
 func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result []byte, err error) {
-	log.Debugln("In MakeIoCtlRequest")
 	callId := rand.Uint32()
 	req, err := NewRequestReq(callId, opcode)
 	if err != nil {
@@ -1777,6 +1775,7 @@ func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result 
 	// Send DCERPC request inside SMB IoCTL Request
 	ioCtlRes, err := sb.f.WriteIoCtlReq(ioCtlReq)
 	if err != nil {
+		log.Errorln(err)
 		return
 	}
 
@@ -1797,7 +1796,7 @@ func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result 
 }
 
 func (sb *ServiceBind) CloseServiceHandle(serviceHandle []byte) {
-	log.Debugln("In CloseServiceHandle")
+	//log.Debugln("In CloseServiceHandle")
 	closeReq := RCloseServiceHandleReq{
 		ServiceHandle: serviceHandle,
 	}

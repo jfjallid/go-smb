@@ -28,9 +28,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jfjallid/golog"
 	"github.com/jfjallid/go-smb/smb/dcerpc"
 	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/golog"
 )
 
 var log = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc/msrrp")
@@ -447,9 +447,9 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 	req := BaseRegEnumValueReq{
 		HKey:    hKey,
 		Index:   index,
-		NameIn:  PRRPUnicodeStr2{Length: 0, MaxLength: 1024},
+		NameIn:  PRRPUnicodeStr2{Length: 0, MaxLength: 2048},
 		Type:    1024,
-		MaxLen:  1024,
+		MaxLen:  4096,
 		DataLen: 0,
 	}
 
@@ -473,8 +473,34 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 		return
 	}
 
+	if res.ReturnCode == ErrorMoreData {
+		log.Debugln("EnumValue failed with ERROR_MORE_DATA. Making another request with a larger buffer.")
+		// Make another request with the correct buffer size
+		req.MaxLen = res.DataLen
+		reqBuf, err = req.MarshalBinary()
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		buffer, err = r.MakeIoCtlRequest(BaseRegEnumValue, reqBuf)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		res = BaseRegEnumValueRes{}
+		err = res.UnmarshalBinary(buffer)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
 	if res.ReturnCode != ErrorSuccess {
+		if res.ReturnCode == ErrorMoreData {
+			log.Debugf("EnumValue failed with ERROR_MORE_DATA. Here is the response: %+v\n", res)
+		}
 		err = ReturnCodeMap[res.ReturnCode]
+		log.Errorf("EnumValue failed with return code: %s\n", err.Error())
 		return
 	}
 
@@ -678,6 +704,28 @@ func (r *RPCCon) QueryValue(hKey []byte, name string) (result []byte, err error)
 	if err != nil {
 		log.Errorln(err)
 		return
+	}
+
+	if res.ReturnCode == ErrorMoreData {
+		log.Debugln("EnumValue failed with ERROR_MORE_DATA. Making another request with a larger buffer.")
+		// Make another request with the correct buffer size
+		req.MaxLen = res.DataLen
+		reqBuf, err = req.MarshalBinary()
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		buffer, err = r.MakeIoCtlRequest(BaseRegQueryValue, reqBuf)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		res = BaseRegQueryValueRes{}
+		err = res.UnmarshalBinary(buffer)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
 	}
 
 	if res.ReturnCode != ErrorSuccess {
