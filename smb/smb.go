@@ -53,6 +53,7 @@ const (
 	StatusEndOfFile              = 0xc0000011
 	StatusMoreProcessingRequired = 0xc0000016
 	StatusAccessDenied           = 0xc0000022
+	StatusObjectNameInvalid      = 0xc0000033
 	StatusObjectNameNotFound     = 0xc0000034
 	StatusLogonFailure           = 0xc000006d
 	StatusBadNetworkName         = 0xc00000cc
@@ -70,6 +71,7 @@ var StatusMap = map[uint32]error{
 	StatusEndOfFile:              fmt.Errorf("The end-of-file marker has been reached"),
 	StatusMoreProcessingRequired: fmt.Errorf("More Processing Required"),
 	StatusAccessDenied:           fmt.Errorf("Access denied!"),
+	StatusObjectNameInvalid:      fmt.Errorf("The object name is invalid for the target filesystem"),
 	StatusObjectNameNotFound:     fmt.Errorf("Requested file does not exist"),
 	StatusLogonFailure:           fmt.Errorf("Logon failed"),
 	StatusBadNetworkName:         fmt.Errorf("Bad network name"),
@@ -989,8 +991,8 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			Ciphers:     []uint16{AES128CCM, AES128GCM, AES256CCM, AES256GCM},
 		}
 		sc := SigningContext{
-			SigningAlgorithmCount: 2,
-			SigningAlgorithms:     []uint16{HMAC_SHA256, AES_CMAC},
+			SigningAlgorithmCount: 1,
+			SigningAlgorithms:     []uint16{AES_CMAC},
 		}
 
 		picBuf, err := encoder.Marshal(pic)

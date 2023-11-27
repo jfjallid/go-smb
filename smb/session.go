@@ -235,6 +235,7 @@ func (c *Connection) NegotiateProtocol() error {
 		return nil
 	}
 	// Handle context for SMB 3.1.1
+	foundSigningContext := false
 	for _, context := range negRes.ContextList {
 		switch context.ContextType {
 		case PreauthIntegrityCapabilities:
@@ -313,9 +314,16 @@ func (c *Connection) NegotiateProtocol() error {
 				log.Errorln(err)
 				return err
 			}
+
+			foundSigningContext = true
+
 		default:
 			log.Debugf("Unsupported context type (%d)\n", context.ContextType)
 		}
+	}
+	if !foundSigningContext && c.dialect > DialectSmb_2_1 {
+		// Default for SMB 3.x when no SigningContent is received is to use AES_CMAC for signing
+		c.signingId = AES_CMAC
 	}
 
 	return nil
@@ -511,9 +519,6 @@ func (c *Connection) SessionSetup() error {
 			signingKey := kdf(sessionKey, []byte("SMBSigningKey\x00"), c.Session.preauthIntegrityHashValue[:], 128)
 
 			switch c.signingId {
-			case HMAC_SHA256:
-				c.Session.signer = hmac.New(sha256.New, signingKey)
-				c.Session.verifier = hmac.New(sha256.New, signingKey)
 			case AES_CMAC:
 				c.Session.signer, err = cmac.New(signingKey)
 				if err != nil {
