@@ -46,7 +46,7 @@ var (
 	MSRPCUuidSrvSvc                       = "4B324FC8-1670-01D3-1278-5A47BF6EE188"
 	MSRPCSrvSvcMajorVersion uint16        = 3
 	MSRPCSrvSvcMinorVersion uint16        = 0
-	MSRPCUuidNdr                          = "8a885d04-1ceb-11c9-9fe8-08002b104860"
+	MSRPCUuidNdr                          = "8a885d04-1ceb-11c9-9fe8-08002b104860" // NDR Transfer Syntax version 2.0
 	re                      regexp.Regexp = *regexp.MustCompile(`([\dA-Fa-f]{8})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})([\dA-Fa-f]{8})`)
 	ContextItemLen                        = 44
 	ContextResItemLen                     = 24
@@ -606,6 +606,94 @@ type RCloseServiceHandleReq struct {
 type RCloseServiceHandleRes struct {
 	ContextHandle []byte `smb:"fixed:20"`
 	ReturnCode    uint32
+}
+
+func (s *RStartServiceWRequest) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+
+	// Encode ServiceHandle
+	w.Write(s.ServiceHandle)
+	// Encode Argc
+	if err := binary.Write(w, binary.LittleEndian, s.Argc); err != nil {
+		return nil, err
+	}
+
+	// If Argc is 0, Argv will be a null pointer
+	if s.Argc == 0 {
+		w.Write([]byte{0x0, 0x0, 0x0, 0x0})
+		return w.Bytes(), nil
+	}
+
+	refId := make([]byte, 4)
+	_, err := rand.Read(refId)
+	if err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+
+	_, err = w.Write(refId)
+	if err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+
+	// Encode Max Element Count in array
+	if err := binary.Write(w, binary.LittleEndian, s.Argc); err != nil {
+		return nil, err
+	}
+
+	// Encode another RefId for each element in the array
+	// This is because according to NDR, the pointers are lifted outside the array element and into the parent structure
+	for i := 0; i < int(s.Argc); i++ {
+		_, err := rand.Read(refId)
+		if err != nil {
+			log.Errorln(err)
+			return nil, err
+		}
+
+		_, err = w.Write(refId)
+		if err != nil {
+			log.Errorln(err)
+			return nil, err
+		}
+	}
+
+	for i := 0; i < int(s.Argc); i++ {
+		// Encode MaxCount
+		if err := binary.Write(w, binary.LittleEndian, s.Argv[i].MaxCount); err != nil {
+			log.Errorln(err)
+			return nil, err
+		}
+		// Encode Offset
+		if err := binary.Write(w, binary.LittleEndian, s.Argv[i].Offset); err != nil {
+			log.Errorln(err)
+			return nil, err
+		}
+		// Encode ActualCount
+		if err := binary.Write(w, binary.LittleEndian, s.Argv[i].ActualCount); err != nil {
+			log.Errorln(err)
+			return nil, err
+		}
+		// Encode String
+		if err := binary.Write(w, binary.LittleEndian, s.Argv[i].EncodedString); err != nil {
+			log.Errorln(err)
+			return nil, err
+		}
+		// Encode Padding
+		if len(s.Argv[i].Padd) > 0 {
+			if err := binary.Write(w, binary.LittleEndian, s.Argv[i].Padd); err != nil {
+				log.Errorln(err)
+				return nil, err
+			}
+		}
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *RStartServiceWRequest) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RStartServiceWRequest")
 }
 
 func (s *ContextItems) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
@@ -1387,7 +1475,7 @@ func (sb *ServiceBind) GetServiceStatus(serviceName string) (status uint32, err 
 	return
 }
 
-func (sb *ServiceBind) StartService(serviceName string) (err error) {
+func (sb *ServiceBind) StartService(serviceName string, args []string) (err error) {
 	log.Debugln("In StartService")
 	handle, err := sb.openSCManager(ServiceStart)
 	if err != nil {
@@ -1401,11 +1489,21 @@ func (sb *ServiceBind) StartService(serviceName string) (err error) {
 	defer sb.CloseServiceHandle(serviceHandle)
 
 	ssReq := RStartServiceWRequest{ServiceHandle: serviceHandle}
-	ssReq.Argc = 0
-	ssReq.Argv = make([]UnicodeStr, 0) // Marshal of an empty pointer or like this doesn't create any bytes.
-	// When Argc is 0 I need to marshal 0x00000000 for Argc and same for Argv e.g., 4 bytes combined of 0s
+	if args == nil || len(args) == 0 {
+		ssReq.Argc = 0
+		ssReq.Argv = nil
+	} else {
+		arr := make([]UnicodeStr, len(args))
+		refId := uint32(1)
+		ssReq.Argc = uint32(len(args))
+		for i := range args {
+			arr[i] = *NewUnicodeStr(refId, args[i])
+			refId++
+		}
+		ssReq.Argv = arr
+	}
 
-	ssBuf, err := encoder.Marshal(ssReq)
+	ssBuf, err := encoder.Marshal(&ssReq)
 	if err != nil {
 		return
 	}
@@ -1603,11 +1701,6 @@ func (sb *ServiceBind) ChangeServiceConfig(
 	return
 }
 
-// func (sb *ServiceBind) CreateService(
-//
-//	serviceName string,
-//	serviceType, startType, errorControl uint32,
-//	binaryPathName, serviceStartName, password, displayName string, startService bool) (err error) {
 func (sb *ServiceBind) CreateService(
 	serviceName string,
 	serviceType, startType, errorControl uint32,
@@ -1639,7 +1732,7 @@ func (sb *ServiceBind) CreateService(
 
 	log.Debugf("ServiceName: %s\n", innerReq.ServiceName.EncodedString)
 	// To support specifying a password I must figure out how the encryption is
-	// performed as thisI paramter expects an encrypted passphrase with some
+	// performed as this parameter expects an encrypted passphrase with some
 	// session key
 	//if password != "" {
 	//    innerReq.Password = NewUnicodeStr(0, password)
@@ -1671,10 +1764,9 @@ func (sb *ServiceBind) CreateService(
 	if startService {
 		ssReq := RStartServiceWRequest{ServiceHandle: res.ContextHandle}
 		ssReq.Argc = 0
-		ssReq.Argv = make([]UnicodeStr, 0) // Marshal of an empty pointer or like this doesn't create any bytes.
 		// When Argc is 0 I need to marshal 0x00000000 for Argc and same for Argv e.g., 4 bytes combined of 0s
 
-		ssBuf, err2 := encoder.Marshal(ssReq)
+		ssBuf, err2 := encoder.Marshal(&ssReq)
 		if err != nil {
 			return err2
 		}
