@@ -978,9 +978,14 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 	f := &File{Connection: s, share: share, fd: res.FileId, filename: dir, shareid: s.trees[share]}
 	defer f.CloseFile()
 
+	maxResponseBufferSize := uint32(65536)
+	if s.supportsMultiCredit {
+		maxResponseBufferSize = 131072 // Arbitrary value of 128 KiB
+	}
+
 	// QueryDirectory request
 	for {
-		moreFiles, err := f.QueryDirectory(pattern, 0, 0, 131072) // Arbitrary value of 128 KiB
+		moreFiles, err := f.QueryDirectory(pattern, 0, 0, maxResponseBufferSize)
 		if err != nil {
 			log.Debugln(err)
 			return files, err
@@ -1223,7 +1228,7 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 	}
 
 	log.Debugln("Sending ReadFile requests")
-	// Reading data in chunks of max 1KiB blocks as f.MaxReadSize seems to cause problems
+	// Reading data in chunks of max 1MiB blocks as f.MaxReadSize seems to cause problems
 	data := make([]byte, 1048576)
 	fileSize := res.EndOfFile
 
@@ -1254,9 +1259,17 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 }
 
 func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
-	// Reading data in chunks of max 1KiB blocks as f.MaxReadSize seems to cause problems
-	if len(b) > 1048576 {
-		b = b[:1048576]
+	maxReadBufferSize := 65536
+	if f.supportsMultiCredit {
+		// Reading data in chunks of max 1MiB blocks as f.MaxReadSize seems to cause problems
+		maxReadBufferSize = 1048576 // Arbitrary value of 1MiB
+	}
+
+	// If connection supports multi-credit requests, we can request as large chunks
+	// as the caller wants up to an upper limit of 1MiB. Otherwise the size is limited to
+	// 64KiB
+	if len(b) > maxReadBufferSize {
+		b = b[:maxReadBufferSize]
 	}
 
 	req, err := f.NewReadReq(f.share, f.fd,
@@ -1404,7 +1417,7 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 	defer f.CloseFile()
 
 	log.Debugln("Sending WriteFile requests")
-	// Writing data in chunks of max 1KiB blocks as f.MaxWriteSize seems to cause problems
+	// Writing data in chunks of max 1MiB blocks as f.MaxWriteSize seems to cause problems
 
 	writeOffset := offset
 	for {
@@ -1430,9 +1443,17 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 }
 
 func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
-	// Reading data in chunks of max 1KiB blocks as f.MaxReadSize seems to cause problems
-	if len(data) > 1048576 { // 1KiB
-		data = data[:1048576]
+	maxWriteBufferSize := 65536
+	if f.supportsMultiCredit {
+		// Reading data in chunks of max 1MiB blocks as f.MaxReadSize seems to cause problems
+		maxWriteBufferSize = 1048576 // Arbitrary value of 1MiB
+	}
+
+	// If connection supports multi-credit requests, we can send as large chunks
+	// as the caller wants up to an upper limit of 1MiB. Otherwise the size is limited to
+	// 64KiB
+	if len(data) > maxWriteBufferSize {
+		data = data[:maxWriteBufferSize]
 	}
 
 	req, err := f.NewWriteReq(f.share, f.fd, offset, data)

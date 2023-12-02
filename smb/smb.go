@@ -27,6 +27,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/jfjallid/golog"
 
@@ -855,6 +856,10 @@ type IoCtlRes struct {
 	Buffer        []byte
 }
 
+func calcCreditCharge(payloadSize uint32) uint16 {
+	return uint16(math.Ceil(((float64(payloadSize) - 1) / 65536) + 1))
+}
+
 func (self *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	log.Debugln("In MarshalBinary for NegotiateReq")
 	buf := make([]byte, 0, 100)
@@ -1301,7 +1306,7 @@ func (s *Session) NewQueryDirectoryReq(share, pattern string, fileId []byte,
 	*/
 	header := newHeader()
 	header.Command = CommandQueryDirectory
-	header.CreditCharge = uint16((outputBufferLength-1)/65536 + 1)
+	header.CreditCharge = calcCreditCharge(outputBufferLength)
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1352,7 +1357,7 @@ func (s *Session) NewReadReq(share string, fileid []byte,
 
 	header := newHeader()
 	header.Command = CommandRead
-	header.CreditCharge = uint16((length-1)/65536 + 1)
+	header.CreditCharge = calcCreditCharge(length)
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1388,7 +1393,7 @@ func (s *Session) NewWriteReq(share string, fileid []byte,
 
 	header := newHeader()
 	header.Command = CommandWrite
-	header.CreditCharge = uint16((len(data)-1)/65536 + 1)
+	header.CreditCharge = calcCreditCharge(uint32(len(data)))
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
