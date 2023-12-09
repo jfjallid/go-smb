@@ -211,10 +211,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 
 	//If timestamp was not found in AV Pairs I should add a timestamp with current time
 	if !timestampFound {
-		// Credit to https://github.com/Azure/go-ntlmssp/blob/master/unicode.go for logic
-		ft := uint64(time.Now().UnixNano()) / 100
-		ft += 116444736000000000 // add time between unix & windows offset
-		binary.LittleEndian.PutUint64(timestamp, ft)
+		binary.LittleEndian.PutUint64(timestamp, ConvertToFileTime(time.Now()))
 	}
 
 	if !flagsFound {

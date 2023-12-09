@@ -44,6 +44,7 @@ import (
 	"github.com/jfjallid/go-smb/smb/crypto/ccm"
 	"github.com/jfjallid/go-smb/smb/crypto/cmac"
 	"github.com/jfjallid/go-smb/smb/encoder"
+	"golang.org/x/net/proxy"
 )
 
 type File struct {
@@ -108,6 +109,8 @@ type Options struct {
 	ForceSMB2             bool
 	Initiator             Initiator
 	DialTimeout           time.Duration
+	ProxyDialer           proxy.Dialer
+	RelayPort             int
 }
 
 func validateOptions(opt Options) error {
@@ -234,6 +237,7 @@ func (c *Connection) NegotiateProtocol() error {
 	if c.dialect != DialectSmb_3_1_1 {
 		return nil
 	}
+
 	// Handle context for SMB 3.1.1
 	foundSigningContext := false
 	for _, context := range negRes.ContextList {
@@ -477,6 +481,12 @@ func (c *Connection) SessionSetup() error {
 		return err
 	}
 
+	// When relaying through a proxy, if we don't have a sessionID yet,
+	// take it from the SessionSetup2Res message
+	if c.useProxy {
+		c.sessionID = ssres2.SessionID
+	}
+
 	//TODO Unmarshal the Security Blob as well?
 
 	// Check if we authenticated as guest or with a null session. If so, disable signing and encryption
@@ -579,7 +589,7 @@ func (c *Connection) SessionSetup() error {
 					log.Errorln(err)
 					return err
 				}
-				log.Infoln("Initialized encrypter and decrypter with GCM")
+				log.Debugln("Initialized encrypter and decrypter with GCM")
 			case AES128CCM, AES256CCM:
 				ciph, err := aes.NewCipher(encryptionKey)
 				if err != nil {
@@ -593,6 +603,7 @@ func (c *Connection) SessionSetup() error {
 					return err
 				}
 				c.Session.decrypter, err = ccm.NewCCMWithNonceAndTagSizes(ciph, 11, 16)
+				log.Debugln("Initialized encrypter and decrypter with CCM")
 			default:
 				err = fmt.Errorf("Cipher algorithm (%d) not implemented", c.cipherId)
 				log.Errorln(err)

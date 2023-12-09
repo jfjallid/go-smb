@@ -875,7 +875,7 @@ func (r *RPCCon) GetKeySecurity(hKey []byte) (sd *SecurityDescriptor, err error)
 		log.Errorln(err)
 		return
 	}
-	log.Infoln("Successfully got the security information")
+	log.Debugln("Successfully got the security information")
 	sd = res.SecurityDescriptorOut.KeySecurityData
 
 	return
@@ -933,7 +933,7 @@ func (r *RPCCon) SetKeySecurity(hKey []byte, sd *SecurityDescriptor) (err error)
 	if res.uint32 != ErrorSuccess {
 		err = ReturnCodeMap[res.uint32]
 	}
-	log.Infoln("Successfully changed the SecurityDescriptor")
+	log.Debugln("Successfully changed the SecurityDescriptor")
 	return
 }
 

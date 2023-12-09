@@ -32,7 +32,16 @@ import (
 	"crypto/rc4"
 	"encoding/binary"
 	"hash/crc32"
+	"time"
 )
+
+// MS-DTYP
+func ConvertToFileTime(t time.Time) uint64 {
+	// Credit to https://github.com/Azure/go-ntlmssp/blob/master/unicode.go for logic
+	ft := uint64(t.UnixNano()) / 100
+	ft += 116444736000000000 // add time between unix & windows offset
+	return ft
+}
 
 // With Extended Session Security
 func mac(dst []byte, negotiateFlags uint32, handle *rc4.Cipher, signingKey []byte, seqNum uint32, msg []byte) ([]byte, uint32) {

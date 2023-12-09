@@ -465,7 +465,121 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 }
 
 func (self *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for Authenticate")
+	log.Debugln("In UnmarshalBinary for Authenticate")
+	baseSize := 64
+	bufLen := len(buf)
+	if bufLen < baseSize {
+		err := fmt.Errorf("Authenticate buffer is only %d bytes, but at least 64 bytes is required to unmarshal", bufLen)
+		log.Errorln(err)
+		return err
+	}
+
+	self.Signature = buf[:8]
+	self.MessageType = binary.LittleEndian.Uint32(buf[8:12])
+	self.LmChallengeResponseLen = binary.LittleEndian.Uint16(buf[12:14])
+	self.LmChallengeResponseMaxLen = binary.LittleEndian.Uint16(buf[14:16])
+	self.LmChallengeResponseBufferOffset = binary.LittleEndian.Uint32(buf[16:20])
+	self.NtChallengeResponseLen = binary.LittleEndian.Uint16(buf[20:22])
+	self.NtChallengeResponseMaxLen = binary.LittleEndian.Uint16(buf[22:24])
+	self.NtChallengResponseBufferOffset = binary.LittleEndian.Uint32(buf[24:28])
+	self.DomainNameLen = binary.LittleEndian.Uint16(buf[28:30])
+	self.DomainNameMaxLen = binary.LittleEndian.Uint16(buf[30:32])
+	self.DomainNameBufferOffset = binary.LittleEndian.Uint32(buf[32:36])
+	self.UserNameLen = binary.LittleEndian.Uint16(buf[36:38])
+	self.UserNameMaxLen = binary.LittleEndian.Uint16(buf[38:40])
+	self.UserNameBufferOffset = binary.LittleEndian.Uint32(buf[40:44])
+	self.WorkstationLen = binary.LittleEndian.Uint16(buf[44:46])
+	self.WorkstationMaxLen = binary.LittleEndian.Uint16(buf[46:48])
+	self.WorkstationBufferOffset = binary.LittleEndian.Uint32(buf[48:52])
+	self.EncryptedRandomSessionKeyLen = binary.LittleEndian.Uint16(buf[52:54])
+	self.EncryptedRandomSessionKeyMaxLen = binary.LittleEndian.Uint16(buf[54:56])
+	self.EncryptedRandomSessionKeyBufferOffset = binary.LittleEndian.Uint32(buf[56:60])
+	self.NegotiateFlags = binary.LittleEndian.Uint32(buf[60:64])
+
+	offset := 64
+
+	extraBytes := int(self.LmChallengeResponseLen +
+		self.NtChallengeResponseLen +
+		self.DomainNameLen +
+		self.UserNameLen +
+		self.WorkstationLen +
+		self.EncryptedRandomSessionKeyLen)
+
+	// Sanity check that none of the offsets + lengths points outside buffer
+	if (self.LmChallengeResponseBufferOffset + uint32(self.LmChallengeResponseLen)) > uint32(bufLen) {
+		err := fmt.Errorf("Custom length field offset is outside buffer")
+		log.Errorln(err)
+		return err
+	}
+	if (self.NtChallengResponseBufferOffset + uint32(self.NtChallengeResponseLen)) > uint32(bufLen) {
+		err := fmt.Errorf("Custom length field offset is outside buffer")
+		log.Errorln(err)
+		return err
+	}
+	if (self.DomainNameBufferOffset + uint32(self.DomainNameLen)) > uint32(bufLen) {
+		err := fmt.Errorf("Custom length field offset is outside buffer")
+		log.Errorln(err)
+		return err
+	}
+	if (self.UserNameBufferOffset + uint32(self.UserNameLen)) > uint32(bufLen) {
+		err := fmt.Errorf("Custom length field offset is outside buffer")
+		log.Errorln(err)
+		return err
+	}
+	if (self.WorkstationBufferOffset + uint32(self.WorkstationLen)) > uint32(bufLen) {
+		err := fmt.Errorf("Custom length field offset is outside buffer")
+		log.Errorln(err)
+		return err
+	}
+	if (self.EncryptedRandomSessionKeyBufferOffset + uint32(self.EncryptedRandomSessionKeyLen)) > uint32(bufLen) {
+		err := fmt.Errorf("Custom length field offset is outside buffer")
+		log.Errorln(err)
+		return err
+	}
+
+	unmarshalVersion := false
+	if (self.NegotiateFlags & FlgNegVersion) == FlgNegVersion {
+		// Also unmarshal version, so 8 bytes more
+		unmarshalVersion = true
+		extraBytes += 8
+	}
+	if baseSize+extraBytes > bufLen {
+		err := fmt.Errorf("Authenticate buffer is only %d bytes, but at least %d bytes is required to unmarshal all the specified custom length fields", bufLen, baseSize+extraBytes)
+		log.Errorln(err)
+		return err
+	}
+
+	if unmarshalVersion {
+		self.Version = binary.LittleEndian.Uint64(buf[offset : offset+8])
+		offset += 8
+	}
+
+	if bufLen >= baseSize+extraBytes+16 {
+		// Also unmarshal MIC
+		self.MIC = buf[offset : offset+16]
+		offset += 16
+	}
+
+	if self.LmChallengeResponseLen > 0 {
+		self.LmChallengeResponse = buf[self.LmChallengeResponseBufferOffset : self.LmChallengeResponseBufferOffset+uint32(self.LmChallengeResponseLen)]
+	}
+	if self.NtChallengeResponseLen > 0 {
+		self.NtChallengeResponse = buf[self.NtChallengResponseBufferOffset : self.NtChallengResponseBufferOffset+uint32(self.NtChallengeResponseLen)]
+	}
+	if self.DomainNameLen > 0 {
+		self.DomainName = buf[self.DomainNameBufferOffset : self.DomainNameBufferOffset+uint32(self.DomainNameLen)]
+	}
+	if self.UserNameLen > 0 {
+		self.UserName = buf[self.UserNameBufferOffset : self.UserNameBufferOffset+uint32(self.UserNameLen)]
+	}
+	if self.WorkstationLen > 0 {
+		self.Workstation = buf[self.WorkstationBufferOffset : self.WorkstationBufferOffset+uint32(self.WorkstationLen)]
+	}
+	if self.EncryptedRandomSessionKeyLen > 0 {
+		self.EncryptedRandomSessionKey = buf[self.EncryptedRandomSessionKeyBufferOffset : self.EncryptedRandomSessionKeyBufferOffset+uint32(self.EncryptedRandomSessionKeyLen)]
+	}
+
+	return nil
 }
 
 func NewChallenge() Challenge {
