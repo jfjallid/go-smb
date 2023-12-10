@@ -44,7 +44,7 @@ import (
 	"github.com/jfjallid/golog"
 )
 
-var log = golog.Get("github.com/jfjallid/smb/smb/encoder")
+var log = golog.Get("github.com/jfjallid/go-smb/smb/encoder")
 
 type BinaryMarshallable interface {
 	MarshalBinary(*Metadata) ([]byte, error)

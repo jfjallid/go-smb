@@ -1864,6 +1864,9 @@ func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result 
 		return
 	}
 
+	//NOTE Might be a problem with exceeding a max payload size of 65536 for
+	// servers that do not support multi-credit requests
+
 	// Send DCERPC request inside SMB IoCTL Request
 	ioCtlRes, err := sb.f.WriteIoCtlReq(ioCtlReq)
 	if err != nil {

@@ -44,6 +44,7 @@ import (
 	"github.com/jfjallid/go-smb/smb/crypto/ccm"
 	"github.com/jfjallid/go-smb/smb/crypto/cmac"
 	"github.com/jfjallid/go-smb/smb/encoder"
+	"golang.org/x/net/proxy"
 )
 
 type File struct {
@@ -108,6 +109,8 @@ type Options struct {
 	ForceSMB2             bool
 	Initiator             Initiator
 	DialTimeout           time.Duration
+	ProxyDialer           proxy.Dialer
+	RelayPort             int
 }
 
 func validateOptions(opt Options) error {
@@ -234,6 +237,7 @@ func (c *Connection) NegotiateProtocol() error {
 	if c.dialect != DialectSmb_3_1_1 {
 		return nil
 	}
+
 	// Handle context for SMB 3.1.1
 	foundSigningContext := false
 	for _, context := range negRes.ContextList {
@@ -477,6 +481,12 @@ func (c *Connection) SessionSetup() error {
 		return err
 	}
 
+	// When relaying through a proxy, if we don't have a sessionID yet,
+	// take it from the SessionSetup2Res message
+	if c.useProxy {
+		c.sessionID = ssres2.SessionID
+	}
+
 	//TODO Unmarshal the Security Blob as well?
 
 	// Check if we authenticated as guest or with a null session. If so, disable signing and encryption
@@ -579,7 +589,7 @@ func (c *Connection) SessionSetup() error {
 					log.Errorln(err)
 					return err
 				}
-				log.Infoln("Initialized encrypter and decrypter with GCM")
+				log.Debugln("Initialized encrypter and decrypter with GCM")
 			case AES128CCM, AES256CCM:
 				ciph, err := aes.NewCipher(encryptionKey)
 				if err != nil {
@@ -593,6 +603,7 @@ func (c *Connection) SessionSetup() error {
 					return err
 				}
 				c.Session.decrypter, err = ccm.NewCCMWithNonceAndTagSizes(ciph, 11, 16)
+				log.Debugln("Initialized encrypter and decrypter with CCM")
 			default:
 				err = fmt.Errorf("Cipher algorithm (%d) not implemented", c.cipherId)
 				log.Errorln(err)
@@ -978,9 +989,14 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 	f := &File{Connection: s, share: share, fd: res.FileId, filename: dir, shareid: s.trees[share]}
 	defer f.CloseFile()
 
+	maxResponseBufferSize := uint32(65536)
+	if s.supportsMultiCredit {
+		maxResponseBufferSize = 131072 // Arbitrary value of 128 KiB
+	}
+
 	// QueryDirectory request
 	for {
-		moreFiles, err := f.QueryDirectory(pattern, 0, 0, 131072) // Arbitrary value of 128 KiB
+		moreFiles, err := f.QueryDirectory(pattern, 0, 0, maxResponseBufferSize)
 		if err != nil {
 			log.Debugln(err)
 			return files, err
@@ -1223,7 +1239,7 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 	}
 
 	log.Debugln("Sending ReadFile requests")
-	// Reading data in chunks of max 1KiB blocks as f.MaxReadSize seems to cause problems
+	// Reading data in chunks of max 1MiB blocks as f.MaxReadSize seems to cause problems
 	data := make([]byte, 1048576)
 	fileSize := res.EndOfFile
 
@@ -1254,9 +1270,17 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 }
 
 func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
-	// Reading data in chunks of max 1KiB blocks as f.MaxReadSize seems to cause problems
-	if len(b) > 1048576 {
-		b = b[:1048576]
+	maxReadBufferSize := 65536
+	if f.supportsMultiCredit {
+		// Reading data in chunks of max 1MiB blocks as f.MaxReadSize seems to cause problems
+		maxReadBufferSize = 1048576 // Arbitrary value of 1MiB
+	}
+
+	// If connection supports multi-credit requests, we can request as large chunks
+	// as the caller wants up to an upper limit of 1MiB. Otherwise the size is limited to
+	// 64KiB
+	if len(b) > maxReadBufferSize {
+		b = b[:maxReadBufferSize]
 	}
 
 	req, err := f.NewReadReq(f.share, f.fd,
@@ -1404,7 +1428,7 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 	defer f.CloseFile()
 
 	log.Debugln("Sending WriteFile requests")
-	// Writing data in chunks of max 1KiB blocks as f.MaxWriteSize seems to cause problems
+	// Writing data in chunks of max 1MiB blocks as f.MaxWriteSize seems to cause problems
 
 	writeOffset := offset
 	for {
@@ -1430,9 +1454,17 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 }
 
 func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
-	// Reading data in chunks of max 1KiB blocks as f.MaxReadSize seems to cause problems
-	if len(data) > 1048576 { // 1KiB
-		data = data[:1048576]
+	maxWriteBufferSize := 65536
+	if f.supportsMultiCredit {
+		// Reading data in chunks of max 1MiB blocks as f.MaxReadSize seems to cause problems
+		maxWriteBufferSize = 1048576 // Arbitrary value of 1MiB
+	}
+
+	// If connection supports multi-credit requests, we can send as large chunks
+	// as the caller wants up to an upper limit of 1MiB. Otherwise the size is limited to
+	// 64KiB
+	if len(data) > maxWriteBufferSize {
+		data = data[:maxWriteBufferSize]
 	}
 
 	req, err := f.NewWriteReq(f.share, f.fd, offset, data)

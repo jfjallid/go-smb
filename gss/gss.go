@@ -3,6 +3,7 @@ package gss
 import (
 	"encoding/asn1"
 
+	"github.com/jfjallid/ber"
 	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/golog"
 )
@@ -76,7 +77,7 @@ func (n *NegTokenInit) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 
 func (n *NegTokenInit) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	data := NegTokenInit{}
-	if _, err := asn1.UnmarshalWithParams(buf, &data, "application"); err != nil {
+	if _, err := ber.UnmarshalWithParams(buf, &data, "application"); err != nil {
 		log.Debugln(err)
 		return err
 	}
@@ -94,7 +95,7 @@ func (r *NegTokenResp) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 
 func (r *NegTokenResp) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	data := NegTokenResp{}
-	if _, err := asn1.UnmarshalWithParams(buf, &data, "explicit,tag:1"); err != nil {
+	if _, err := ber.UnmarshalWithParams(buf, &data, "explicit,tag:1"); err != nil {
 		log.Criticalln(err)
 		return err
 	}

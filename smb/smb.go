@@ -27,6 +27,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/jfjallid/golog"
 
@@ -56,6 +57,9 @@ const (
 	StatusObjectNameInvalid      = 0xc0000033
 	StatusObjectNameNotFound     = 0xc0000034
 	StatusLogonFailure           = 0xc000006d
+	StatusAccountRestriction     = 0xc000006e
+	StatusPasswordExpired        = 0xc0000071
+	StatusAccountDisabled        = 0xc0000072
 	StatusBadNetworkName         = 0xc00000cc
 	StatusUserSessionDeleted     = 0xc0000203
 )
@@ -74,16 +78,19 @@ var StatusMap = map[uint32]error{
 	StatusObjectNameInvalid:      fmt.Errorf("The object name is invalid for the target filesystem"),
 	StatusObjectNameNotFound:     fmt.Errorf("Requested file does not exist"),
 	StatusLogonFailure:           fmt.Errorf("Logon failed"),
+	StatusAccountRestriction:     fmt.Errorf("Account restriction"),
+	StatusPasswordExpired:        fmt.Errorf("Password expired!"),
+	StatusAccountDisabled:        fmt.Errorf("Account disabled!"),
 	StatusBadNetworkName:         fmt.Errorf("Bad network name"),
 	StatusUserSessionDeleted:     fmt.Errorf("User session deleted"),
 }
 
-const DialectSmb_2_0_2 = 0x0202
-const DialectSmb_2_1 = 0x0210
-const DialectSmb_3_0 = 0x0300
-const DialectSmb_3_0_2 = 0x0302
-const DialectSmb_3_1_1 = 0x0311
-const DialectSmb2_ALL = 0x02FF
+const DialectSmb_2_0_2 uint16 = 0x0202
+const DialectSmb_2_1 uint16 = 0x0210
+const DialectSmb_3_0 uint16 = 0x0300
+const DialectSmb_3_0_2 uint16 = 0x0302
+const DialectSmb_3_1_1 uint16 = 0x0311
+const DialectSmb2_ALL uint16 = 0x02FF
 
 const (
 	CommandNegotiate uint16 = iota
@@ -855,6 +862,10 @@ type IoCtlRes struct {
 	Buffer        []byte
 }
 
+func calcCreditCharge(payloadSize uint32) uint16 {
+	return uint16(math.Ceil(((float64(payloadSize) - 1) / 65536) + 1))
+}
+
 func (self *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	log.Debugln("In MarshalBinary for NegotiateReq")
 	buf := make([]byte, 0, 100)
@@ -949,11 +960,11 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 	var dialects []uint16
 
 	if s.options.ForceSMB2 {
-		dialects = []uint16{uint16(DialectSmb_2_1)}
+		dialects = []uint16{DialectSmb_2_1}
 	} else {
 		dialects = []uint16{
-			uint16(DialectSmb_3_1_1),
-			uint16(DialectSmb_2_1),
+			DialectSmb_3_1_1,
+			DialectSmb_2_1,
 		}
 	}
 
@@ -1043,9 +1054,9 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 }
 
 func NewNegotiateRes() NegotiateRes {
-	return NegotiateRes{
+	res := NegotiateRes{
 		Header:                 newHeader(),
-		StructureSize:          0,
+		StructureSize:          0x41,
 		SecurityMode:           0,
 		DialectRevision:        0,
 		NegotiateContextCount:  0,
@@ -1062,6 +1073,8 @@ func NewNegotiateRes() NegotiateRes {
 		SecurityBlob:           &gss.NegTokenInit{},
 		ContextList:            []NegContext{},
 	}
+	res.Header.Flags = 0x1 // Response
+	return res
 }
 
 func (s *Connection) NewSessionSetup1Req(spnegoClient *spnegoClient) (req SessionSetup1Req, err error) {
@@ -1108,15 +1121,25 @@ func (s *Connection) NewSessionSetup1Req(spnegoClient *spnegoClient) (req Sessio
 	return req, nil
 }
 
+func NewSessionSetup1Req() SessionSetup1Req {
+	ret := SessionSetup1Req{
+		Header:       newHeader(),
+		SecurityBlob: &gss.NegTokenInit{},
+	}
+	return ret
+}
+
 func NewSessionSetup1Res() (SessionSetup1Res, error) {
 	resp, err := gss.NewNegTokenResp()
 	if err != nil {
 		return SessionSetup1Res{}, err
 	}
 	ret := SessionSetup1Res{
-		Header:       newHeader(),
-		SecurityBlob: &resp,
+		Header:        newHeader(),
+		StructureSize: 0x9,
+		SecurityBlob:  &resp,
 	}
+	ret.Header.Flags = 0x1 // Response
 	return ret, nil
 }
 
@@ -1140,7 +1163,9 @@ func (s *Connection) NewSessionSetup2Req(client *spnegoClient, msg *SessionSetup
 		return SessionSetup2Req{}, err
 	}
 
-	if s.sessionID == 0 {
+	// When relaying the connection through a proxy such as impacket's
+	// ntlmrelayx, the sessionID might not be handled correctly
+	if s.sessionID == 0 && !s.useProxy {
 		return SessionSetup2Req{}, errors.New("Bad session ID for session setup 2 message")
 	}
 
@@ -1168,10 +1193,7 @@ func (s *Connection) NewSessionSetup2Req(client *spnegoClient, msg *SessionSetup
 }
 
 func NewSessionSetup2Res() (SessionSetup2Res, error) {
-	resp, err := gss.NewNegTokenResp()
-	if err != nil {
-		return SessionSetup2Res{}, err
-	}
+	resp, _ := gss.NewNegTokenResp()
 	ret := SessionSetup2Res{
 		Header:       newHeader(),
 		SecurityBlob: &resp,
@@ -1301,7 +1323,7 @@ func (s *Session) NewQueryDirectoryReq(share, pattern string, fileId []byte,
 	*/
 	header := newHeader()
 	header.Command = CommandQueryDirectory
-	header.CreditCharge = uint16((outputBufferLength-1)/65536 + 1)
+	header.CreditCharge = calcCreditCharge(outputBufferLength)
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1352,7 +1374,7 @@ func (s *Session) NewReadReq(share string, fileid []byte,
 
 	header := newHeader()
 	header.Command = CommandRead
-	header.CreditCharge = uint16((length-1)/65536 + 1)
+	header.CreditCharge = calcCreditCharge(length)
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1388,7 +1410,7 @@ func (s *Session) NewWriteReq(share string, fileid []byte,
 
 	header := newHeader()
 	header.Command = CommandWrite
-	header.CreditCharge = uint16((len(data)-1)/65536 + 1)
+	header.CreditCharge = calcCreditCharge(uint32(len(data)))
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 

@@ -8,7 +8,7 @@ services and the remote registry.
 
 It is based upon the work of https://github.com/stacktitan/smb but has seen a
 lot of changes to add support for SMB3, DCERPC and MSRRP where parts of the
-code are taken from another go-smb project located at
+code are taken from/inspired by another go-smb project located at
 https://github.com/hirochachacha/go-smb2.
 
 ## Examples

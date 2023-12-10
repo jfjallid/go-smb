@@ -37,14 +37,14 @@ func Utf16ToUtf8(in []uint16) []byte {
 }
 
 func Utf8ToUtf16(in []byte) ([]uint16, error) {
-    if len(in)%2 != 0 {
-        return nil, errors.New("Uneven length of UTF8 array")
-    }
-    t := make([]uint16, len(in)/2)
-    for i:=0; i<len(t); i++ {
-        t[i] = binary.LittleEndian.Uint16(in[i*2:])
-    }
-    return t, nil
+	if len(in)%2 != 0 {
+		return nil, errors.New("Uneven length of UTF8 array")
+	}
+	t := make([]uint16, len(in)/2)
+	for i := 0; i < len(t); i++ {
+		t[i] = binary.LittleEndian.Uint16(in[i*2:])
+	}
+	return t, nil
 }
 
 func FromUnicodeString(d []byte) (string, error) {

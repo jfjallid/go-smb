@@ -68,6 +68,7 @@ type Connection struct {
 	werr                      chan error
 	m                         sync.Mutex
 	err                       error
+	useProxy                  bool
 	_useSession               int32
 }
 
@@ -93,34 +94,48 @@ func (conn *Connection) runSender() {
 	}
 }
 
-/*
-	Read packets from the wire. If the message id matches that of the outstandingRequests map,
+func readPacket(conn net.Conn) (packet []byte, err error) {
+	var size uint32
+	if err = binary.Read(conn, binary.BigEndian, &size); err != nil {
+		log.Debugf("Error reading packet, might be okey if the session was closed: %s\n", err)
+		return
+	}
 
-clear the packet from the map and forward the packet down the recv channel.
+	if size > 0x00FFFFFF {
+		log.Errorln("Error: Invalid NetBIOS Session message")
+		// Don't return the error, instead try to read the next packet
+		return
+	}
+
+	packet = make([]byte, size)
+	l, err := io.ReadFull(conn, packet)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	if uint32(l) != size {
+		log.Errorln("Error: Message size invalid")
+		// Don't return the error, instead try to read the next packet
+		return
+	}
+	return
+}
+
+/*
+Read packets from the wire. If the message id matches that of the
+outstandingRequests map, clear the packet from the map and forward the
+packet down the recv channel.
 */
 func (c *Connection) runReceiver() {
 	var err error
-	var size uint32
 	var encrypted bool
 	for {
-		if err = binary.Read(c.conn, binary.BigEndian, &size); err != nil {
-			// Error is handled at the end of the method.
-			break
-		}
-
-		if size > 0x00FFFFFF {
-			log.Errorln("Error: Invalid NetBIOS Session message")
-			continue
-		}
-
-		data := make([]byte, size)
-		l, err := io.ReadFull(c.conn, data)
+		data, err := readPacket(c.conn)
 		if err != nil {
 			// Error is handled at the end of the method.
 			break
 		}
-		if uint32(l) != size {
-			log.Errorln("Error: Message size invalid")
+		if len(data) == 0 {
 			continue
 		}
 
@@ -290,11 +305,6 @@ func NewConnection(opt Options) (c *Connection, err error) {
 		werr:                make(chan error, 1),
 	}
 
-	c.conn, err = net.DialTimeout("tcp", fmt.Sprintf("%s:%d", opt.Host, opt.Port), opt.DialTimeout)
-	if err != nil {
-		return
-	}
-
 	c.Session = &Session{
 		IsSigningRequired: atomic.Bool{},
 		IsAuthenticated:   false,
@@ -308,6 +318,21 @@ func NewConnection(opt Options) (c *Connection, err error) {
 		trees:             make(map[string]uint32),
 	}
 	c.Session.IsSigningRequired.Store(opt.RequireMessageSigning)
+
+	if opt.ProxyDialer != nil {
+		c.useProxy = true
+		// No DialTimeout supported
+		c.conn, err = opt.ProxyDialer.Dial("tcp", fmt.Sprintf("%s:%d", opt.Host, opt.Port))
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	} else {
+		c.conn, err = net.DialTimeout("tcp", fmt.Sprintf("%s:%d", opt.Host, opt.Port), opt.DialTimeout)
+		if err != nil {
+			return
+		}
+	}
 
 	// SMB Dialects other than 3.x requires clientGuid to be zero
 	if !opt.ForceSMB2 {
