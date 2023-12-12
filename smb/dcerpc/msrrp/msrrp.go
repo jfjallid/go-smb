@@ -779,7 +779,7 @@ func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err err
 		log.Errorln(err)
 		return
 	}
-	sdbuf, err := sd.MarshalBinary()
+	sdbuf, err := sd.MarshalBinary(nil)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -883,7 +883,7 @@ func (r *RPCCon) GetKeySecurity(hKey []byte) (sd *SecurityDescriptor, err error)
 
 func (r *RPCCon) SetKeySecurity(hKey []byte, sd *SecurityDescriptor) (err error) {
 
-	sdbuf, err := sd.MarshalBinary()
+	sdbuf, err := sd.MarshalBinary(nil)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -911,7 +911,7 @@ func (r *RPCCon) SetKeySecurity(hKey []byte, sd *SecurityDescriptor) (err error)
 	}
 
 	//log.Debugf("Trying to Query key value for (%s)\n", name)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.MarshalBinary(nil)
 	if err != nil {
 		log.Errorln(err)
 		return

@@ -202,7 +202,7 @@ func TestSetKeySecurityReq(t *testing.T) {
 
 	sd, err := NewSecurityDescriptor(SecurityDescriptorFlagSR, nil, nil, NewACL([]ACE{*sAce, *aAce}), nil)
 
-	sdbuf, err := sd.MarshalBinary()
+	sdbuf, err := sd.MarshalBinary(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestSetKeySecurityReq(t *testing.T) {
 		},
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.MarshalBinary(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -616,7 +616,7 @@ func TestSaveKeyReq(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sdbuf, err := sd.MarshalBinary()
+	sdbuf, err := sd.MarshalBinary(nil)
 	if err != nil {
 		t.Fatal(err)
 		return

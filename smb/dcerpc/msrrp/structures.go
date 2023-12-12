@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 var (
@@ -572,7 +573,7 @@ func (self *BaseRegGetKeySecurityRes) UnmarshalBinary(buf []byte) error {
 	offset += 12 // Skip metadata
 	// Read 100 bytes or actual size, then call unmarshal again? for the Security Descriptor which perhaps deserves its own marshal/unmarshal functions
 	sd := SecurityDescriptor{}
-	err := sd.UnmarshalBinary(buf[offset : offset+int(self.SecurityDescriptorOut.Len)])
+	err := sd.UnmarshalBinary(buf[offset:offset+int(self.SecurityDescriptorOut.Len)], nil)
 	if err != nil {
 		return err
 	}
@@ -831,7 +832,7 @@ func (self *BaseRegSaveKeyReq) MarshalBinary() ([]byte, error) {
 	binary.Write(w, le, make([]byte, align)) // Add padding bytes for alignment
 
 	// Encode SecurityAttributes
-	sa, err := self.SecurityAttributes.MarshalBinary()
+	sa, err := self.SecurityAttributes.MarshalBinary(nil)
 	if err != nil {
 		return nil, err
 	}
@@ -840,12 +841,12 @@ func (self *BaseRegSaveKeyReq) MarshalBinary() ([]byte, error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegSaveKeyReq) UnmarshalBinary(buf []byte) error {
+func (self *BaseRegSaveKeyReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegSaveKeyReq")
 }
 
 // Opnum 21
-func (self *BaseRegSetKeySecurityReq) MarshalBinary() ([]byte, error) {
+func (self *BaseRegSetKeySecurityReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	binary.Write(w, le, self.HKey[:20])
@@ -864,7 +865,7 @@ func (self *BaseRegSetKeySecurityReq) MarshalBinary() ([]byte, error) {
 	binary.Write(w, le, uint32(0))                      // Offset
 	binary.Write(w, le, self.SecurityDescriptorIn.Len)  // Actual len
 
-	sdbuf, err := self.SecurityDescriptorIn.KeySecurityData.MarshalBinary()
+	sdbuf, err := self.SecurityDescriptorIn.KeySecurityData.MarshalBinary(nil)
 	if err != nil {
 		return nil, err
 	}
@@ -873,11 +874,11 @@ func (self *BaseRegSetKeySecurityReq) MarshalBinary() ([]byte, error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegSetKeySecurityReq) UnmarshalBinary(buf []byte) error {
+func (self *BaseRegSetKeySecurityReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegSetKeySecurityReq")
 }
 
-func (self *RpcSecurityAttributes) MarshalBinary() ([]byte, error) {
+func (self *RpcSecurityAttributes) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	buf := make([]byte, 0, 24)
 	referentId := uint32(0x1)
 	referentId2 := uint32(0x2)
@@ -891,7 +892,7 @@ func (self *RpcSecurityAttributes) MarshalBinary() ([]byte, error) {
 	buf = append(buf, self.InheritHandle)
 	buf = append(buf, []byte{0, 0, 0}...) // fixed size alignment
 
-	sdBuf, err := self.SecurityDescriptor.SecurityDescriptor.MarshalBinary()
+	sdBuf, err := self.SecurityDescriptor.SecurityDescriptor.MarshalBinary(nil)
 	if err != nil {
 		return nil, err
 	}
@@ -903,18 +904,18 @@ func (self *RpcSecurityAttributes) MarshalBinary() ([]byte, error) {
 	return buf, nil
 }
 
-func (self *RpcSecurityAttributes) UnmarshalBinary(buf []byte) error {
+func (self *RpcSecurityAttributes) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 
 	err := fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for RpcSecurityAttributes")
 	return err
 }
 
-func (self *SecurityDescriptor) MarshalBinary() ([]byte, error) {
+func (self *SecurityDescriptor) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	ptrBuf := make([]byte, 0)
 	// Order: 1. SACL, 2. DACL, 3. Owner, 4. Group
 	bufOffset := uint32(20)
 	if self.Sacl != nil {
-		sBuf, err := self.Sacl.MarshalBinary()
+		sBuf, err := self.Sacl.MarshalBinary(nil)
 		if err != nil {
 			return nil, err
 		}
@@ -924,7 +925,7 @@ func (self *SecurityDescriptor) MarshalBinary() ([]byte, error) {
 		bufOffset += uint32(len(sBuf))
 	}
 	if self.Dacl != nil {
-		dBuf, err := self.Dacl.MarshalBinary()
+		dBuf, err := self.Dacl.MarshalBinary(nil)
 		if err != nil {
 			return nil, err
 		}
@@ -935,7 +936,7 @@ func (self *SecurityDescriptor) MarshalBinary() ([]byte, error) {
 	}
 
 	if self.OwnerSid != nil {
-		oBuf, err := self.OwnerSid.MarshalBinary()
+		oBuf, err := self.OwnerSid.MarshalBinary(nil)
 		if err != nil {
 			return nil, err
 		}
@@ -945,7 +946,7 @@ func (self *SecurityDescriptor) MarshalBinary() ([]byte, error) {
 	}
 
 	if self.OffsetGroup != 0 {
-		gBuf, err := self.GroupSid.MarshalBinary()
+		gBuf, err := self.GroupSid.MarshalBinary(nil)
 		if err != nil {
 			return nil, err
 		}
@@ -965,7 +966,7 @@ func (self *SecurityDescriptor) MarshalBinary() ([]byte, error) {
 	return buf, nil
 }
 
-func (self *SecurityDescriptor) UnmarshalBinary(buf []byte) error {
+func (self *SecurityDescriptor) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 
 	self.Revision = binary.LittleEndian.Uint16(buf)
 	self.Control = binary.LittleEndian.Uint16(buf[2:])
@@ -976,43 +977,51 @@ func (self *SecurityDescriptor) UnmarshalBinary(buf []byte) error {
 
 	if self.OffsetOwner != 0 {
 		oSid := SID{}
-		err := oSid.UnmarshalBinary(buf[self.OffsetOwner:])
+		err := oSid.UnmarshalBinary(buf[self.OffsetOwner:], nil)
 		if err != nil {
 			return err
 		}
 		self.OwnerSid = &oSid
+	} else {
+		self.OwnerSid = nil
 	}
 	if self.OffsetGroup != 0 {
 		gSid := SID{}
-		err := gSid.UnmarshalBinary(buf[self.OffsetGroup:])
+		err := gSid.UnmarshalBinary(buf[self.OffsetGroup:], nil)
 		if err != nil {
 			return err
 		}
 		self.GroupSid = &gSid
+	} else {
+		self.GroupSid = nil
 	}
 	if (self.Control & SecurityDescriptorFlagSP) == SecurityDescriptorFlagSP {
 		sacl := PACL{}
-		err := sacl.UnmarshalBinary(buf[self.OffsetSacl:])
+		err := sacl.UnmarshalBinary(buf[self.OffsetSacl:], nil)
 		if err != nil {
 			return err
 		}
 		self.Sacl = &sacl
+	} else {
+		self.Sacl = nil
 	}
 	if (self.Control & SecurityDescriptorFlagDP) == SecurityDescriptorFlagDP {
 		dacl := PACL{
 			ACLS: []ACE{},
 		}
-		err := dacl.UnmarshalBinary(buf[self.OffsetDacl:])
+		err := dacl.UnmarshalBinary(buf[self.OffsetDacl:], nil)
 		if err != nil {
 			return err
 		}
 		self.Dacl = &dacl
+	} else {
+		self.Dacl = nil
 	}
 
 	return nil
 }
 
-func (self *PACL) MarshalBinary() ([]byte, error) {
+func (self *PACL) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
@@ -1032,7 +1041,7 @@ func (self *PACL) MarshalBinary() ([]byte, error) {
 		binary.Write(w, le, item.Mask) // Write at 4 byte boundary
 
 		// Encoder ACE SID
-		sidBuf, err := item.Sid.MarshalBinary()
+		sidBuf, err := item.Sid.MarshalBinary(nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1042,9 +1051,9 @@ func (self *PACL) MarshalBinary() ([]byte, error) {
 	return w.Bytes(), nil
 }
 
-func (self *PACL) UnmarshalBinary(buf []byte) error {
+func (self *PACL) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	offset := 0
-	self.AclRevision = le.Uint16(buf[offset:])
+	self.AclRevision = le.Uint16(buf[offset:2])
 	self.AclSize = le.Uint16(buf[offset+2:])
 	self.AceCount = le.Uint32(buf[offset+4:])
 	offset += 8
@@ -1063,7 +1072,7 @@ func (self *PACL) UnmarshalBinary(buf []byte) error {
 		offset += 4
 
 		// Decode ACE SID
-		err := item.Sid.UnmarshalBinary(buf[offset:])
+		err := item.Sid.UnmarshalBinary(buf[offset:], nil)
 		if err != nil {
 			return err
 		}
@@ -1078,7 +1087,43 @@ func (self *PACL) UnmarshalBinary(buf []byte) error {
 	return nil
 }
 
-func (self *SID) MarshalBinary() ([]byte, error) {
+func (self *ACE) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+
+	binary.Write(w, le, self.Header.Type)
+	binary.Write(w, le, self.Header.Flags)
+	binary.Write(w, le, self.Header.Size)
+
+	binary.Write(w, le, self.Mask)
+
+	// Encode ACE SID
+	sidBuf, err := self.Sid.MarshalBinary(nil)
+	if err != nil {
+		return nil, err
+	}
+	binary.Write(w, le, sidBuf)
+	return w.Bytes(), nil
+}
+
+func (self *ACE) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	self.Header.Type = buf[0]
+	self.Header.Flags = buf[1]
+	self.Header.Size = binary.LittleEndian.Uint16(buf[2:4])
+
+	self.Mask = binary.LittleEndian.Uint32(buf[4:8])
+	var sid SID
+	err := sid.UnmarshalBinary(buf[8:], nil)
+	if err != nil {
+		log.Errorln(err)
+		return err
+	}
+	self.Sid = sid
+
+	return nil
+}
+
+func (self *SID) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
@@ -1091,7 +1136,7 @@ func (self *SID) MarshalBinary() ([]byte, error) {
 	return w.Bytes(), nil
 }
 
-func (self *SID) UnmarshalBinary(buf []byte) error {
+func (self *SID) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	offset := 0
 
 	// Decode ACE SID
