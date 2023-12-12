@@ -196,7 +196,9 @@ func (c *Connection) runReceiver() {
 				}
 			}
 
-			if c.Session.IsSigningRequired.Load() && !encrypted {
+			// When server responds with StatusPending, the packet signature is the same as on the
+			// last packet and the signing flag is not set
+			if c.Session.IsSigningRequired.Load() && !encrypted && (h.Status != StatusPending) {
 				if (h.Flags & SMB2_FLAGS_SIGNED) != SMB2_FLAGS_SIGNED {
 					err = fmt.Errorf("Skip: Signing is required but PDU is not signed")
 					log.Errorln(err)
