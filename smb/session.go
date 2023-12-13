@@ -30,6 +30,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"hash"
@@ -66,6 +67,16 @@ type FileMetadata struct {
 	EndOfFile      uint64
 }
 
+// Information extracted from the SessionSetup handshake
+type TargetInfo struct {
+	DnsComputerName  string
+	DnsDomainName    string
+	NBComputerName   string
+	NBDomainName     string
+	OS               uint64
+	GuessedOSVersion string
+}
+
 type Session struct {
 	IsSigningRequired   atomic.Bool
 	IsSigningDisabled   bool
@@ -93,6 +104,7 @@ type Session struct {
 	trees                     map[string]uint32
 	lock                      sync.RWMutex
 	authUsername              string // Combined domain and username as sent in SessionSetup2 request
+	targetInfo                *TargetInfo
 }
 
 type Options struct {
@@ -369,6 +381,40 @@ func (c *Connection) SessionSetup() error {
 	if err := encoder.Unmarshal(resp.ResponseToken, &challenge); err != nil {
 		log.Debugln(err)
 		return err
+	}
+
+	// Extract target info from server Challange
+	versionBuf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(versionBuf, challenge.Version)
+	buildNumber := binary.LittleEndian.Uint16(versionBuf[2:4])
+	c.targetInfo = &TargetInfo{
+		OS:               challenge.Version,
+		GuessedOSVersion: fmt.Sprintf("Windows NT %d.%d Build %d", versionBuf[0], versionBuf[1], buildNumber),
+	}
+	for _, av := range *challenge.TargetInfo {
+		switch av.AvID {
+		case ntlmssp.MsvAvDnsDomainName:
+			c.targetInfo.DnsDomainName, err = encoder.FromUnicodeString(av.Value)
+			if err != nil {
+				log.Errorf("Failed to decode DNS Domain Name from AV Pair with error: %s\n", err)
+			}
+		case ntlmssp.MsvAvDnsComputerName:
+			c.targetInfo.DnsComputerName, err = encoder.FromUnicodeString(av.Value)
+			if err != nil {
+				log.Errorf("Failed to decode DNS Computer Name from AV Pair with error: %s\n", err)
+			}
+		case ntlmssp.MsvAvNbDomainName:
+			c.targetInfo.NBDomainName, err = encoder.FromUnicodeString(av.Value)
+			if err != nil {
+				log.Errorf("Failed to decode NB Domain Name from AV Pair with error: %s\n", err)
+			}
+		case ntlmssp.MsvAvNbComputerName:
+			c.targetInfo.NBComputerName, err = encoder.FromUnicodeString(av.Value)
+			if err != nil {
+				log.Errorf("Failed to decode NB Computer Name from AV Pair with error: %s\n", err)
+			}
+		default:
+		}
 	}
 
 	if ssres.Header.Status != StatusMoreProcessingRequired {
@@ -698,6 +744,10 @@ func (s *Session) decrypt(buf []byte) ([]byte, error) {
 
 func (c *Connection) GetAuthUsername() string {
 	return c.authUsername
+}
+
+func (c *Connection) GetTargetInfo() *TargetInfo {
+	return c.targetInfo
 }
 
 func (c *Connection) TreeConnect(name string) error {
