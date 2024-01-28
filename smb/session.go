@@ -161,29 +161,69 @@ func NewCreateReqOpts() *CreateReqOpts {
 }
 
 func (c *Connection) NegotiateProtocol() error {
-	negReq, err := c.NewNegotiateReq()
+	var rr *requestResponse
+	var negRes NegotiateRes
+
+	negReq1, err := c.NewSMB1NegotiateReq()
 	if err != nil {
 		log.Errorln(err)
 		return err
 	}
-	log.Debugln("Sending NegotiateProtocol request")
-	rr, err := c.send(negReq)
+	log.Debugln("Sending SMB1 NegotiateProtocol request")
+	rr, err = c.send(&negReq1)
 	if err != nil {
 		log.Debugln(err)
 		return err
 	}
 
-	buf, err := c.recv(rr)
+	negResBuf, err := c.recv(rr)
 	if err != nil {
 		log.Debugln(err)
 		return err
 	}
 
-	negRes := NewNegotiateRes()
+	negRes1 := NewNegotiateRes()
 	log.Debugln("Unmarshalling NegotiateProtocol response")
-	if err := encoder.Unmarshal(buf, &negRes); err != nil {
-		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
-		return err
+	if err := encoder.Unmarshal(negResBuf, &negRes1); err != nil {
+		if negResBuf[0] == 0xFF {
+			// Server does not support or want to use SMB2.
+			err = fmt.Errorf("Target %s is only accepting SMBv1, but SMBv1 support is not implemented", c.conn.RemoteAddr().String())
+			log.Errorln(err) // Skip print?
+			return err
+		} else {
+			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
+			return err
+		}
+	}
+
+	if negRes1.DialectRevision == DialectSmb2_ALL {
+		// Send new SMB2 NegotiateRequest message
+		negReq, err := c.NewNegotiateReq()
+		if err != nil {
+			log.Errorln(err)
+			return err
+		}
+		log.Debugln("Sending SMB2 NegotiateProtocol request")
+		// Reuse rr variable for second neg protocol req to keep reference
+		// for calculation of pre-auth integrity hash
+		rr, err = c.send(negReq)
+		if err != nil {
+			log.Debugln(err)
+			return err
+		}
+
+		negResBuf, err = c.recv(rr)
+		if err != nil {
+			log.Debugln(err)
+			return err
+		}
+
+		negRes = NewNegotiateRes()
+		log.Debugln("Unmarshalling second NegotiateProtocol response")
+		if err := encoder.Unmarshal(negResBuf, &negRes); err != nil {
+			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
+			return err
+		}
 	}
 
 	if negRes.Header.Status != StatusOk {
@@ -277,8 +317,9 @@ func (c *Connection) NegotiateProtocol() error {
 
 				h.Reset()
 				h.Write(c.preauthIntegrityHashValue[:])
-				h.Write(buf)
+				h.Write(negResBuf)
 				h.Sum(c.preauthIntegrityHashValue[:0])
+
 			default:
 				err = fmt.Errorf("Unknown hash algorithm")
 				log.Errorln(err)

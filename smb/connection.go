@@ -30,6 +30,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -97,7 +98,9 @@ func (conn *Connection) runSender() {
 func readPacket(conn net.Conn) (packet []byte, err error) {
 	var size uint32
 	if err = binary.Read(conn, binary.BigEndian, &size); err != nil {
-		log.Debugf("Error reading packet, might be okey if the session was closed: %s\n", err)
+		if !errors.Is(err, net.ErrClosed) {
+			log.Debugf("Error reading packet: %s\n", err)
+		}
 		return
 	}
 
@@ -199,6 +202,7 @@ func (c *Connection) runReceiver() {
 			// When server responds with StatusPending, the packet signature is the same as on the
 			// last packet and the signing flag is not set
 			if c.Session.IsSigningRequired.Load() && !encrypted && (h.Status != StatusPending) {
+				//TODO Change this logic. Should verify signatures that are present but not enforce them to be present unless required?
 				if (h.Flags & SMB2_FLAGS_SIGNED) != SMB2_FLAGS_SIGNED {
 					err = fmt.Errorf("Skip: Signing is required but PDU is not signed")
 					log.Errorln(err)
@@ -366,25 +370,54 @@ func NewConnection(opt Options) (c *Connection, err error) {
 }
 
 func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err error) {
+	var h1 SMB1Header
 	var h Header
-	err = encoder.Unmarshal(buf[:64], &h)
-	if err != nil {
-		log.Debugln(err)
-		return
+	var smb1 bool
+	var creditCharge uint16
+	var messageID uint64
+
+	if buf[0] == 0xff {
+		// SMB1 header
+		smb1 = true
+		err = encoder.Unmarshal(buf[:32], &h1)
+		if err != nil {
+			log.Debugln(err)
+			return
+		}
+	} else {
+		// SMB2 header
+		err = encoder.Unmarshal(buf[:64], &h)
+		if err != nil {
+			log.Debugln(err)
+			log.Noticeln(err)
+			return
+		}
 	}
 	//NOTE Perhaps support Cancel requests?
 
 	// Make sure the same messageID is not used twice. Might result in wasted messageIDs though.
 	c.lock.Lock()
-	h.MessageID = c.messageID
-	c.messageID += uint64(h.CreditCharge)
-	c.lock.Unlock()
-	hBuf, err := encoder.Marshal(h)
-	if err != nil {
-		log.Debugln(err)
-		return
+	messageID = c.messageID
+	if !smb1 {
+		h.MessageID = messageID
+		creditCharge = h.CreditCharge
+		c.messageID += uint64(h.CreditCharge)
+	} else {
+		// Assumed to be the SMB1 Negotiate Request
+		creditCharge = 1
+		c.messageID += 1
+
 	}
-	copy(buf[:64], hBuf[:64])
+	c.lock.Unlock()
+
+	if !smb1 {
+		hBuf, err := encoder.Marshal(h)
+		if err != nil {
+			log.Debugln(err)
+			return rr, err
+		}
+		copy(buf[:64], hBuf[:64])
+	}
 
 	if c.Session != nil {
 		if h.Command != CommandSessionSetup {
@@ -411,12 +444,12 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 	}
 
 	rr = &requestResponse{
-		msgId:        h.MessageID,
-		creditCharge: h.CreditCharge,
+		msgId:        messageID,
+		creditCharge: creditCharge,
 		pkt:          buf,
 		recv:         make(chan []byte, 1),
 	}
-	c.outstandingRequests.set(h.MessageID, rr)
+	c.outstandingRequests.set(messageID, rr)
 
 	return
 }

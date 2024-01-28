@@ -926,7 +926,51 @@ func (self *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 }
 
 func (self *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for NegotiateReq")
+	log.Debugln("In UnmarshalBinary for NegotiateReq")
+	err := encoder.Unmarshal(buf[:64], &self.Header)
+	if err != nil {
+		log.Errorln(err)
+		return err
+	}
+	offset := 64
+	self.StructureSize = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	offset += 2
+	self.DialectCount = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	offset += 2
+	// 2 bytes reserved
+	offset += 2
+	self.Capabilities = binary.LittleEndian.Uint32(buf[offset : offset+4])
+	offset += 4
+	self.ClientGuid = buf[offset : offset+16]
+	offset += 16
+	self.NegotiateContextOffset = binary.LittleEndian.Uint32(buf[offset : offset+4])
+	offset += 4
+	self.NegotiateContextCount = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	offset += 2
+	// 2 bytes reserved2
+	offset += 2
+	for i := 0; i < int(self.DialectCount); i++ {
+		self.Dialects = append(self.Dialects, binary.LittleEndian.Uint16(buf[offset:offset+2]))
+		offset += 2
+	}
+
+	offset = int(self.NegotiateContextOffset)
+	for i := 0; i < int(self.NegotiateContextCount); i++ {
+		var negContext NegContext
+		err = encoder.Unmarshal(buf[offset:], &negContext)
+		if err != nil {
+			log.Errorln(err)
+			return err
+		}
+		self.ContextList = append(self.ContextList, negContext)
+		negContextSize := int(8 + negContext.DataLength)
+		if negContextSize%8 != 0 {
+			negContextSize += 8 - (negContextSize % 8)
+		}
+		offset += negContextSize
+	}
+
+	return nil
 }
 
 func newHeader() Header {
