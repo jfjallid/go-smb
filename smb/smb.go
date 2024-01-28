@@ -63,6 +63,7 @@ const (
 	StatusBadNetworkName         = 0xc00000cc
 	StatusUserSessionDeleted     = 0xc0000203
 	StatusPasswordMustChange     = 0xc0000224
+	StatusAccountLockedOut       = 0xc0000234
 )
 
 var StatusMap = map[uint32]error{
@@ -85,6 +86,7 @@ var StatusMap = map[uint32]error{
 	StatusBadNetworkName:         fmt.Errorf("Bad network name"),
 	StatusUserSessionDeleted:     fmt.Errorf("User session deleted"),
 	StatusPasswordMustChange:     fmt.Errorf("User is required to change password at next logon"),
+	StatusAccountLockedOut:       fmt.Errorf("User account has been locked!"),
 }
 
 const DialectSmb_2_0_2 uint16 = 0x0202
