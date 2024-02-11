@@ -182,18 +182,18 @@ func (c *Connection) NegotiateProtocol() error {
 		return err
 	}
 
+	if negResBuf[0] == 0xFF {
+		// Server does not support or want to use SMB2.
+		err = fmt.Errorf("Target %s is only accepting SMBv1, but SMBv1 support is not implemented", c.conn.RemoteAddr().String())
+		log.Errorln(err) // Skip print?
+		return err
+    }
+
 	negRes1 := NewNegotiateRes()
 	log.Debugln("Unmarshalling NegotiateProtocol response")
 	if err := encoder.Unmarshal(negResBuf, &negRes1); err != nil {
-		if negResBuf[0] == 0xFF {
-			// Server does not support or want to use SMB2.
-			err = fmt.Errorf("Target %s is only accepting SMBv1, but SMBv1 support is not implemented", c.conn.RemoteAddr().String())
-			log.Errorln(err) // Skip print?
-			return err
-		} else {
-			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
-			return err
-		}
+		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
+		return err
 	}
 
 	if negRes1.DialectRevision == DialectSmb2_ALL {

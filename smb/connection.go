@@ -149,6 +149,7 @@ func (c *Connection) runReceiver() {
 		default:
 			log.Errorln("Error: Protocol not implemented")
 			continue // No need to crash because of invalid packet
+		case ProtocolSmb:
 		case ProtocolSmb2:
 		case ProtocolTransformHdr:
 		}
@@ -216,14 +217,22 @@ func (c *Connection) runReceiver() {
 				}
 			}
 		} else {
-			if err = encoder.Unmarshal(data[:64], &h); err != nil {
-				fmt.Println("Skip: Failed to decode header of packet")
-				continue
-			}
-			// Check structure size
-			if h.StructureSize != 64 {
-				log.Errorln("Skip: Invalid structure size of packet")
-				continue
+			// First check if this is SMBv1 instead of SMB2
+			if string(data[0:4]) == ProtocolSmb {
+				// If Protocol is SMB1 which is not implemented, skip processing the packet and return the data.
+				// We assume that this is the first packet with MessageID 0, part of the Negotiate Protocol flow.
+				// So we don't care about unmarshalling the packet into a SMBv1 header and only pop MessageID 0
+				// from outstandingRequests
+			} else {
+				if err = encoder.Unmarshal(data[:64], &h); err != nil {
+					fmt.Println("Skip: Failed to decode header of packet")
+					continue
+				}
+				// Check structure size
+				if h.StructureSize != 64 {
+					log.Errorln("Skip: Invalid structure size of packet")
+					continue
+				}
 			}
 		}
 
@@ -406,7 +415,6 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 		// Assumed to be the SMB1 Negotiate Request
 		creditCharge = 1
 		c.messageID += 1
-
 	}
 	c.lock.Unlock()
 
