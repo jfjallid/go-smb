@@ -36,6 +36,7 @@ import (
 	"hash"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -187,7 +188,7 @@ func (c *Connection) NegotiateProtocol() error {
 		err = fmt.Errorf("Target %s is only accepting SMBv1, but SMBv1 support is not implemented", c.conn.RemoteAddr().String())
 		log.Errorln(err) // Skip print?
 		return err
-    }
+	}
 
 	negRes1 := NewNegotiateRes()
 	log.Debugln("Unmarshalling NegotiateProtocol response")
@@ -1592,13 +1593,21 @@ func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
 	return
 }
 
-func (s *Connection) DeleteFile(share string, filepath string) (err error) {
+func (f *File) IsDir() bool {
+	return (f.Attributes & FileAttrDirectory) == FileAttrDirectory
+}
+
+func (s *Connection) deleteFileDir(share string, path string, isDir bool) (err error) {
 	disconnectFromTree := false
 	// Only disconnect from share if it wasn't already connected.
 	// Otherwise, allow reuse of existing connection.
 	if _, ok := s.trees[share]; !ok {
 		disconnectFromTree = true
 	}
+
+	// Normalize path
+	path = strings.ReplaceAll(path, `/`, `\`)
+	path = strings.Trim(path, `\`)
 
 	err = s.TreeConnect(share)
 	if err != nil {
@@ -1610,18 +1619,27 @@ func (s *Connection) DeleteFile(share string, filepath string) (err error) {
 		defer s.TreeDisconnect(share)
 	}
 
-	accessMask := FAccMaskFileReadData |
-		FAccMaskFileReadAttributes |
-		FAccMaskDelete
+	var accessMask uint32
+	var createOpts uint32
 
-	req, err := s.NewCreateReq(share, filepath,
+	if isDir {
+		accessMask = DAccMaskDelete
+		createOpts = FileDirectoryFile
+	} else {
+		accessMask = FAccMaskFileReadData |
+			FAccMaskFileReadAttributes |
+			FAccMaskDelete
+		createOpts = FileNonDirectoryFile
+	}
+
+	req, err := s.NewCreateReq(share, path,
 		OpLockLevelNone,
 		ImpersonationLevelImpersonation,
 		accessMask,
 		0,
 		FileShareRead|FileShareWrite|FileShareDelete,
 		FileOpen,
-		FileNonDirectoryFile,
+		createOpts,
 	)
 
 	if err != nil {
@@ -1647,7 +1665,10 @@ func (s *Connection) DeleteFile(share string, filepath string) (err error) {
 			log.Errorln(err)
 			return err
 		}
-		log.Debugf("Failed to Create/open file for deletion with NT Status Error: %v\n", status)
+		err = status
+		if h.Status != StatusObjectNameNotFound {
+			log.Debugf("Failed to Create/open file for deletion with NT Status Error: %v\n", status)
+		}
 		return
 	}
 
@@ -1659,7 +1680,7 @@ func (s *Connection) DeleteFile(share string, filepath string) (err error) {
 	}
 	f := &File{
 		Connection: s,
-		filename:   filepath,
+		filename:   path,
 		fd:         res.FileId,
 		share:      share,
 		shareid:    s.trees[share],
@@ -1675,7 +1696,7 @@ func (s *Connection) DeleteFile(share string, filepath string) (err error) {
 	sReq.InfoType = OInfoFile
 	sReq.FileInfoClass = FileDispositionInformation
 
-	// Simple structure of the FileDispositionInformation request to delete a file
+	// Simple structure of the FileDispositionInformation request to delete a file or directory
 	sReq.Buffer = make([]byte, 1)
 	sReq.Buffer[0] = 1
 
@@ -1694,15 +1715,23 @@ func (s *Connection) DeleteFile(share string, filepath string) (err error) {
 	if h2.Status != StatusOk {
 		status, found := StatusMap[h2.Status]
 		if !found {
-			err = fmt.Errorf("Received unknown SMB Header status for SetInfo response when deleting file: 0x%x\n", h2.Status)
+			err = fmt.Errorf("Received unknown SMB Header status for SetInfo response when deleting file or directory: 0x%x\n", h2.Status)
 			log.Errorln(err)
 			return err
 		}
-		log.Debugf("Failed to delete file with NT Status Error: %v\n", status)
+		log.Debugf("Failed to delete file or directory with NT Status Error: %v\n", status)
 		return status
 	}
 
 	return
+}
+
+func (s *Connection) DeleteFile(share string, filepath string) (err error) {
+	return s.deleteFileDir(share, filepath, false)
+}
+
+func (s *Connection) DeleteDir(share string, dirpath string) (err error) {
+	return s.deleteFileDir(share, dirpath, true)
 }
 
 func (s *Connection) WriteIoCtlReq(req *IoCtlReq) (res IoCtlRes, err error) {
@@ -1740,4 +1769,154 @@ func (c *Connection) Close() {
 	log.Debug("Closing TCP connection")
 	c.conn.Close()
 	log.Debug("Session close completed")
+}
+
+// Create a new directory
+func (s *Connection) Mkdir(share string, path string) (err error) {
+	disconnectFromTree := false
+	// Only disconnect from share if it wasn't already connected.
+	// Otherwise, allow reuse of existing connection.
+	if _, ok := s.trees[share]; !ok {
+		disconnectFromTree = true
+	}
+
+	// Normalize path
+	path = strings.ReplaceAll(path, `/`, `\`)
+	path = strings.Trim(path, `\`)
+
+	err = s.TreeConnect(share)
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+
+	if disconnectFromTree {
+		defer s.TreeDisconnect(share)
+	}
+
+	req, err := s.NewCreateReq(share, path,
+		OpLockLevelNone,
+		ImpersonationLevelImpersonation,
+		DAccMaskGenericAll,
+		0,
+		0,
+		FileCreate,
+		FileDirectoryFile,
+	)
+
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+
+	buf, err := s.sendrecv(req)
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+
+	var h Header
+	if err := encoder.Unmarshal(buf, &h); err != nil {
+		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
+		return err
+	}
+
+	if h.Status != StatusOk {
+		status, found := StatusMap[h.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for Create/open file response when attempting to upload a file: 0x%x\n", h.Status)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		if h.Status != StatusObjectNameCollision {
+			// Skip printing error message if it just says that directory already exists
+			log.Debugf("Failed to Create/open file for writing with NT Status Error: %v\n", status)
+		}
+		return
+	}
+
+	var res CreateRes
+	log.Debugf("Unmarshalling Create response [%s]\n", share)
+	if err := encoder.Unmarshal(buf, &res); err != nil {
+		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
+		return err
+	}
+	f := &File{
+		Connection: s,
+		filename:   path,
+		fd:         res.FileId,
+		share:      share,
+		shareid:    s.trees[share],
+	}
+	defer f.CloseFile()
+
+	return
+}
+
+// Creates a directory named path along with any necessary parent directories
+// If the directory specified by path already exists, the return value is nil
+func (s *Connection) MkdirAll(share string, path string) (err error) {
+	disconnectFromTree := false
+	// Only disconnect from share if it wasn't already connected.
+	// Otherwise, allow reuse of existing connection.
+	if _, ok := s.trees[share]; !ok {
+		disconnectFromTree = true
+	}
+
+	// Normalize path
+	path = strings.ReplaceAll(path, `/`, `\`)
+	path = strings.Trim(path, `\`)
+
+	err = s.TreeConnect(share)
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+
+	if disconnectFromTree {
+		defer s.TreeDisconnect(share)
+	}
+
+	// First check if directory already exists
+	createOpts := NewCreateReqOpts()
+	createOpts.CreateOpts = 0
+
+	f, err := s.OpenFileExt(share, path, createOpts)
+	if err == nil {
+		if f.IsDir() {
+			f.CloseFile()
+			return
+		}
+		f.CloseFile()
+		log.Errorf("Failed to create directory (%s) as it already exists and is not a directory\n", path)
+		return ErrorNotDir
+	} else {
+		if err != StatusMap[StatusObjectNameNotFound] && err != StatusMap[StatusObjectPathNotFound] {
+			log.Errorf("Attempted to check if file or directory exists but got unexpected error: %s\n", err)
+			return
+		}
+	}
+
+	// Path or directory does not exist so let's create it
+	elements := strings.Split(path, `\`)
+	if len(elements) > 1 {
+		err = s.MkdirAll(share, strings.Join(elements[:len(elements)-1], `\`))
+		if err != nil {
+			if err == ErrorNotDir {
+				return err
+			}
+			log.Errorf("Failed to create directory (%s) with error: %s\n", elements[:len(elements)-1], err)
+			return err
+		}
+	}
+
+	// Now the parent dirs should exist, so create the final dir
+	err = s.Mkdir(share, path)
+	if err != nil {
+		log.Errorf("Failed to create directory (%s) with error: %s\n", path, err)
+		return err
+	}
+
+	return
 }

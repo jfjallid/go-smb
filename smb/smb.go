@@ -56,6 +56,8 @@ const (
 	StatusAccessDenied           = 0xc0000022
 	StatusObjectNameInvalid      = 0xc0000033
 	StatusObjectNameNotFound     = 0xc0000034
+	StatusObjectNameCollision    = 0xc0000035
+	StatusObjectPathNotFound     = 0xc000003A
 	StatusLogonFailure           = 0xc000006d
 	StatusAccountRestriction     = 0xc000006e
 	StatusPasswordExpired        = 0xc0000071
@@ -79,6 +81,8 @@ var StatusMap = map[uint32]error{
 	StatusAccessDenied:           fmt.Errorf("Access denied!"),
 	StatusObjectNameInvalid:      fmt.Errorf("The object name is invalid for the target filesystem"),
 	StatusObjectNameNotFound:     fmt.Errorf("Requested file does not exist"),
+	StatusObjectNameCollision:    fmt.Errorf("File or directory already exists"),
+	StatusObjectPathNotFound:     fmt.Errorf("The path to the specified directory was not found"),
 	StatusLogonFailure:           fmt.Errorf("Logon failed"),
 	StatusAccountRestriction:     fmt.Errorf("Account restriction"),
 	StatusPasswordExpired:        fmt.Errorf("Password expired!"),
@@ -472,6 +476,9 @@ const (
 	FileIdExtdDirectoryInformation     byte = 0x3c // Query
 
 )
+
+// Custom error not part of SMB
+var ErrorNotDir = fmt.Errorf("Not a directory")
 
 type Header struct { // 64 bytes
 	ProtocolID    []byte `smb:"fixed:4"`
