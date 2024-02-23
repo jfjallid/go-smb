@@ -197,7 +197,15 @@ func (c *Connection) NegotiateProtocol() error {
 		return err
 	}
 
-	if negRes1.DialectRevision == DialectSmb2_ALL {
+	if negRes1.DialectRevision <= DialectSmb2_ALL {
+		if negRes1.DialectRevision != DialectSmb2_ALL {
+			// NOTE this is likely breaking the SMB2 specification, but since
+			// servers such as impacket's smbserver.py responds incorrectly to
+			// a multi-protocol negotiation request we attempt to renegotiate
+			// the protocol dialect using SMB2.
+			err = fmt.Errorf("Server responded to the multi-protocol negotiation with an invalid DialectRevision of 0x%x, but expected 0x%x. Restarting protocol negotiation using SMB2.\n", negRes1.DialectRevision, DialectSmb2_ALL)
+			log.Errorln(err)
+		}
 		// Send new SMB2 NegotiateRequest message
 		negReq, err := c.NewNegotiateReq()
 		if err != nil {
@@ -225,6 +233,10 @@ func (c *Connection) NegotiateProtocol() error {
 			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
 			return err
 		}
+	} else {
+		err = fmt.Errorf("Server responded to the multi-protocol negotiation with an invalid DialectRevision of 0x%x\n", negRes1.DialectRevision)
+		log.Debugln(err)
+		return err
 	}
 
 	if negRes.Header.Status != StatusOk {
@@ -240,7 +252,7 @@ func (c *Connection) NegotiateProtocol() error {
 
 	oid := negRes.SecurityBlob.OID
 	if !oid.Equal(gss.SpnegoOid) {
-		err = fmt.Errorf("Unknown security type OID")
+		err = fmt.Errorf("Unknown security type OID: %s\n", oid)
 		log.Errorln(err)
 		return err
 	}
@@ -253,7 +265,7 @@ func (c *Connection) NegotiateProtocol() error {
 		}
 	}
 	if !hasNTLMSSP {
-		return fmt.Errorf("Server does not support NTLMSSP")
+		return fmt.Errorf("Right now, this library only supports NTLMSSP and the server does not support NTLMSSP")
 	}
 
 	c.securityMode = negRes.SecurityMode
