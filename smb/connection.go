@@ -524,6 +524,9 @@ func (c *Connection) send(req interface{}) (rr *requestResponse, err error) {
 }
 
 func (c *Connection) recv(rr *requestResponse) (buf []byte, err error) {
+	if rr == nil {
+		return nil, fmt.Errorf("Remote connection has closed")
+	}
 	select {
 	case buf = <-rr.recv:
 		if rr.err != nil {

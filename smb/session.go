@@ -157,7 +157,6 @@ func NewCreateReqOpts() *CreateReqOpts {
 		FileAttr:           0,
 		ShareAccess:        FileShareRead | FileShareWrite,
 		CreateDisp:         FileOpen,
-		CreateOpts:         FileNonDirectoryFile,
 	}
 }
 
@@ -1778,8 +1777,10 @@ func (c *Connection) Close() {
 	//c.outstandingRequests.shutdown(nil)
 	close(c.rdone)
 
-	log.Debug("Closing TCP connection")
-	c.conn.Close()
+	if c.conn != nil {
+		log.Debug("Closing TCP connection")
+		c.conn.Close()
+	}
 	log.Debug("Session close completed")
 }
 
