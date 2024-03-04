@@ -25,7 +25,6 @@ package smb
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"math"
 
@@ -618,6 +617,18 @@ type SessionSetup2Res struct {
 	SecurityBlob         *gss.NegTokenResp
 }
 
+type LogoffReq struct {
+	Header
+	StructureSize uint16
+	Reserved      uint16
+}
+
+type LogoffRes struct {
+	Header
+	StructureSize uint16
+	Reserved      uint16
+}
+
 type TreeConnectReq struct {
 	Header
 	StructureSize uint16
@@ -1151,9 +1162,9 @@ func (s *Connection) NewSessionSetup1Req(spnegoClient *spnegoClient) (req Sessio
 		return
 	}
 
-	if s.sessionID != 0 {
-		return SessionSetup1Req{}, errors.New("Bad session ID for session setup 1 message")
-	}
+	//if s.sessionID != 0 {
+	//	return SessionSetup1Req{}, errors.New("Bad session ID for session setup 1 message")
+	//}
 
 	req = SessionSetup1Req{
 		Header:               header,
@@ -1220,9 +1231,9 @@ func (s *Connection) NewSessionSetup2Req(client *spnegoClient, msg *SessionSetup
 
 	// When relaying the connection through a proxy such as impacket's
 	// ntlmrelayx, the sessionID might not be handled correctly
-	if s.sessionID == 0 && !s.useProxy {
-		return SessionSetup2Req{}, errors.New("Bad session ID for session setup 2 message")
-	}
+	//if s.sessionID == 0 && !s.useProxy {
+	//	return SessionSetup2Req{}, errors.New("Bad session ID for session setup 2 message")
+	//}
 
 	// Session setup request #2
 	req := SessionSetup2Req{
@@ -1254,6 +1265,25 @@ func NewSessionSetup2Res() (SessionSetup2Res, error) {
 		SecurityBlob: &resp,
 	}
 	return ret, nil
+}
+
+func (s *Session) NewLogoffReq() LogoffReq {
+	header := newHeader()
+	header.Command = CommandLogoff
+	header.SessionID = s.sessionID
+	ret := LogoffReq{
+		Header:        header,
+		StructureSize: 4,
+	}
+	return ret
+}
+
+func NewLogoffRes() LogoffRes {
+	ret := LogoffRes{
+		Header:        newHeader(),
+		StructureSize: 4,
+	}
+	return ret
 }
 
 // NewTreeConnectReq creates a new TreeConnect message and accepts the share name

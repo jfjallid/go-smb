@@ -86,11 +86,11 @@ type Session struct {
 	clientGuid          []byte
 	securityMode        uint16
 	messageID           uint64
-	sessionID           uint64
+	sessionID           uint64 // Does this need to be atomic?
 	credits             uint64
 	sessionFlags        uint16
 	supportsMultiCredit bool
-	//SequenceWindow              uint64
+	//SequenceWindow            uint64
 	MaxReadSize               uint32
 	MaxWriteSize              uint32
 	preauthIntegrityHashValue [64]byte // Session preauthIntegrityHashValue
@@ -124,6 +124,7 @@ type Options struct {
 	DialTimeout           time.Duration
 	ProxyDialer           proxy.Dialer
 	RelayPort             int
+	ManualLogin           bool
 }
 
 func validateOptions(opt Options) error {
@@ -133,7 +134,7 @@ func validateOptions(opt Options) error {
 	if opt.Port < 1 || opt.Port > 65535 {
 		return fmt.Errorf("Invalid or missing value: Port. Use -h for help on usage.")
 	}
-	if opt.Initiator == nil {
+	if opt.Initiator == nil && !opt.ManualLogin {
 		return fmt.Errorf("Initiator empty")
 	}
 	return nil
@@ -399,6 +400,11 @@ func (c *Connection) NegotiateProtocol() error {
 }
 
 func (c *Connection) SessionSetup() error {
+	// Make sure to reset relevant options to allow multiple logins
+	c.disableSession()
+	c.sessionID = 0
+	c.IsAuthenticated = false
+
 	spnegoClient := newSpnegoClient([]Initiator{c.options.Initiator})
 	log.Debugln("Sending SessionSetup1 request")
 	ssreq, err := c.NewSessionSetup1Req(spnegoClient)
@@ -718,6 +724,42 @@ func (c *Connection) SessionSetup() error {
 	return nil
 }
 
+func (c *Connection) Logoff() error {
+	for k := range c.trees {
+		c.TreeDisconnect(k)
+	}
+
+	req := c.NewLogoffReq()
+	buf, err := c.sendrecv(req)
+	if err != nil {
+		log.Errorln(err)
+		return err
+	}
+
+	res := NewLogoffRes()
+	log.Debugln("Unmarshalling Logoff response")
+	if err := encoder.Unmarshal(buf, &res); err != nil {
+		log.Debugln(err)
+		return err
+	}
+
+	if res.Status != StatusOk {
+		status, found := StatusMap[res.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for Logoff response: 0x%x\n", res.Status)
+			log.Errorln(err)
+			return err
+		}
+		log.Debugf("NT Status Error: %v\n", status)
+		return status
+	}
+	c.disableSession()
+	c.sessionID = 0
+	c.IsAuthenticated = false
+
+	return nil
+}
+
 func (s *Session) sign(buf []byte) ([]byte, error) {
 	var hdr Header
 	err := encoder.Unmarshal(buf[:64], &hdr)
@@ -819,6 +861,10 @@ func (c *Connection) TreeConnect(name string) error {
 	if err != nil {
 		log.Debugln(err)
 		return err
+	}
+
+	if len(buf) < 64 {
+		return fmt.Errorf("TreeConnect received unexpected response from server that was too short")
 	}
 
 	var resHeader Header

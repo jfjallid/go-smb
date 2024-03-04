@@ -19,6 +19,14 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
+//
+// The marshal/unmarshal of requerst and responses according to the NDR syntax
+// has been implemented on a per RPC request basis and not in any complete way.
+// As such, for each new functionality, a manual marshal and unmarshal method
+// has to be written for the relevant messages. This makes it a bit cumbersome
+// to implement new features, so at some point a major rewrite should be
+// performed to ideally handle the NDR syntax dynamically.
+
 package dcerpc
 
 import (
@@ -62,7 +70,9 @@ const (
 
 // MSRPC Server Service (srvsvc) Operations
 const (
-	SrvSvcOpNetShareEnumAll uint16 = 15
+	SrvSvcOpNetrSessionEnum  uint16 = 12
+	SrvSvcOpNetShareEnumAll  uint16 = 15
+	SrvSvcOpNetServerGetInfo uint16 = 21
 )
 
 // MS-SCMR Operations OP Codes
@@ -270,6 +280,49 @@ var ShareTypeMap = map[uint32]string{
 	StypeTemporary:   "Temp",
 }
 
+// MS-SRVS Response codes from 2.2.2.10 Common Error Codes
+const (
+	SRVSErrorFileNotFound        uint32 = 2
+	SRVSErrorAccessDenied        uint32 = 5
+	SRVSErrorNotSupported        uint32 = 50
+	SRVSErrorDupName             uint32 = 52
+	SRVSErrorInvalidParameter    uint32 = 87
+	SRVSErrorInvalidLevel        uint32 = 124
+	SRVSErrorMoreData            uint32 = 234
+	SRVSErrorServiceDoesNotExist uint32 = 1060
+	SRVSErrorInvalidDomainName   uint32 = 1212
+	SRVSNERRUnknownDevDir        uint32 = 2116
+	SRVSNERRRedirectedPath       uint32 = 2117
+	SRVSNERRDuplicateShare       uint32 = 2118
+	SRVSNERRBufTooSmall          uint32 = 2123
+	SRVSNERRUserNotFound         uint32 = 2221
+	SRVSNERRNetNameNotFound      uint32 = 2310
+	SRVSNERRDeviceNotShared      uint32 = 2311
+	SRVSNERRClientNameNotFound   uint32 = 2312
+	SRVSNERRInvalidComputer      uint32 = 2351
+)
+
+var SRVSResponseCodeMap = map[uint32]error{
+	SRVSErrorFileNotFound:        fmt.Errorf("The system cannot find the file specified"),
+	SRVSErrorAccessDenied:        fmt.Errorf("The user does not have access to the requested information"),
+	SRVSErrorNotSupported:        fmt.Errorf("The server does not support branch cache"),
+	SRVSErrorDupName:             fmt.Errorf("A duplicate name exists on the network"),
+	SRVSErrorInvalidParameter:    fmt.Errorf("One or more of the specified parameters is invalid"),
+	SRVSErrorInvalidLevel:        fmt.Errorf("The value that is specified for the level parameter is invalid"),
+	SRVSErrorMoreData:            fmt.Errorf("More entries are available. Specify a large enough buffer to receive all entries"),
+	SRVSErrorServiceDoesNotExist: fmt.Errorf("The branch cache component does not exist as an installed service"),
+	SRVSErrorInvalidDomainName:   fmt.Errorf("The format of the specified NetBIOS name of a domain is invalid"),
+	SRVSNERRUnknownDevDir:        fmt.Errorf("The device or directory does not exist"),
+	SRVSNERRRedirectedPath:       fmt.Errorf("The operation is not valid for a redirected resource. The specified device name is assigned to a shared resource"),
+	SRVSNERRDuplicateShare:       fmt.Errorf("The share name is already in use on this server"),
+	SRVSNERRBufTooSmall:          fmt.Errorf("The client request succeeded. More entries are available. The buffer size that is specified by PreferedMaximumLength was too small to fit even a single entry"),
+	SRVSNERRUserNotFound:         fmt.Errorf("The user name could not be found"),
+	SRVSNERRNetNameNotFound:      fmt.Errorf("The share name does not exist"),
+	SRVSNERRDeviceNotShared:      fmt.Errorf("The device is not shared"),
+	SRVSNERRClientNameNotFound:   fmt.Errorf("A session does not exist with the computer name"),
+	SRVSNERRInvalidComputer:      fmt.Errorf("The computer name is not valid"),
+}
+
 // Unused
 //type RPCClient interface {
 //	Bind(interface_uuid, transfer_uuid string) (bool, error)
@@ -407,6 +460,151 @@ type NetShare struct {
 	Hidden  bool
 }
 
+type NetServerInfo100 struct {
+	platformId uint32
+	name       *UnicodeStr
+}
+
+type NetServerInfo101 struct {
+	NetServerInfo100
+	versionMajor uint32
+	versionMinor uint32
+	svType       uint32
+	comment      *UnicodeStr
+}
+
+type NetServerInfo102 struct {
+	NetServerInfo101
+	users    uint32
+	disc     int32
+	hidden   uint32
+	announce uint32
+	anndelta uint32
+	licences uint32
+	userpath *UnicodeStr
+}
+
+type NetServerInfo struct {
+	Level   uint32
+	Pointer interface{}
+}
+
+type ServerInfo100 struct {
+	PlatformId uint32
+	Name       string
+}
+
+type ServerInfo101 struct {
+	ServerInfo100
+	VersionMajor uint32
+	VersionMinor uint32
+	SvType       uint32
+	Comment      string
+}
+
+type ServerInfo102 struct {
+	ServerInfo101
+	Users    uint32
+	Disc     int32
+	Hidden   bool
+	Announce uint32
+	Anndelta uint32
+	Licences uint32
+	Userpath string
+}
+
+type SessionInfo0 struct {
+	Cname string
+}
+
+type SessionInfo1 struct {
+	SessionInfo0
+	Username  string
+	NumOpens  uint32
+	Time      uint32
+	IdleTime  uint32
+	UserFlags uint32 // Must be a combination of one or more of the values that are defined in 2.2.2.3
+}
+
+type SessionInfo2 struct {
+	SessionInfo1
+	ClType string
+}
+
+type SessionInfo10 struct {
+	SessionInfo0
+	Username string
+	Time     uint32
+	IdleTime uint32
+}
+
+type SessionInfo502 struct {
+	SessionInfo2
+	Transport string
+}
+
+// Could this be done in a better way? Perhaps with an interface?
+type NetSessionInfo0 struct {
+	Cname *UnicodeStr
+}
+
+type NetSessionInfo1 struct {
+	NetSessionInfo0
+	Username  *UnicodeStr
+	NumOpens  uint32
+	Time      uint32
+	IdleTime  uint32
+	UserFlags uint32 // Must be a combination of one or more of the values that are defined in 2.2.2.3
+}
+
+type NetSessionInfo2 struct {
+	NetSessionInfo1
+	ClType *UnicodeStr
+}
+
+type NetSessionInfo10 struct {
+	NetSessionInfo0
+	Username *UnicodeStr
+	Time     uint32
+	IdleTime uint32
+}
+
+type NetSessionInfo502 struct {
+	NetSessionInfo2
+	Transport *UnicodeStr
+}
+
+// Could this be done in a better way? Perhaps with an interface?
+type SessionInfoContainer struct {
+	EntriesRead uint32
+	Buffer      []interface{}
+}
+
+type SessionInfoContainer0 struct {
+	EntriesRead uint32
+	Buffer      []NetSessionInfo0
+}
+
+type SessionInfoContainer1 struct {
+	EntriesRead uint32
+	Buffer      []NetSessionInfo1
+}
+
+type SessionInfoContainer2 struct {
+	EntriesRead uint32
+	Buffer      []NetSessionInfo2
+}
+
+type SessionInfoContainer10 struct {
+	EntriesRead uint32
+	Buffer      []NetSessionInfo10
+}
+
+type SessionInfoContainer502 struct {
+	EntriesRead uint32
+	Buffer      []NetSessionInfo502
+}
+
 type ServiceConfig struct {
 	ServiceType      string
 	StartType        string
@@ -448,6 +646,40 @@ type NetShareEnumAllResponse struct {
 	NetShareCtr  *NetShareCtr
 	TotalEntries uint32
 	*ResumeHandle
+	WindowsError uint32
+}
+
+type NetServerGetInfoRequest struct {
+	ServerName *UnicodeStr
+	Level      uint32
+}
+
+type NetServerGetInfoResponse struct {
+	Info         *NetServerInfo
+	WindowsError uint32
+}
+
+type SessionEnum struct {
+	Level       uint32
+	SessionInfo interface{}
+}
+
+type NetSessionEnumRequest struct {
+	ServerName         *UnicodeStr
+	ClientName         *UnicodeStr
+	UserName           *UnicodeStr
+	Info               SessionEnum
+	PreferredMaxLength uint32
+	ResumeHandle       ResumeHandle
+}
+
+// Annoying to unmarshal because of NDR synax where lots and lots of ReferentId
+// Ptrs are part of the serialized data, and elements of the structs are NOT
+// serialized in order.
+type NetSessionEnumResponse struct {
+	Info         SessionEnum
+	TotalEntries uint32
+	ResumeHandle ResumeHandle
 	WindowsError uint32
 }
 
@@ -1199,6 +1431,54 @@ func NewNetShareEnumAllRequest(serverName string) *NetShareEnumAllRequest {
 	return &nr
 }
 
+func NewNetServerGetInfoRequest(serverName string, level int) *NetServerGetInfoRequest {
+	if level < 100 || level > 102 {
+		log.Errorln("Invalid level for NetServerGetInfo request. Falling back to level 100")
+		level = 100
+	}
+	nr := NetServerGetInfoRequest{
+		Level: uint32(level),
+	}
+	if serverName != "" {
+		nr.ServerName = NewUnicodeStr(1, serverName)
+	}
+
+	return &nr
+}
+
+func NewNetSessionEnumRequest(clientName, userName string, level uint32) *NetSessionEnumRequest {
+	if (level > 2) && level != 10 && level != 502 {
+		// Valid levels are 0, 1, 2, 10, 502
+		log.Errorln("Invalid level for NetSessionEnum request. Falling back to level 10")
+		level = 10
+	}
+	nr := NetSessionEnumRequest{
+		Info: SessionEnum{Level: uint32(level)},
+	}
+	if clientName != "" {
+		nr.ClientName = NewUnicodeStr(1, clientName)
+	}
+	if userName != "" {
+		nr.UserName = NewUnicodeStr(2, userName)
+	}
+	nr.PreferredMaxLength = 0xffffffff
+	nr.ResumeHandle.ReferentId = 3
+
+	switch level {
+	case 0:
+		nr.Info.SessionInfo = SessionInfoContainer0{}
+	case 10:
+		nr.Info.SessionInfo = SessionInfoContainer10{}
+	case 502:
+		nr.Info.SessionInfo = SessionInfoContainer502{}
+	default:
+		log.Errorln("Not yet implemented level %d\n", level)
+		return nil
+	}
+
+	return &nr
+}
+
 func Bind(f *smb.File, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string) (bind *ServiceBind, err error) {
 	log.Debugln("In Bind")
 	callId := rand.Uint32()
@@ -1367,6 +1647,232 @@ func (sb *ServiceBind) NetShareEnumAll(host string) (res []NetShare, err error) 
 	}
 
 	return res, nil
+}
+
+/*
+Send a NetServerGetInfo request to the server. Level can be 100, 101, or 102
+*/
+func (sb *ServiceBind) NetServerGetInfo(host string, level int) (res *NetServerInfo, err error) {
+	log.Debugln("In NetServerGetInfo")
+	netReq := NewNetServerGetInfoRequest(host, level)
+	netBuf, err := netReq.MarshalBinary(nil)
+	if err != nil {
+		return
+	}
+
+	buffer, err := sb.MakeIoCtlRequest(SrvSvcOpNetServerGetInfo, netBuf)
+	if err != nil {
+		return
+	}
+
+	if len(buffer) < 12 {
+		return nil, fmt.Errorf("Server response to NetServerGetInfo was too small. Expected at atleast 12 bytes")
+	}
+	werror := binary.LittleEndian.Uint32(buffer[len(buffer)-4:])
+	if werror != 0 {
+		responseCode, found := SRVSResponseCodeMap[werror]
+		if !found {
+			err = fmt.Errorf("NetServerGetInfo returned unknown error code: %d\n", werror)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("NetServerGetInfo return error: %v\n", responseCode)
+		return nil, responseCode
+	}
+
+	var response NetServerGetInfoResponse
+	err = response.UnmarshalBinary(buffer, nil)
+	if err != nil {
+		return
+	}
+	switch response.Info.Level {
+	case 100:
+		ptr := response.Info.Pointer.(*NetServerInfo100)
+		si := ServerInfo100{
+			PlatformId: ptr.platformId,
+		}
+		si.Name, err = encoder.FromUnicodeString(ptr.name.EncodedString)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		res = &NetServerInfo{Level: 100, Pointer: &si}
+	case 101:
+		ptr := response.Info.Pointer.(*NetServerInfo101)
+		si := ServerInfo101{
+			ServerInfo100: ServerInfo100{PlatformId: ptr.platformId},
+			VersionMajor:  ptr.versionMajor,
+			VersionMinor:  ptr.versionMinor,
+			SvType:        ptr.svType,
+		}
+		si.Name, err = encoder.FromUnicodeString(ptr.name.EncodedString)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		si.Comment, err = encoder.FromUnicodeString(ptr.comment.EncodedString)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		res = &NetServerInfo{Level: 101, Pointer: &si}
+	case 102:
+		ptr := response.Info.Pointer.(*NetServerInfo102)
+		si := ServerInfo102{
+			ServerInfo101: ServerInfo101{
+				ServerInfo100: ServerInfo100{PlatformId: ptr.platformId},
+				VersionMajor:  ptr.versionMajor,
+				VersionMinor:  ptr.versionMinor,
+				SvType:        ptr.svType,
+			},
+			Users:    ptr.users,
+			Disc:     ptr.disc,
+			Hidden:   ptr.hidden > 0,
+			Announce: ptr.announce,
+			Anndelta: ptr.anndelta,
+			Licences: ptr.licences,
+		}
+		si.Name, err = encoder.FromUnicodeString(ptr.name.EncodedString)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		si.Comment, err = encoder.FromUnicodeString(ptr.comment.EncodedString)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		si.Userpath, err = encoder.FromUnicodeString(ptr.userpath.EncodedString)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		res = &NetServerInfo{Level: 102, Pointer: &si}
+	}
+
+	return
+}
+
+/*
+Send a NetSessionEnum request to the server. Level can be 0, 1, 2, 10 or 502
+But so far only level 0, 10 and 502 are implemented
+*/
+func (sb *ServiceBind) NetSessionEnum(clientName, username string, level int) (res *SessionEnum, err error) {
+	log.Debugln("In NetServerGetInfo")
+	if level < 0 {
+		return nil, fmt.Errorf("Only levels 0, 1, 2, 10 and 502 are valid")
+	}
+	netReq := NewNetSessionEnumRequest(clientName, username, uint32(level))
+	netBuf, err := netReq.MarshalBinary(nil)
+	if err != nil {
+		return
+	}
+
+	buffer, err := sb.MakeIoCtlRequest(SrvSvcOpNetrSessionEnum, netBuf)
+	if err != nil {
+		return
+	}
+
+	if len(buffer) < 20 {
+		return nil, fmt.Errorf("Server response to NetSessionEnum was too small. Expected at atleast 20 bytes")
+	}
+	werror := binary.LittleEndian.Uint32(buffer[len(buffer)-4:])
+	if werror != 0 {
+		responseCode, found := SRVSResponseCodeMap[werror]
+		if !found {
+			err = fmt.Errorf("NetServerGetInfo returned unknown error code: %d\n", werror)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("NetServerGetInfo return error: %v\n", responseCode)
+		return nil, responseCode
+	}
+
+	var response NetSessionEnumResponse
+	err = response.UnmarshalBinary(buffer, nil)
+	if err != nil {
+		return
+	}
+	res = &SessionEnum{}
+	switch response.Info.Level {
+	case 0:
+		res.Level = 0
+		ptr := response.Info.SessionInfo.(*SessionInfoContainer0)
+		sic := &SessionInfoContainer{EntriesRead: ptr.EntriesRead}
+		res.SessionInfo = sic
+		for i := 0; i < int(ptr.EntriesRead); i++ {
+			si := SessionInfo0{
+				Cname: "",
+			}
+			si.Cname, err = encoder.FromUnicodeString(ptr.Buffer[i].Cname.EncodedString)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			sic.Buffer = append(sic.Buffer, si)
+		}
+	case 10:
+		res.Level = 10
+		ptr := response.Info.SessionInfo.(*SessionInfoContainer10)
+		sic := &SessionInfoContainer{EntriesRead: ptr.EntriesRead}
+		res.SessionInfo = sic
+		for i := 0; i < int(ptr.EntriesRead); i++ {
+			si := SessionInfo10{
+				SessionInfo0: SessionInfo0{Cname: ""},
+				Username:     "",
+				Time:         ptr.Buffer[i].Time,
+				IdleTime:     ptr.Buffer[i].IdleTime,
+			}
+			si.Cname, err = encoder.FromUnicodeString(ptr.Buffer[i].Cname.EncodedString)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			si.Username, err = encoder.FromUnicodeString(ptr.Buffer[i].Username.EncodedString)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			sic.Buffer = append(sic.Buffer, si)
+		}
+	case 502:
+		res.Level = 502
+		ptr := response.Info.SessionInfo.(*SessionInfoContainer502)
+		sic := &SessionInfoContainer{EntriesRead: ptr.EntriesRead}
+		res.SessionInfo = sic
+		for i := 0; i < int(ptr.EntriesRead); i++ {
+			si := SessionInfo502{}
+			si.Cname, err = encoder.FromUnicodeString(ptr.Buffer[i].Cname.EncodedString)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			si.Username, err = encoder.FromUnicodeString(ptr.Buffer[i].Username.EncodedString)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			si.ClType, err = encoder.FromUnicodeString(ptr.Buffer[i].ClType.EncodedString)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			si.Transport, err = encoder.FromUnicodeString(ptr.Buffer[i].Transport.EncodedString)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			si.UserFlags = ptr.Buffer[i].UserFlags
+			si.NumOpens = ptr.Buffer[i].NumOpens
+			si.Time = ptr.Buffer[i].Time
+			si.IdleTime = ptr.Buffer[i].IdleTime
+			sic.Buffer = append(sic.Buffer, si)
+		}
+	default:
+		return nil, fmt.Errorf("Server returned response with info level %d which is not yet implementet\n", response.Info.Level)
+	}
+
+	return
 }
 
 func (sb *ServiceBind) openSCManager(desiredAccess uint32) (handle []byte, err error) {
@@ -1920,4 +2426,626 @@ func (sb *ServiceBind) CloseServiceHandle(serviceHandle []byte) {
 	}
 
 	return
+}
+
+func (s *UnicodeStr) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+	if s == nil {
+		// Workaround for the generic encoder function that calls MarshalBinary even when the ptr is nil
+		w.Write([]byte{0, 0, 0, 0})
+		return w.Bytes(), nil
+	}
+	if s.ReferentIdPtr != 0 {
+		binary.Write(w, binary.LittleEndian, s.ReferentIdPtr)
+	}
+
+	binary.Write(w, binary.LittleEndian, s.MaxCount)
+	binary.Write(w, binary.LittleEndian, s.Offset)
+	binary.Write(w, binary.LittleEndian, s.ActualCount)
+	w.Write(s.EncodedString)
+
+	l := len(w.Bytes())
+
+	requiredPadd := 4 - (l % 4)
+	if requiredPadd != 4 {
+		w.Write(make([]byte, requiredPadd))
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *UnicodeStr) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	//NOTE This function will only work when unmarshalling a standalone UnicodeStr struct.
+	// If the UnicodeStr is part of an array for instance, the ReferentIdPtr will not be
+	// part of this buffer but rather be placed earlier in the byte stream.
+
+	// Not sure how to handle if the ReferentId Ptr is placed somewhere earlier in the byte stream, before the actual struct
+	// e.g., if all the elements of the struct are not serialized in order right next to each other
+
+	self.ReferentIdPtr = binary.LittleEndian.Uint32(buf)
+	self.MaxCount = binary.LittleEndian.Uint32(buf[4:])
+	self.Offset = binary.LittleEndian.Uint32(buf[8:])
+	self.ActualCount = binary.LittleEndian.Uint32(buf[12:])
+
+	if int(self.Offset) > len(buf) {
+		return fmt.Errorf("Specified offset of encoded string is outside buffer\n")
+	}
+	if int(self.Offset+self.ActualCount*2) > len(buf) {
+		return fmt.Errorf("Encoded strings is placed outside buffer based on specified offset and ActualCount\n")
+	}
+
+	self.EncodedString = make([]byte, self.ActualCount*2)
+	copy(self.EncodedString, buf[self.Offset:self.Offset+2*self.ActualCount])
+
+	l := 16 + self.ActualCount*2
+	paddLen := 4 - (l % 4)
+	if paddLen != 4 {
+		self.Padd = make([]byte, paddLen)
+	}
+
+	return nil
+}
+
+func (self *NetServerGetInfoRequest) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+	log.Debugln("In MarshalBinary for NetServerGetInfoRequest")
+
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+	if self.ServerName != nil {
+		serverName, err := self.ServerName.MarshalBinary(nil)
+		if err != nil {
+			return nil, err
+		}
+		w.Write(serverName)
+	} else {
+		w.Write([]byte{0, 0, 0, 0})
+	}
+	binary.Write(w, binary.LittleEndian, self.Level)
+
+	return w.Bytes(), nil
+}
+
+func (self *NetServerGetInfoRequest) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of NetServerGetInfoRequest")
+}
+
+func (self *NetServerGetInfoResponse) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshaBinary of NetServerGetInfoResponse")
+}
+
+func (self *NetServerGetInfoResponse) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	log.Debugln("In UnmarshalBinary for NetServerGetInfoResponse")
+
+	/*
+		The serialized format is a bit confusing as the structs/data types are not just
+		serialized in order. Instead they are put in different places depending on what
+		comes before and what comes after.
+		In this case, the ReferentId Ptrs are lifted out of the UnicodeStr structs and the actual order is as seen below.
+		This is because according to NDR, the pointers are lifted outside the array element (strings) and into the parent structure
+	*/
+	offset := 0
+	self.Info = &NetServerInfo{}
+	self.Info.Level = binary.LittleEndian.Uint32(buf[offset:])
+	// Skip over a ReferentId Ptr of 4 bytes
+	offset += 8
+	switch self.Info.Level {
+	case 100:
+		if len(buf[offset:]) < 8 {
+			return fmt.Errorf("Buffer is too short to contain a NetServerInfo100 struct\n")
+		}
+		si := NetServerInfo100{}
+		si.platformId = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.name = &UnicodeStr{ReferentIdPtr: binary.LittleEndian.Uint32(buf[offset:])}
+		offset += 4
+
+		si.name.MaxCount = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.name.Offset = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.name.ActualCount = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.name.EncodedString = make([]byte, si.name.ActualCount*2)
+		copy(si.name.EncodedString, buf[offset+int(si.name.Offset):offset+int(si.name.Offset)+int(si.name.ActualCount)*2])
+		offset += int(si.name.ActualCount) * 2
+
+		paddLen := 4 - (offset % 4)
+		if paddLen != 4 {
+			offset += paddLen
+			si.name.Padd = make([]byte, paddLen)
+		}
+
+		self.Info.Pointer = &si
+	case 101:
+		if len(buf[offset:]) < 24 {
+			return fmt.Errorf("Buffer is too short to contain a NetServerInfo102 struct\n")
+		}
+		si := NetServerInfo101{}
+		si.platformId = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.name = &UnicodeStr{ReferentIdPtr: binary.LittleEndian.Uint32(buf[offset:])}
+		offset += 4
+		si.versionMajor = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.versionMinor = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.svType = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.comment = &UnicodeStr{ReferentIdPtr: binary.LittleEndian.Uint32(buf[offset:])}
+		offset += 4
+
+		si.name.MaxCount = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.name.Offset = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.name.ActualCount = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.name.EncodedString = make([]byte, si.name.ActualCount*2)
+		copy(si.name.EncodedString, buf[offset+int(si.name.Offset):offset+int(si.name.Offset)+int(si.name.ActualCount)*2])
+		offset += int(si.name.ActualCount) * 2
+
+		paddLen := 4 - (offset % 4)
+		if paddLen != 4 {
+			offset += paddLen
+			si.name.Padd = make([]byte, paddLen)
+		}
+
+		// Comment struct
+		si.comment.MaxCount = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.comment.Offset = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.comment.ActualCount = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.comment.EncodedString = make([]byte, int(si.comment.ActualCount*2))
+		copy(si.comment.EncodedString, buf[offset+int(si.comment.Offset):offset+int(si.comment.Offset)+int(si.comment.ActualCount)*2])
+		offset += int(si.comment.ActualCount) * 2
+		paddLen = 4 - (offset % 4)
+		if paddLen != 4 {
+			offset += paddLen
+			si.comment.Padd = make([]byte, paddLen)
+		}
+
+		self.Info.Pointer = &si
+	case 102:
+		/*
+			        Order of serialization:
+					platformId
+					ReferentId Ptr from name struct
+					versionMajor
+					versionMinor
+					svType
+					ReferentId Ptr from comment struct
+					Users
+					disc
+					hidden
+					announce
+					anndelta
+					licenses
+					ReferentId Ptr from UserPath struct
+
+					Then finally comes the content of the three UnicodeStr structs
+		*/
+		if len(buf[offset:]) < 52 {
+			return fmt.Errorf("Buffer is too short to contain a NetServerInfo102 struct\n")
+		}
+		si := NetServerInfo102{}
+		si.platformId = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.name = &UnicodeStr{ReferentIdPtr: binary.LittleEndian.Uint32(buf[offset:])}
+		offset += 4
+		si.versionMajor = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.versionMinor = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.svType = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.comment = &UnicodeStr{ReferentIdPtr: binary.LittleEndian.Uint32(buf[offset:])}
+		offset += 4
+		si.users = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.disc = int32(binary.LittleEndian.Uint32(buf[offset:]))
+		offset += 4
+		si.hidden = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.announce = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.anndelta = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.licences = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.userpath = &UnicodeStr{ReferentIdPtr: binary.LittleEndian.Uint32(buf[offset:])}
+		offset += 4
+
+		si.name.MaxCount = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.name.Offset = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.name.ActualCount = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		//offset = 72
+		si.name.EncodedString = make([]byte, si.name.ActualCount*2)
+		copy(si.name.EncodedString, buf[offset+int(si.name.Offset):offset+int(si.name.Offset)+int(si.name.ActualCount)*2])
+		offset += int(si.name.ActualCount) * 2
+
+		paddLen := 4 - (offset % 4)
+		if paddLen != 4 {
+			offset += paddLen
+			si.name.Padd = make([]byte, paddLen)
+		}
+
+		// Comment struct
+		si.comment.MaxCount = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.comment.Offset = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.comment.ActualCount = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.comment.EncodedString = make([]byte, int(si.comment.ActualCount*2))
+		copy(si.comment.EncodedString, buf[offset+int(si.comment.Offset):offset+int(si.comment.Offset)+int(si.comment.ActualCount)*2])
+		offset += int(si.comment.ActualCount) * 2
+		paddLen = 4 - (offset % 4)
+		if paddLen != 4 {
+			offset += paddLen
+			si.comment.Padd = make([]byte, paddLen)
+		}
+
+		// UserPath struct
+		si.userpath.MaxCount = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.userpath.Offset = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.userpath.ActualCount = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+		si.userpath.EncodedString = make([]byte, int(si.userpath.ActualCount*2))
+		copy(si.userpath.EncodedString, buf[offset+int(si.userpath.Offset):offset+int(si.userpath.Offset)+int(si.userpath.ActualCount)*2])
+		offset += int(si.userpath.ActualCount) * 2
+		paddLen = 4 - (offset % 4)
+		if paddLen != 4 {
+			offset += paddLen
+			si.userpath.Padd = make([]byte, paddLen)
+		}
+		self.Info.Pointer = &si
+	}
+
+	self.WindowsError = binary.LittleEndian.Uint32(buf[offset:])
+	return nil
+}
+
+func (self *NetSessionEnumRequest) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+	log.Debugln("In MarshalBinary for NetSessionEnumRequest")
+
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+	if self.ServerName != nil {
+		serverName, err := self.ServerName.MarshalBinary(nil)
+		if err != nil {
+			return nil, err
+		}
+		w.Write(serverName)
+	} else {
+		w.Write([]byte{0, 0, 0, 0})
+	}
+	if self.ClientName != nil {
+		clientName, err := self.ClientName.MarshalBinary(nil)
+		if err != nil {
+			return nil, err
+		}
+		w.Write(clientName)
+	} else {
+		w.Write([]byte{0, 0, 0, 0})
+	}
+
+	if self.UserName != nil {
+		userName, err := self.UserName.MarshalBinary(nil)
+		if err != nil {
+			return nil, err
+		}
+		w.Write(userName)
+	} else {
+		w.Write([]byte{0, 0, 0, 0})
+	}
+
+	// Encode the level
+	binary.Write(w, binary.LittleEndian, self.Info.Level)
+
+	switch self.Info.Level {
+	case 0:
+		refIdCtr := byte(1)
+		binary.Write(w, binary.LittleEndian, self.Info.Level)                 // Encode the level again
+		binary.Write(w, binary.LittleEndian, []byte{refIdCtr, 0x0, 0x0, 0x0}) // ReferentID
+		refIdCtr++
+
+		ptr := self.Info.SessionInfo.(SessionInfoContainer0)
+		binary.Write(w, binary.LittleEndian, ptr.EntriesRead)            // How many items in array (sessions)
+		binary.Write(w, binary.LittleEndian, []byte{0x0, 0x0, 0x0, 0x0}) // Null ptr
+		//TODO Add support for specifying an argument array?
+		if ptr.EntriesRead > 0 {
+			return nil, fmt.Errorf("Not yet implemented support for specifying NetSession0 array items")
+		}
+
+	case 10:
+		refIdCtr := byte(1)
+		binary.Write(w, binary.LittleEndian, self.Info.Level)                 // Encode the level again
+		binary.Write(w, binary.LittleEndian, []byte{refIdCtr, 0x0, 0x0, 0x0}) // ReferentID
+		refIdCtr++
+
+		ptr := self.Info.SessionInfo.(SessionInfoContainer10)
+		binary.Write(w, binary.LittleEndian, ptr.EntriesRead) // How many items in array (sessions)
+
+		if len(ptr.Buffer) > 0 {
+			// This block is probably unnecessary as the request will likely never contain any elements
+			binary.Write(w, binary.LittleEndian, []byte{refIdCtr, 0x0, 0x0, 0x0}) // ReferentID
+			refIdCtr++
+			binary.Write(w, binary.LittleEndian, ptr.EntriesRead) // Max Count
+			// Encode the ReferentID ptrs for each element in the array
+			for i := range ptr.Buffer {
+				if ptr.Buffer[i].Cname != nil {
+					binary.Write(w, binary.LittleEndian, ptr.Buffer[i].Cname.ReferentIdPtr)
+				} else {
+					// Not sure it is correct to encode a null pointer
+					binary.Write(w, binary.LittleEndian, []byte{0, 0, 0, 0})
+				}
+				if ptr.Buffer[i].Username != nil {
+					binary.Write(w, binary.LittleEndian, ptr.Buffer[i].Username.ReferentIdPtr)
+				} else {
+					// Not sure it is correct to encode a null pointer
+					binary.Write(w, binary.LittleEndian, []byte{0, 0, 0, 0})
+				}
+				// Encode the last members of the SessionInfo10 struct
+				binary.Write(w, binary.LittleEndian, ptr.Buffer[i].Time)
+				binary.Write(w, binary.LittleEndian, ptr.Buffer[i].IdleTime)
+			}
+			// Now encode the actual Client and UserNames if they are present
+			for i := range ptr.Buffer {
+				if ptr.Buffer[i].Cname != nil {
+					ptr.Buffer[i].Cname.ReferentIdPtr = 0 // Workaround to handle when the ReferentId is lifted out of the struct
+					cnameBuff, err := ptr.Buffer[i].Cname.MarshalBinary(nil)
+					if err != nil {
+						log.Errorln(err)
+						return nil, err
+					}
+					w.Write(cnameBuff)
+				}
+				if ptr.Buffer[i].Username != nil {
+					ptr.Buffer[i].Username.ReferentIdPtr = 0 // Workaround to handle when the ReferentId is lifted out of the struct
+					usernameBuff, err := ptr.Buffer[i].Username.MarshalBinary(nil)
+					if err != nil {
+						log.Errorln(err)
+						return nil, err
+					}
+					w.Write(usernameBuff)
+				}
+			}
+		} else {
+			binary.Write(w, binary.LittleEndian, []byte{0x0, 0x0, 0x0, 0x0}) // Null ptr
+		}
+	case 502:
+		refIdCtr := byte(1)
+		binary.Write(w, binary.LittleEndian, self.Info.Level)                 // Encode the level again
+		binary.Write(w, binary.LittleEndian, []byte{refIdCtr, 0x0, 0x0, 0x0}) // ReferentID
+		refIdCtr++
+
+		ptr := self.Info.SessionInfo.(SessionInfoContainer502)
+		binary.Write(w, binary.LittleEndian, ptr.EntriesRead)            // How many items in array (sessions)
+		binary.Write(w, binary.LittleEndian, []byte{0x0, 0x0, 0x0, 0x0}) // Null ptr
+		//TODO Add support for specifying an argument array?
+		if ptr.EntriesRead > 0 {
+			return nil, fmt.Errorf("Not yet implemented support for specifying NetSession502 array items")
+		}
+	default:
+		return nil, fmt.Errorf("Not implemented marshal of level %d\n", self.Info.Level)
+	}
+
+	binary.Write(w, binary.LittleEndian, self.PreferredMaxLength)
+	binary.Write(w, binary.LittleEndian, self.ResumeHandle.ReferentId)
+	binary.Write(w, binary.LittleEndian, self.ResumeHandle.Handle)
+
+	return w.Bytes(), nil
+}
+
+func (self *NetSessionEnumRequest) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of NetSessionEnumRequest")
+}
+
+func (self *NetSessionEnumResponse) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshaBinary of NetSessionEnumResponse")
+}
+
+func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	log.Debugln("In UnmarshalBinary for NetSessionEnumResponse")
+
+	offset := 0
+	self.Info.Level = binary.LittleEndian.Uint32(buf[offset:])
+	offset += 8 // Level is encoded twice for some reason
+
+	switch self.Info.Level {
+	case 0:
+		offset += 4 // Skip referrent ID
+		container := SessionInfoContainer0{}
+		self.Info.SessionInfo = &container
+		container.EntriesRead = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+
+		offset += 4 // Skip referrent ID
+		if container.EntriesRead > 0 {
+			offset += 4 // Skip Max count in front of the array
+			container.Buffer = make([]NetSessionInfo0, container.EntriesRead)
+			for i := 0; i < int(container.EntriesRead); i++ {
+				offset += 4 // Skip ReferentID ptrs for Cname
+			}
+			for i := 0; i < int(container.EntriesRead); i++ {
+				// Decode the Cname
+				container.Buffer[i].Cname = &UnicodeStr{
+					MaxCount:    binary.LittleEndian.Uint32(buf[offset:]),
+					Offset:      binary.LittleEndian.Uint32(buf[offset+4:]),
+					ActualCount: binary.LittleEndian.Uint32(buf[offset+8:]),
+				}
+				offset += 12
+				container.Buffer[i].Cname.EncodedString = make([]byte, container.Buffer[i].Cname.ActualCount*2)
+				copy(container.Buffer[i].Cname.EncodedString, buf[offset+int(container.Buffer[i].Cname.Offset):offset+int(container.Buffer[i].Cname.Offset)+int(container.Buffer[i].Cname.ActualCount*2)])
+				offset += int(container.Buffer[i].Cname.ActualCount * 2)
+				paddLen := 4 - (offset % 4)
+				if paddLen != 4 {
+					offset += paddLen
+					container.Buffer[i].Cname.Padd = make([]byte, paddLen)
+				}
+			}
+		}
+	case 10:
+		offset += 4 // Skip referrent ID
+		container := SessionInfoContainer10{}
+		self.Info.SessionInfo = &container
+		container.EntriesRead = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+
+		offset += 4 // Skip referrent ID
+		if container.EntriesRead > 0 {
+			offset += 4 // Skip Max count in front of the array
+			container.Buffer = make([]NetSessionInfo10, container.EntriesRead)
+			for i := 0; i < int(container.EntriesRead); i++ {
+				offset += 8 // Skip ReferentID ptrs for Cname and Username
+				container.Buffer[i].Time = binary.LittleEndian.Uint32(buf[offset:])
+				offset += 4
+				container.Buffer[i].IdleTime = binary.LittleEndian.Uint32(buf[offset:])
+				offset += 4
+			}
+			for i := 0; i < int(container.EntriesRead); i++ {
+				// Decode the Cname
+				//fmt.Printf("Offset before Cname Max Count: %d\n", offset)
+				container.Buffer[i].Cname = &UnicodeStr{
+					MaxCount:    binary.LittleEndian.Uint32(buf[offset:]),
+					Offset:      binary.LittleEndian.Uint32(buf[offset+4:]),
+					ActualCount: binary.LittleEndian.Uint32(buf[offset+8:]),
+				}
+				offset += 12
+				container.Buffer[i].Cname.EncodedString = make([]byte, container.Buffer[i].Cname.ActualCount*2)
+				copy(container.Buffer[i].Cname.EncodedString, buf[offset+int(container.Buffer[i].Cname.Offset):offset+int(container.Buffer[i].Cname.Offset)+int(container.Buffer[i].Cname.ActualCount*2)])
+				offset += int(container.Buffer[i].Cname.ActualCount * 2)
+				paddLen := 4 - (offset % 4)
+				if paddLen != 4 {
+					offset += paddLen
+					container.Buffer[i].Cname.Padd = make([]byte, paddLen)
+				}
+
+				// Decode the Username
+				container.Buffer[i].Username = &UnicodeStr{
+					MaxCount:    binary.LittleEndian.Uint32(buf[offset:]),
+					Offset:      binary.LittleEndian.Uint32(buf[offset+4:]),
+					ActualCount: binary.LittleEndian.Uint32(buf[offset+8:]),
+				}
+				offset += 12
+				container.Buffer[i].Username.EncodedString = make([]byte, container.Buffer[i].Username.ActualCount*2)
+				copy(container.Buffer[i].Username.EncodedString, buf[offset+int(container.Buffer[i].Username.Offset):offset+int(container.Buffer[i].Username.Offset)+int(container.Buffer[i].Username.ActualCount*2)])
+				offset += int(container.Buffer[i].Username.ActualCount * 2)
+				paddLen = 4 - (offset % 4)
+				if paddLen != 4 {
+					offset += paddLen
+					container.Buffer[i].Username.Padd = make([]byte, paddLen)
+				}
+			}
+		}
+	case 502:
+		offset += 4 // Skip referrent ID
+		container := SessionInfoContainer502{}
+		self.Info.SessionInfo = &container
+		container.EntriesRead = binary.LittleEndian.Uint32(buf[offset:])
+		offset += 4
+
+		offset += 4 // Skip referrent ID
+		if container.EntriesRead > 0 {
+			offset += 4 // Skip Max count in front of the array
+			container.Buffer = make([]NetSessionInfo502, container.EntriesRead)
+			for i := 0; i < int(container.EntriesRead); i++ {
+				offset += 8 // Skip ReferentID ptrs for Cname and Username
+				container.Buffer[i].NumOpens = binary.LittleEndian.Uint32(buf[offset:])
+				offset += 4
+				container.Buffer[i].Time = binary.LittleEndian.Uint32(buf[offset:])
+				offset += 4
+				container.Buffer[i].IdleTime = binary.LittleEndian.Uint32(buf[offset:])
+				offset += 4
+				container.Buffer[i].UserFlags = binary.LittleEndian.Uint32(buf[offset:])
+				offset += 4
+				offset += 8 // Skip ReferentID ptrs for ClientType and Transport
+			}
+			for i := 0; i < int(container.EntriesRead); i++ {
+				// Decode the Cname
+				container.Buffer[i].Cname = &UnicodeStr{
+					MaxCount:    binary.LittleEndian.Uint32(buf[offset:]),
+					Offset:      binary.LittleEndian.Uint32(buf[offset+4:]),
+					ActualCount: binary.LittleEndian.Uint32(buf[offset+8:]),
+				}
+				offset += 12
+				container.Buffer[i].Cname.EncodedString = make([]byte, container.Buffer[i].Cname.ActualCount*2)
+				copy(container.Buffer[i].Cname.EncodedString, buf[offset+int(container.Buffer[i].Cname.Offset):offset+int(container.Buffer[i].Cname.Offset)+int(container.Buffer[i].Cname.ActualCount*2)])
+				offset += int(container.Buffer[i].Cname.ActualCount * 2)
+				paddLen := 4 - (offset % 4)
+				if paddLen != 4 {
+					offset += paddLen
+					container.Buffer[i].Cname.Padd = make([]byte, paddLen)
+				}
+
+				// Decode the Username
+				container.Buffer[i].Username = &UnicodeStr{
+					MaxCount:    binary.LittleEndian.Uint32(buf[offset:]),
+					Offset:      binary.LittleEndian.Uint32(buf[offset+4:]),
+					ActualCount: binary.LittleEndian.Uint32(buf[offset+8:]),
+				}
+				offset += 12
+				container.Buffer[i].Username.EncodedString = make([]byte, container.Buffer[i].Username.ActualCount*2)
+				copy(container.Buffer[i].Username.EncodedString, buf[offset+int(container.Buffer[i].Username.Offset):offset+int(container.Buffer[i].Username.Offset)+int(container.Buffer[i].Username.ActualCount*2)])
+				offset += int(container.Buffer[i].Username.ActualCount * 2)
+				paddLen = 4 - (offset % 4)
+				if paddLen != 4 {
+					offset += paddLen
+					container.Buffer[i].Username.Padd = make([]byte, paddLen)
+				}
+
+				// Decode the ClientType
+				container.Buffer[i].ClType = &UnicodeStr{
+					MaxCount:    binary.LittleEndian.Uint32(buf[offset:]),
+					Offset:      binary.LittleEndian.Uint32(buf[offset+4:]),
+					ActualCount: binary.LittleEndian.Uint32(buf[offset+8:]),
+				}
+				offset += 12
+				container.Buffer[i].ClType.EncodedString = make([]byte, container.Buffer[i].ClType.ActualCount*2)
+				copy(container.Buffer[i].ClType.EncodedString, buf[offset+int(container.Buffer[i].ClType.Offset):offset+int(container.Buffer[i].ClType.Offset)+int(container.Buffer[i].ClType.ActualCount*2)])
+				offset += int(container.Buffer[i].ClType.ActualCount * 2)
+				paddLen = 4 - (offset % 4)
+				if paddLen != 4 {
+					offset += paddLen
+					container.Buffer[i].ClType.Padd = make([]byte, paddLen)
+				}
+
+				// Decode the Transport
+				container.Buffer[i].Transport = &UnicodeStr{
+					MaxCount:    binary.LittleEndian.Uint32(buf[offset:]),
+					Offset:      binary.LittleEndian.Uint32(buf[offset+4:]),
+					ActualCount: binary.LittleEndian.Uint32(buf[offset+8:]),
+				}
+				offset += 12
+				container.Buffer[i].Transport.EncodedString = make([]byte, container.Buffer[i].Transport.ActualCount*2)
+				copy(container.Buffer[i].Transport.EncodedString, buf[offset+int(container.Buffer[i].Transport.Offset):offset+int(container.Buffer[i].Transport.Offset)+int(container.Buffer[i].Transport.ActualCount*2)])
+				offset += int(container.Buffer[i].Transport.ActualCount * 2)
+				paddLen = 4 - (offset % 4)
+				if paddLen != 4 {
+					offset += paddLen
+					container.Buffer[i].Transport.Padd = make([]byte, paddLen)
+				}
+			}
+		}
+
+	default:
+		return fmt.Errorf("Not implemented UnmarshalBinary for level %d\n", self.Info.Level)
+	}
+
+	self.TotalEntries = binary.LittleEndian.Uint32(buf[offset:])
+	offset += 4
+	self.ResumeHandle.ReferentId = binary.LittleEndian.Uint32(buf[offset:])
+	offset += 4
+	self.ResumeHandle.Handle = binary.LittleEndian.Uint32(buf[offset:])
+	offset += 4
+	self.WindowsError = binary.LittleEndian.Uint32(buf[offset:])
+	return nil
 }

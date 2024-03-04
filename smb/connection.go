@@ -81,6 +81,21 @@ func (c *Connection) enableSession() {
 	atomic.StoreInt32(&c._useSession, 1)
 }
 
+func (c *Connection) disableSession() {
+	atomic.StoreInt32(&c._useSession, 0)
+}
+
+// Update the Initiator used for authentication.
+// Calling this function when already logged in will kill the existing session.
+func (c *Connection) SetInitiator(initiator Initiator) error {
+	if c.useSession() {
+		c.Logoff()
+		//return fmt.Errorf("You are only allowed to update the initiator before establishing a session")
+	}
+	c.options.Initiator = initiator
+	return nil
+}
+
 /*Retrieve packets from the write channel and put them to the wire.*/
 func (conn *Connection) runSender() {
 	for {
@@ -369,11 +384,13 @@ func NewConnection(opt Options) (c *Connection, err error) {
 	if err != nil {
 		return
 	}
-	err = c.SessionSetup()
-	if err != nil {
-		return
+	if !opt.ManualLogin {
+		err = c.SessionSetup()
+		if err != nil {
+			return
+		}
+		log.Debugf("IsSigningRequired: %v, RequireMessageSigning: %v, EncryptData: %v, IsNullSession: %v, IsGuestSession: %v\n", c.IsSigningRequired.Load(), c.options.RequireMessageSigning, c.Session.sessionFlags&SessionFlagEncryptData == SessionFlagEncryptData, c.Session.sessionFlags&SessionFlagIsNull == SessionFlagIsNull, c.Session.sessionFlags&SessionFlagIsGuest == SessionFlagIsGuest)
 	}
-	log.Debugf("IsSigningRequired: %v, RequireMessageSigning: %v, EncryptData: %v, IsNullSession: %v, IsGuestSession: %v\n", c.IsSigningRequired.Load(), c.options.RequireMessageSigning, c.Session.sessionFlags&SessionFlagEncryptData == SessionFlagEncryptData, c.Session.sessionFlags&SessionFlagIsNull == SessionFlagIsNull, c.Session.sessionFlags&SessionFlagIsGuest == SessionFlagIsGuest)
 
 	return c, nil
 }
@@ -528,13 +545,17 @@ func (c *Connection) recv(rr *requestResponse) (buf []byte, err error) {
 		return nil, fmt.Errorf("Remote connection has closed")
 	}
 	select {
+	case <-c.rdone:
+		c.outstandingRequests.pop(rr.msgId)
 	case buf = <-rr.recv:
 		if rr.err != nil {
 			return nil, rr.err
 		}
+		if len(buf) == 0 {
+			// Most likely received a TCP Reset
+			return nil, fmt.Errorf("Remote connection has closed!")
+		}
 		return buf, nil
-	case <-c.rdone:
-		c.outstandingRequests.pop(rr.msgId)
 	}
 
 	return
