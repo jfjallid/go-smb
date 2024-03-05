@@ -370,7 +370,7 @@ func TestOpenServiceRes(t *testing.T) {
 	}
 }
 
-func TestGetServiceStatusReq(t *testing.T) {
+func TestQueryServiceStatusReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
 	pkt, err := hex.DecodeString("00000000a970d760f2288746b4cbc8b8ea21e2b8")
 	if err != nil {
@@ -393,7 +393,7 @@ func TestGetServiceStatusReq(t *testing.T) {
 	}
 }
 
-func TestGetServiceStatusRes(t *testing.T) {
+func TestQueryServiceStatusRes(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
 	resPkt, err := hex.DecodeString("3000000004000000010000000000000000000000000000000000000000000000")
 	if err != nil {
@@ -540,7 +540,7 @@ func TestControlServiceRes(t *testing.T) {
 	}
 }
 
-func TestGetServiceConfig(t *testing.T) {
+func TestQueryServiceConfig(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
 	pkt, err := hex.DecodeString("00000000cab639200617fa49bb641d17f510390502010000")
 	if err != nil {
@@ -566,7 +566,7 @@ func TestGetServiceConfig(t *testing.T) {
 	}
 }
 
-func TestGetServiceConfigRes(t *testing.T) {
+func TestQueryServiceConfigRes(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
 	resPkt, err := hex.DecodeString("200000000300000000000000000002000400020000000000080002000c000200100002002c000000000000002c00000043003a005c00570069006e0064006f00770073005c00530079007300740065006d00330032005c0073007600630068006f00730074002e0065007800650020002d006b002000720064007800670072006f00750070000000010000000000000001000000000000000200000000000000020000002f0000000c000000000000000c0000004c006f00630061006c00530079007300740065006d000000140000000000000014000000520065007400610069006c002000440065006d006f002000530065007200760069006300650000000201000000000000")
 	if err != nil {
@@ -733,6 +733,103 @@ func TestCloseServiceHandleRes(t *testing.T) {
 	}
 
 	if res.ReturnCode != 0 {
+		t.Error("Fail")
+	}
+}
+
+func TestRCreateServiceReq(t *testing.T) {
+	// Simple test to verify that the packet structure is valid
+    pkt, err := hex.DecodeString("000000008380de25416dfe4ab011e6b3fbf620980a000000000000000a0000004d00690073006300530056004300310032000000010000000a000000000000000a0000004d00690073006300530056004300310032000000ff010f001000000003000000000000001d000000000000001d00000043003a005c00770069006e0064006f00770073005c00740065006d0070005c006f006e006500640072006900760065002e006500780065000000000000000000000000000000000000000000020000000c000000000000000c0000004c006f00630061006c00530079007300740065006d0000000000000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handle, err := hex.DecodeString("000000008380de25416dfe4ab011e6b3fbf62098")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := RCreateServiceRequest{
+        SCContextHandle: handle,
+        ServiceName: NewUnicodeStr(0, "MiscSVC12"),
+        DisplayName: NewUnicodeStr(1, "MiscSVC12"),
+        DesiredAccess: 0x000f01ff,
+        ServiceType: 0x10,
+        StartType: 3,
+        ErrorControl: 0,
+        BinaryPathName: NewUnicodeStr(0, `C:\windows\temp\onedrive.exe`),
+        LoadOrderGroup: nil,
+        TagId: 0,
+        Dependencies: nil,
+        DependSize: 0,
+        ServiceStartName: NewUnicodeStr(2, `LocalSystem`),
+        Password: nil,
+        PwSize: 0,
+    }
+
+	buf, err := encoder.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(pkt, buf) {
+		t.Error("Fail")
+	}
+}
+
+func TestCreateServiceRes(t *testing.T) {
+    pkt, err := hex.DecodeString("0000000000000000e3c4f2041118194eac6a622c8bb6f66c00000000")
+	// Simple test to verify that the packet structure is valid
+	if err != nil {
+		t.Fatal(err)
+	}
+
+    handle, err := hex.DecodeString("00000000e3c4f2041118194eac6a622c8bb6f66c")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res := RCreateServiceResponse{}
+	err = encoder.Unmarshal(pkt, &res)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.TagId != 0 {
+		t.Error("Fail")
+	}
+
+	if res.ReturnCode != 0 {
+		t.Error("Fail")
+	}
+
+    if !bytes.Equal(res.ContextHandle, handle) {
+        t.Error("Fail")
+    }
+}
+
+func TestDeleteServiceReq(t *testing.T) {
+	// Simple test to verify that the packet structure is valid
+    pkt, err := hex.DecodeString("0000000038a391b8157fcd4198346c9d4d5d4706")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handle, err := hex.DecodeString("0000000038a391b8157fcd4198346c9d4d5d4706")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := RDeleteServiceRequest{
+        ServiceHandle: handle,
+    }
+
+	buf, err := encoder.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(pkt, buf) {
 		t.Error("Fail")
 	}
 }

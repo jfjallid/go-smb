@@ -2858,7 +2858,7 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte, meta *encoder.Me
 
 	offset := 0
 	self.Info.Level = binary.LittleEndian.Uint32(buf[offset:])
-	offset += 8 // Level is encoded twice for some reason
+	offset += 8 // Level is encoded twice because it is the discriminator for the SessionEnum Union
 
 	switch self.Info.Level {
 	case 0:
