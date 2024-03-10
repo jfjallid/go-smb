@@ -95,17 +95,20 @@ type Session struct {
 	MaxWriteSize              uint32
 	preauthIntegrityHashValue [64]byte // Session preauthIntegrityHashValue
 	exportedSessionKey        []byte   // From SPNego Auth
-	signer                    hash.Hash
-	verifier                  hash.Hash
-	encrypter                 cipher.AEAD
-	decrypter                 cipher.AEAD
-	conn                      net.Conn
-	dialect                   uint16
-	options                   Options
-	trees                     map[string]uint32
-	lock                      sync.RWMutex
-	authUsername              string // Combined domain and username as sent in SessionSetup2 request
-	targetInfo                *TargetInfo
+	// Used in SMB 3.1.1 instead of sessionKey for higher level applications
+	// such as to encrypt a password parameter
+	applicationKey []byte // SMB 3.X only
+	signer         hash.Hash
+	verifier       hash.Hash
+	encrypter      cipher.AEAD
+	decrypter      cipher.AEAD
+	conn           net.Conn
+	dialect        uint16
+	options        Options
+	trees          map[string]uint32
+	lock           sync.RWMutex
+	authUsername   string // Combined domain and username as sent in SessionSetup2 request
+	targetInfo     *TargetInfo
 }
 
 type Options struct {
@@ -159,6 +162,13 @@ func NewCreateReqOpts() *CreateReqOpts {
 		ShareAccess:        FileShareRead | FileShareWrite,
 		CreateDisp:         FileOpen,
 	}
+}
+
+func (s *Session) GetSessionKey() []byte {
+	if s.dialect >= DialectSmb_3_0 {
+		return s.applicationKey
+	}
+	return s.exportedSessionKey
 }
 
 func (c *Connection) NegotiateProtocol() error {
@@ -613,6 +623,7 @@ func (c *Connection) SessionSetup() error {
 	// Handle signing and encryption options
 	if c.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {
 		sessionKey := spnegoClient.sessionKey()
+		c.exportedSessionKey = sessionKey
 
 		switch c.dialect {
 		case DialectSmb_2_0_2, DialectSmb_2_1:
@@ -714,6 +725,9 @@ func (c *Connection) SessionSetup() error {
 				log.Errorln(err)
 				return err
 			}
+
+			// Handle ApplicationKey
+			c.applicationKey = kdf(sessionKey, []byte("SMBAppKey\x00"), c.Session.preauthIntegrityHashValue[:], 128)
 		}
 	}
 
