@@ -128,14 +128,14 @@ func main() {
     }
     defer session.Close()
 
-    if session.IsSigningRequired.Load() {
+    if session.IsSigningRequired() {
         fmt.Println("[-] Signing is required")
     } else {
         fmt.Println("[+] Signing is NOT required")
     }
 
-    if session.IsAuthenticated {
-        fmt.Println("[+] Login successful")
+    if session.IsAuthenticated() {
+        fmt.Printf("[+] Login successful as %s\n", session.GetAuthUsername())
     } else {
         fmt.Println("[-] Login failed")
     }

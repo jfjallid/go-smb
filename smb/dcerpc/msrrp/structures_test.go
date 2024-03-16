@@ -25,8 +25,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"testing"
-
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 func TestSID(t *testing.T) {
@@ -42,7 +40,7 @@ func TestSID(t *testing.T) {
 		SubAuthorities: []uint32{32, 544},
 	}
 
-	sidBytes, err := sid.MarshalBinary(nil)
+	sidBytes, err := sid.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +49,8 @@ func TestSID(t *testing.T) {
 	}
 
 	sid2 := SID{}
-	err = sid2.UnmarshalBinary(correctSidBytes, nil)
+
+	err = sid2.UnmarshalBinary(correctSidBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +92,7 @@ func TestACE(t *testing.T) {
 		Mask: 0x00060009,
 		Sid:  sid,
 	}
-	aceBytes, err := encoder.Marshal(ace)
+	aceBytes, err := ace.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +101,8 @@ func TestACE(t *testing.T) {
 	}
 
 	ace2 := ACE{}
-	err = encoder.Unmarshal(correctAceBytes, &ace2)
+
+	err = ace2.UnmarshalBinary(correctAceBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestACE(t *testing.T) {
 		},
 	}
 
-	otherAceBytes, err := encoder.Marshal(otherAce)
+	otherAceBytes, err := otherAce.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestACE(t *testing.T) {
 	}
 
 	ace3 := ACE{}
-	err = encoder.Unmarshal(otherAceCorrectBytes, &ace3)
+	err = ace3.UnmarshalBinary(otherAceCorrectBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestACE(t *testing.T) {
 		},
 	}
 
-	otherAceBytes2, err := encoder.Marshal(otherAce2)
+	otherAceBytes2, err := otherAce2.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestACE(t *testing.T) {
 	}
 
 	ace3 = ACE{}
-	err = encoder.Unmarshal(otherAceCorrectBytes2, &ace3)
+	err = ace3.UnmarshalBinary(otherAceCorrectBytes2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestPACL(t *testing.T) {
 		},
 	}
 
-	paclBytes, err := encoder.Marshal(pacl)
+	paclBytes, err := pacl.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestPACL(t *testing.T) {
 	}
 
 	pacl2 := PACL{}
-	err = encoder.Unmarshal(correctPaclBytes, &pacl2)
+	err = pacl2.UnmarshalBinary(correctPaclBytes)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,11 +25,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
-
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"fmt"
 
 	"testing"
 )
+
+// Possible to define an init function that is run before all tests?
 
 func TestEnumKeyReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
@@ -46,12 +47,10 @@ func TestEnumKeyReq(t *testing.T) {
 	req := BaseRegEnumKeyReq{
 		HKey:  hKey,
 		Index: 1,
-		NameIn: PRRPUnicodeStr2{
-			Length:    0,
+		NameIn: RRPUnicodeStr{
 			MaxLength: 512,
 		},
-		ClassIn: PRRPUnicodeStr2{
-			Length:    0,
+		ClassIn: RRPUnicodeStr{
 			MaxLength: 512,
 		},
 		LastWriteTime: &PFiletime{1, 2},
@@ -63,6 +62,8 @@ func TestEnumKeyReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
+		fmt.Printf("%x\n", pkt)
+		fmt.Printf("%x\n", buf)
 		t.Error("Fail")
 	}
 }
@@ -78,12 +79,8 @@ func TestEnumKeyRes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	name, err := encoder.FromUnicode(encoder.Utf16ToUtf8(res.NameOut.Buffer))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(name, []byte("000001F4\x00")) {
-		t.Error("Fail")
+	if res.NameOut.S != "000001F4" {
+		t.Fatal("fail")
 	}
 	if res.LastWriteTime.LowDateTime != binary.LittleEndian.Uint32([]byte{0x19, 0x7a, 0xca, 0x0a}) {
 		t.Error("Fail")
@@ -97,7 +94,8 @@ func TestEnumKeyRes(t *testing.T) {
 }
 
 func TestEnumValueReq(t *testing.T) {
-	pkt, err := hex.DecodeString("0000000048f6df66ec21ad4aba9f16a6038d393f00000000000000040100000000020000000000000000000002000000000400000100000000040000000000000000000004000000000400000300000000000000")
+	//TODO, once working, generate a new example instead of this one which was manually edited to change the RefId ptrs (hopefully)
+	pkt, err := hex.DecodeString("0000000048f6df66ec21ad4aba9f16a6038d393f00000000000000040100000000020000000000000000000002000000000400000300000000040000000000000000000004000000000400000500000000000000")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +108,7 @@ func TestEnumValueReq(t *testing.T) {
 	req := BaseRegEnumValueReq{
 		HKey:  hKey,
 		Index: 0,
-		NameIn: PRRPUnicodeStr2{
-			Length: 0,
+		NameIn: RRPUnicodeStr{
 			//MaxLength:  1024,
 			MaxLength: 512,
 		},
@@ -142,9 +139,8 @@ func TestEnumValueRes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	name, err := encoder.FromUnicode(encoder.Utf16ToUtf8(res.NameOut.Buffer))
-	if !bytes.Equal(name, []byte("NL$1\x00")) {
-		t.Error("Fail")
+	if res.NameOut.S != "NL$1\x00" {
+		t.Fatal("fail")
 	}
 	if res.Type != 3 {
 		t.Error("Fail")
@@ -202,22 +198,15 @@ func TestSetKeySecurityReq(t *testing.T) {
 
 	sd, err := NewSecurityDescriptor(SecurityDescriptorFlagSR, nil, nil, NewACL([]ACE{*sAce, *aAce}), nil)
 
-	sdbuf, err := sd.MarshalBinary(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	req := BaseRegSetKeySecurityReq{
 		HKey:                hKey,
 		SecurityInformation: DACLSecurityInformation,
-		SecurityDescriptorIn: SecurityData{
-			Size:            uint32(len(sdbuf)),
-			Len:             uint32(len(sdbuf)),
-			KeySecurityData: sd,
+		SecurityDescriptorIn: RpcSecurityDescriptor{
+			SecurityDescriptor: sd,
 		},
 	}
 
-	buf, err := req.MarshalBinary(nil)
+	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,9 +248,8 @@ func TestGetKeySecurityReq(t *testing.T) {
 	req := BaseRegGetKeySecurityReq{
 		HKey:                hKey,
 		SecurityInformation: OwnerSecurityInformation | GroupSecurityInformation | DACLSecurityInformation,
-		SecurityDescriptorIn: SecurityData{
-			Size: 4096,
-			Len:  0,
+		SecurityDescriptorIn: RpcSecurityDescriptor{
+			InSecurityDescriptor: 4096,
 		},
 	}
 
@@ -288,14 +276,14 @@ func TestGetKeySecurityRes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if res.SecurityDescriptorOut.Len != 100 {
+	if res.SecurityDescriptorOut.OutSecurityDescriptor != 100 {
 		t.Error("fail")
 	}
-	if res.SecurityDescriptorOut.Size != 4096 {
+	if res.SecurityDescriptorOut.InSecurityDescriptor != 4096 {
 		t.Error("fail")
 	}
 
-	sd := *res.SecurityDescriptorOut.KeySecurityData
+	sd := *res.SecurityDescriptorOut.SecurityDescriptor
 
 	if sd.Control != SecurityDescriptorFlagSR|SecurityDescriptorFlagDP {
 		t.Error("Fail")
@@ -358,7 +346,7 @@ func TestGetKeySecurityRes(t *testing.T) {
 		t.Error("Fail")
 	}
 
-	if res.ReturnCode.uint32 != 0 {
+	if res.ReturnCode != 0 {
 		t.Error("Fail")
 	}
 }
@@ -375,17 +363,11 @@ func TestOpenKeyReq(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	name, err := encoder.Utf8ToUtf16(encoder.ToUnicode("SAM\\SAM\x00"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	req := BaseRegOpenKeyReq{
 		HKey: hKey,
-		SubKey: PRRPUnicodeStr2{
-			Length:    8,
+		SubKey: RRPUnicodeStr{
 			MaxLength: 8,
-			Buffer:    name,
+			S:         "SAM\\SAM",
 		},
 		Options:       0,
 		DesiredAccess: 0x02000000,
@@ -429,22 +411,20 @@ func TestOpenKeyRes(t *testing.T) {
 
 func TestQueryInfoKeyReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, err := hex.DecodeString("00000000e7f89e2120fd0d4cb4ba7d1714ee14050000120000000000")
+	pkt, err := hex.DecodeString("000000007754caee7222f944bb09a95f160dc8520000240000000000")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	hKey, err := hex.DecodeString("00000000e7f89e2120fd0d4cb4ba7d1714ee1405")
+	hKey, err := hex.DecodeString("000000007754caee7222f944bb09a95f160dc852")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	req := BaseRegQueryInfoKeyReq{
 		HKey: hKey,
-		ClassIn: RRPUnicodeStr3{
-			Length:    0,
+		ClassIn: RRPUnicodeStr{
 			MaxLength: 18,
-			Buffer:    nil,
 		},
 	}
 
@@ -471,12 +451,7 @@ func TestQueryInfoKeyRes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	className, err := encoder.FromUnicode(encoder.Utf16ToUtf8(res.ClassOut.Buffer))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !bytes.Equal(className, []byte("0148322c\x00")) {
+	if res.ClassOut.S != "0148322c\x00" {
 		t.Error("Fail")
 	}
 
@@ -513,27 +488,22 @@ func TestQueryInfoKeyRes(t *testing.T) {
 }
 
 func TestQueryValueReq(t *testing.T) {
-	pkt, err := hex.DecodeString("00000000942c0f11b62bbf43bf3218a4838ba62a16001600010000000b000000000000000b0000004f0062006a006500630074004e0061006d0065000000000002000000000400000100000000040000000000000000000003000000000400000400000000000000")
+	pkt, err := hex.DecodeString("0000000091678d52af1f934fb0445307e96a52d11a001a00010000000d000000000000000d000000430075007200720065006e0074004200750069006c0064000000000002000000000400000300000000040000000000000000000004000000000400000500000000000000")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	hKey, err := hex.DecodeString("00000000942c0f11b62bbf43bf3218a4838ba62a")
+	hKey, err := hex.DecodeString("0000000091678d52af1f934fb0445307e96a52d1")
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	name, err := encoder.Utf8ToUtf16(encoder.ToUnicode("ObjectName\x00"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	name := "CurrentBuild\x00"
 
 	req := BaseRegQueryValueReq{
 		HKey: hKey,
-		ValueName: PRRPUnicodeStr2{
-			Length:    uint16(len(name)),
+		ValueName: RRPUnicodeStr{
 			MaxLength: uint16(len(name)),
-			Buffer:    name,
+			S:         name,
 		},
 		Type:    1024,
 		Data:    nil,
@@ -568,7 +538,7 @@ func TestQueryValueRes(t *testing.T) {
 		t.Error("Fail")
 	}
 
-	name, err := encoder.FromUnicode(res.Data)
+	name, err := FromUnicode(res.Data)
 	if !bytes.Equal(name, []byte(".\\Administrator\x00")) {
 		t.Error("Fail")
 	}
@@ -586,20 +556,17 @@ func TestQueryValueRes(t *testing.T) {
 
 func TestSaveKeyReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, err := hex.DecodeString("000000008f8aadcdeadaa44793587de60321be0d16001600010000000b000000000000000b00000043003a005c00730061006d002e0074006d007000000000000100000058000000020000004400000044000000000000004400000000000000440000000100048034000000000000000000000014000000020020000100000000021800000005c00102000000000005200000002002000001020000000000052000000020020000")
+	pkt, err := hex.DecodeString("00000000139a8326558bcd48bbcc6af498ba9b2138003800010000001c000000000000001c00000043003a005c00770069006e0064006f00770073005c00740065006d0070005c007300550046006d007800790056002e006c006f00670000000200000058000000040000004400000044000000000000004400000000000000440000000100048034000000000000000000000014000000020020000100000000021800000005c00102000000000005200000002002000001020000000000052000000020020000")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	hKey, err := hex.DecodeString("000000008f8aadcdeadaa44793587de60321be0d")
+	hKey, err := hex.DecodeString("00000000139a8326558bcd48bbcc6af498ba9b21")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	name, err := encoder.Utf8ToUtf16(encoder.ToUnicode("C:\\sam.tmp\x00"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	name := "C:\\windows\\temp\\sUFmxyV.log"
 	adminSIDStr := "S-1-5-32-544"
 	adminMask := PermGenericRead | PermGenericWrite | PermWriteDacl | PermDelete
 	aAce, err := NewAce(adminSIDStr, adminMask, AccessAllowedAceType, ContainerInheritAce)
@@ -616,14 +583,14 @@ func TestSaveKeyReq(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sdbuf, err := sd.MarshalBinary(nil)
+	sdbuf, err := sd.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 	sdbufLen := uint32(len(sdbuf))
 	rd := RpcSecurityDescriptor{
-		SecurityDescriptor:    *sd,
+		SecurityDescriptor:    sd,
 		InSecurityDescriptor:  sdbufLen,
 		OutSecurityDescriptor: sdbufLen,
 	}
@@ -636,10 +603,9 @@ func TestSaveKeyReq(t *testing.T) {
 
 	req := BaseRegSaveKeyReq{
 		HKey: hKey,
-		FileName: PRRPUnicodeStr2{
-			Length:    11,
+		FileName: RRPUnicodeStr{
 			MaxLength: 11,
-			Buffer:    name,
+			S:         name,
 		},
 		SecurityAttributes: *sa,
 	}

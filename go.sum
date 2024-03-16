@@ -1,7 +1,7 @@
 github.com/jfjallid/ber v1.1.0 h1:hVaxa1K4vBwh5Arvc70uhatZephEgJpRTHKQCf4u7OA=
 github.com/jfjallid/ber v1.1.0/go.mod h1:EJC7yARA25HsUp0G498XpiJahwGx+T+HKh2LHZ/QslA=
-github.com/jfjallid/golog v0.3.0 h1:28rDJwh6S6QQtMrq4M9JUsXv5Wx2xnsZvYBZp/0Osik=
-github.com/jfjallid/golog v0.3.0/go.mod h1:19Q/zg5OgPPd0xhFllokPnMzthzhFPZmiAGAokE7k58=
+github.com/jfjallid/golog v0.3.3 h1:dY6qf8wTxJ9OwBPVTadVRDmt/6MVXSWwXrxaGMMyXsU=
+github.com/jfjallid/golog v0.3.3/go.mod h1:19Q/zg5OgPPd0xhFllokPnMzthzhFPZmiAGAokE7k58=
 golang.org/x/crypto v0.6.0 h1:qfktjS5LUO+fFKeJXZ+ikTRijMmljikvG68fpMMruSc=
 golang.org/x/crypto v0.6.0/go.mod h1:OFC/31mSvZgRz0V1QTNCzfAI1aIRzbiufJtkMIlEp58=
 golang.org/x/net v0.6.0 h1:L4ZwwTvKW9gr0ZMS1yrHD9GZhIuVjOBBnaKH+SPQK0Q=
