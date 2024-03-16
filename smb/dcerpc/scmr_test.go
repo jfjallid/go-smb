@@ -25,8 +25,6 @@ import (
 	"bytes"
 	"encoding/hex"
 
-	"github.com/jfjallid/go-smb/smb/encoder"
-
 	"testing"
 )
 
@@ -37,7 +35,7 @@ func TestOpenSCManagerReq(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := ROpenSCManagerWRequest{
+	req := ROpenSCManagerWReq{
 		MachineName:   "DUMMY",
 		DatabaseName:  "ServicesActive",
 		DesiredAccess: 4,
@@ -63,7 +61,7 @@ func TestOpenSCManagerRes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := ROpenSCManagerWResponse{}
+	res := ROpenSCManagerWRes{}
 	err = res.UnmarshalBinary(resPkt)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +88,7 @@ func TestOpenServiceReq(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := ROpenServiceWRequest{
+	req := ROpenServiceWReq{
 		SCContextHandle: handle,
 		ServiceName:     "RemoteRegistry",
 		DesiredAccess:   4,
@@ -116,7 +114,7 @@ func TestOpenServiceRes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := ROpenServiceWResponse{}
+	res := ROpenServiceWRes{}
 	err = res.UnmarshalBinary(resPkt)
 	if err != nil {
 		t.Fatal(err)
@@ -212,14 +210,12 @@ func TestStartServiceReq(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := RStartServiceWRequest{
+	req := RStartServiceWReq{
 		ServiceHandle: handle,
-		// When Argc is 0 I need to marshal 0x00000000 for Argc and same for Argv e.g., 4 bytes combined of 0s
-		Argc: 0,
-		Argv: make([]UnicodeStr, 0),
+		Argc:          0,
 	}
 
-	buf, err := encoder.Marshal(req)
+	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,11 +237,11 @@ func TestControlServiceReq(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := RControlServiceRequest{
+	req := RControlServiceReq{
 		ServiceHandle: handle,
 		Control:       ServiceControlStop,
 	}
-	buf, err := encoder.Marshal(req)
+	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,37 +258,37 @@ func TestControlServiceRes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := RControlServiceResponse{}
-	err = encoder.Unmarshal(resPkt, &res)
+	res := RControlServiceRes{}
+	err = res.UnmarshalBinary(resPkt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if res.ServiceType != ServiceWin32OwnProcess|ServiceWin32ShareProcess {
+	if res.ServiceStatus.ServiceType != ServiceWin32OwnProcess|ServiceWin32ShareProcess {
 		t.Fatal("Fail")
 	}
 
-	if res.CurrentState != ServiceStopPending {
+	if res.ServiceStatus.CurrentState != ServiceStopPending {
 		t.Fatal("Fail")
 	}
 
-	if res.ControlsAccepted != ServiceControlStop {
+	if res.ServiceStatus.ControlsAccepted != ServiceControlStop {
 		t.Fatal("Fail")
 	}
 
-	if res.Win32ExitCode != 0x042a {
+	if res.ServiceStatus.Win32ExitCode != 0x042a {
 		t.Fatal("Fail")
 	}
 
-	if res.ServiceSpecificExitCode != 0 {
+	if res.ServiceStatus.ServiceSpecificExitCode != 0 {
 		t.Fatal("Fail")
 	}
 
-	if res.CheckPoint != 3 {
+	if res.ServiceStatus.CheckPoint != 3 {
 		t.Fatal("Fail")
 	}
 
-	if res.WaitHint != 0x0bb8 {
+	if res.ServiceStatus.WaitHint != 0x0bb8 {
 		t.Fatal("Fail")
 	}
 
@@ -387,7 +383,7 @@ func TestQueryServiceConfigRes(t *testing.T) {
 
 func TestChangeServiceConfigReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, err := hex.DecodeString("000000009b8a1554f3da95418cbe3c9f6be68d0bffffffff0400000000000000010000002c000000000000002c00000043003a005c00570069006e0064006f00770073005c00530079007300740065006d00330032005c0073007600630068006f00730074002e0065007800650020002d006b002000720064007800670072006f0075007000000000000000000000000000000000000000040000001000000000000000100000002e005c00610064006d0069006e006900730074007200610074006f007200000005000000200000003e3af69cb90cdb3b983dc9c3d7042d72e1981e344d226c6789a3237e184262e52000000006000000150000000000000015000000520065007400610069006c002000640065006d006f0020007300650072007600690063006500320000000000")
+	pkt, err := hex.DecodeString("000000009b8a1554f3da95418cbe3c9f6be68d0bffffffff0400000000000000010000002c000000000000002c00000043003a005c00570069006e0064006f00770073005c00530079007300740065006d00330032005c0073007600630068006f00730074002e0065007800650020002d006b002000720064007800670072006f0075007000000000000000000000000000000000000000030000001000000000000000100000002e005c00610064006d0069006e006900730074007200610074006f007200000004000000200000003e3af69cb90cdb3b983dc9c3d7042d72e1981e344d226c6789a3237e184262e52000000005000000150000000000000015000000520065007400610069006c002000640065006d006f0020007300650072007600690063006500320000000000")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +498,7 @@ func TestCloseServiceHandleRes(t *testing.T) {
 
 func TestRCreateServiceReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, err := hex.DecodeString("000000008380de25416dfe4ab011e6b3fbf620980a000000000000000a0000004d00690073006300530056004300310032000000010000000a000000000000000a0000004d00690073006300530056004300310032000000ff010f001000000003000000000000001d000000000000001d00000043003a005c00770069006e0064006f00770073005c00740065006d0070005c006f006e006500640072006900760065002e006500780065000000000000000000000000000000000000000000020000000c000000000000000c0000004c006f00630061006c00530079007300740065006d0000000000000000000000")
+	pkt, err := hex.DecodeString("000000008380de25416dfe4ab011e6b3fbf620980a000000000000000a0000004d00690073006300530056004300310032000000010000000a000000000000000a0000004d00690073006300530056004300310032000000ff010f001000000003000000000000001d000000000000001d00000043003a005c00770069006e0064006f00770073005c00740065006d0070005c006f006e006500640072006900760065002e006500780065000000000000000000000000000000000000000000030000000c000000000000000c0000004c006f00630061006c00530079007300740065006d0000000000000000000000")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,25 +508,25 @@ func TestRCreateServiceReq(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := RCreateServiceRequest{
+	req := RCreateServiceWReq{
 		SCContextHandle:  handle,
-		ServiceName:      NewUnicodeStr(0, "MiscSVC12"),
-		DisplayName:      NewUnicodeStr(1, "MiscSVC12"),
+		ServiceName:      "MiscSVC12",
+		DisplayName:      "MiscSVC12",
 		DesiredAccess:    0x000f01ff,
 		ServiceType:      0x10,
 		StartType:        3,
 		ErrorControl:     0,
-		BinaryPathName:   NewUnicodeStr(0, `C:\windows\temp\onedrive.exe`),
-		LoadOrderGroup:   nil,
+		BinaryPathName:   `C:\windows\temp\onedrive.exe`,
+		LoadOrderGroup:   "",
 		TagId:            0,
-		Dependencies:     nil,
+		Dependencies:     "",
 		DependSize:       0,
-		ServiceStartName: NewUnicodeStr(2, `LocalSystem`),
+		ServiceStartName: `LocalSystem`,
 		Password:         nil,
 		PwSize:           0,
 	}
 
-	buf, err := encoder.Marshal(req)
+	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,8 +548,8 @@ func TestCreateServiceRes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := RCreateServiceResponse{}
-	err = encoder.Unmarshal(pkt, &res)
+	res := RCreateServiceWRes{}
+	err = res.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -583,11 +579,11 @@ func TestDeleteServiceReq(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := RDeleteServiceRequest{
+	req := RDeleteServiceReq{
 		ServiceHandle: handle,
 	}
 
-	buf, err := encoder.Marshal(req)
+	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}

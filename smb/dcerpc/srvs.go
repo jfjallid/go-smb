@@ -20,12 +20,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 //
-// The marshal/unmarshal of requerst and responses according to the NDR syntax
+// The marshal/unmarshal of requests and responses according to the NDR syntax
 // has been implemented on a per RPC request basis and not in any complete way.
 // As such, for each new functionality, a manual marshal and unmarshal method
-// has to be written for the relevant messages. This makes it a bit cumbersome
-// to implement new features, so at some point a major rewrite should be
-// performed to ideally handle the NDR syntax dynamically.
+// has to be written for the relevant messages. This makes it a bit easier to
+// define the message structs but more of the heavy lifting has to be performed
+// by the marshal/unmarshal functions.
 
 package dcerpc
 
@@ -34,6 +34,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+)
+
+const (
+	MSRPCUuidSrvSvc                = "4B324FC8-1670-01D3-1278-5A47BF6EE188"
+	MSRPCSrvSvcPipe                = "srvsvc"
+	MSRPCSrvSvcMajorVersion uint16 = 3
+	MSRPCSrvSvcMinorVersion uint16 = 0
 )
 
 // MSRPC Server Service (srvsvc) Operations
@@ -127,8 +134,8 @@ type ShareInfo1 struct {
 
 /*
 	typedef struct _SHARE_INFO_1_CONTAINER {
-	    DWORD EntriesRead;
-	    [size_is(EntriesRead)] LPSHARE_INFO_1 Buffer;
+	  DWORD EntriesRead;
+	  [size_is(EntriesRead)] LPSHARE_INFO_1 Buffer;
 	} SHARE_INFO_1_CONTAINER;
 */
 type ShareInfoContainer1 struct {
@@ -138,8 +145,8 @@ type ShareInfoContainer1 struct {
 
 /*
 	typedef struct _SHARE_ENUM_STRUCT {
-	    DWORD Level;
-	    [switch_is(Level)] SHARE_ENUM_UNION ShareInfo;
+	  DWORD Level;
+	  [switch_is(Level)] SHARE_ENUM_UNION ShareInfo;
 	} SHARE_ENUM_STRUCT,
 
 *PSHARE_ENUM_STRUCT,
@@ -803,29 +810,6 @@ func (self *NetSessionEnumResponse) MarshalBinary() ([]byte, error) {
 
 func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for NetSessionEnumResponse")
-	/*
-	   typedef struct _SESSION_ENUM_STRUCT {
-	       DWORD Level;
-	       [switch_is(Level)] SESSION_ENUM_UNION SessionInfo;
-	   } SESSION_ENUM_STRUCT,
-	   *PSESSION_ENUM_STRUCT,
-	   *LPSESSION_ENUM_STRUCT;
-
-	   typedef
-	   [switch_type(DWORD)]
-	   union _SESSION_ENUM_UNION {
-	       [case(0)]
-	       SESSION_INFO_0_CONTAINER* Level0;
-	       [case(1)]
-	       SESSION_INFO_1_CONTAINER* Level1;
-	       [case(2)]
-	       SESSION_INFO_2_CONTAINER* Level2;
-	       [case(10)]
-	       SESSION_INFO_10_CONTAINER* Level10;
-	       [case(502)]
-	       SESSION_INFO_502_CONTAINER* Level502;
-	   } SESSION_ENUM_UNION;
-	*/
 
 	r := bytes.NewReader(buf)
 	// Skip the SessionEnum Union Discriminator (Level)
@@ -1122,7 +1106,7 @@ func (sb *ServiceBind) NetSessionEnum(clientName, username string, level int) (r
 	if werror != 0 {
 		responseCode, found := SRVSResponseCodeMap[werror]
 		if !found {
-			err = fmt.Errorf("NetServerGetInfo returned unknown error code: %d\n", werror)
+			err = fmt.Errorf("NetServerGetInfo returned unknown error code: 0x%x\n", werror)
 			log.Errorln(err)
 			return
 		}
@@ -1181,7 +1165,7 @@ func (sb *ServiceBind) NetServerGetInfo(host string, level int) (res *NetServerI
 	if werror != 0 {
 		responseCode, found := SRVSResponseCodeMap[werror]
 		if !found {
-			err = fmt.Errorf("NetServerGetInfo returned unknown error code: %d\n", werror)
+			err = fmt.Errorf("NetServerGetInfo returned unknown error code: 0x%x\n", werror)
 			log.Errorln(err)
 			return
 		}
@@ -1209,19 +1193,34 @@ func (sb *ServiceBind) NetShareEnumAll(host string) (res []NetShare, err error) 
 	netReq := NewNetShareEnumAllRequest(host)
 	netBuf, err := netReq.MarshalBinary()
 	if err != nil {
+		log.Errorln(err)
 		return
 	}
 
 	buffer, err := sb.MakeIoCtlRequest(SrvSvcOpNetShareEnumAll, netBuf)
 	if err != nil {
+		log.Errorln(err)
 		return
 	}
 
 	var response NetShareEnumAllResponse
 	err = response.UnmarshalBinary(buffer)
 	if err != nil {
+		log.Errorln(err)
 		return
 	}
+
+	if response.WindowsError != ErrorSuccess {
+		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
+		if !found {
+			err = fmt.Errorf("NetShareEnumAll returned unknown error code: 0x%x\n", response.WindowsError)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("NetShareEnumAll return error: %v\n", responseCode)
+		return nil, responseCode
+	}
+
 	res = make([]NetShare, response.TotalEntries)
 	var ctr1 *ShareInfoContainer1
 	ctr1 = response.InfoStruct.ShareInfo.(*ShareInfoContainer1)
@@ -1283,21 +1282,11 @@ func NewNetShareEnumAllRequest(serverName string) *NetShareEnumAllRequest {
 	return &nr
 }
 
-func (self *NetShareEnumAllRequest) MarshalBinary() (res []byte, err error) {
+func (self *NetShareEnumAllRequest) MarshalBinary() (ret []byte, err error) {
 	log.Debugln("In MarshalBinary for NetShareEnumAllRequest")
-	/*
-	   NET_API_STATUS NetrShareEnum(
-	       [in, string, unique] SRVSVC_HANDLE ServerName,
-	       [in, out] LPSHARE_ENUM_STRUCT InfoStruct,
-	       [in] DWORD PreferedMaximumLength,
-	       [out] DWORD* TotalEntries,
-	       [in, out, unique] DWORD* ResumeHandle
-	   );
-	*/
 
 	refId := uint32(1)
 
-	var ret []byte
 	w := bytes.NewBuffer(ret)
 	if self.ServerName != "" {
 		// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
@@ -1394,15 +1383,6 @@ func (s *NetShareEnumAllResponse) MarshalBinary() ([]byte, error) {
 
 func (self *NetShareEnumAllResponse) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for NetShareEnumAllResponse")
-	/*
-	   NET_API_STATUS NetrShareEnum(
-	       [in, string, unique] SRVSVC_HANDLE ServerName,
-	       [in, out] LPSHARE_ENUM_STRUCT InfoStruct,
-	       [in] DWORD PreferedMaximumLength,
-	       [out] DWORD* TotalEntries,
-	       [in, out, unique] DWORD* ResumeHandle
-	   );
-	*/
 	r := bytes.NewReader(buf)
 	self.InfoStruct = &NetShareEnum{}
 

@@ -20,12 +20,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 //
-// The marshal/unmarshal of requerst and responses according to the NDR syntax
+// The marshal/unmarshal of requests and responses according to the NDR syntax
 // has been implemented on a per RPC request basis and not in any complete way.
 // As such, for each new functionality, a manual marshal and unmarshal method
-// has to be written for the relevant messages. This makes it a bit cumbersome
-// to implement new features, so at some point a major rewrite should be
-// performed to ideally handle the NDR syntax dynamically.
+// has to be written for the relevant messages. This makes it a bit easier to
+// define the message structs but more of the heavy lifting has to be performed
+// by the marshal/unmarshal functions.
 
 package dcerpc
 
@@ -34,9 +34,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math/rand"
+)
 
-	"github.com/jfjallid/go-smb/smb/encoder"
+const (
+	MSRPCSvcCtlPipe                = "svcctl"
+	MSRPCUuidSvcCtl                = "367ABB81-9844-35F1-AD32-98F038001003"
+	MSRPCSvcCtlMajorVersion uint16 = 2
+	MSRPCSvcCtlMinorVersion uint16 = 0
 )
 
 // MS-SCMR Operations OP Codes
@@ -249,13 +253,13 @@ DWORD ROpenSCManagerW(
 
 );
 */
-type ROpenSCManagerWRequest struct {
+type ROpenSCManagerWReq struct {
 	MachineName   string
 	DatabaseName  string
 	DesiredAccess uint32
 }
 
-type ROpenSCManagerWResponse struct {
+type ROpenSCManagerWRes struct {
 	ContextHandle [20]byte
 	ReturnCode    uint32
 }
@@ -271,13 +275,13 @@ DWORD ROpenServiceW(
 
 );
 */
-type ROpenServiceWRequest struct {
+type ROpenServiceWReq struct {
 	SCContextHandle []byte
 	ServiceName     string
 	DesiredAccess   uint32
 }
 
-type ROpenServiceWResponse struct {
+type ROpenServiceWRes struct {
 	ContextHandle []byte
 	ReturnCode    uint32
 }
@@ -429,56 +433,83 @@ type RChangeServiceConfigWRes struct {
 	ReturnCode uint32
 }
 
-type RCreateServiceRequest struct {
-	SCContextHandle  []byte `smb:"fixed:20"`
-	ServiceName      *UnicodeStr
-	DisplayName      *UnicodeStr
+type RControlServiceReq struct {
+	ServiceHandle []byte
+	Control       uint32
+}
+
+type RControlServiceRes struct {
+	ServiceStatus *ServiceStatus
+	ReturnValue   uint32
+}
+
+type RDeleteServiceReq struct {
+	ServiceHandle []byte
+}
+
+type RStartServiceWReq struct {
+	ServiceHandle []byte
+	Argc          uint32
+	Argv          []string
+}
+
+/*
+DWORD RCreateServiceW(
+
+	[in] SC_RPC_HANDLE hSCManager,
+	[in, string, range(0, SC_MAX_NAME_LENGTH)]
+	    wchar_t* lpServiceName,
+	[in, string, unique, range(0, SC_MAX_NAME_LENGTH)]
+	    wchar_t* lpDisplayName,
+	[in] DWORD dwDesiredAccess,
+	[in] DWORD dwServiceType,
+	[in] DWORD dwStartType,
+	[in] DWORD dwErrorControl,
+	[in, string, range(0, SC_MAX_PATH_LENGTH)]
+	    wchar_t* lpBinaryPathName,
+	[in, string, unique, range(0, SC_MAX_NAME_LENGTH)]
+	    wchar_t* lpLoadOrderGroup,
+	[in, out, unique] LPDWORD lpdwTagId,
+	[in, unique, size_is(dwDependSize)]
+	    LPBYTE lpDependencies,
+	[in, range(0, SC_MAX_DEPEND_SIZE)]
+	    DWORD dwDependSize,
+	[in, string, unique, range(0, SC_MAX_ACCOUNT_NAME_LENGTH)]
+	    wchar_t* lpServiceStartName,
+	[in, unique, size_is(dwPwSize)]
+	    LPBYTE lpPassword,
+	[in, range(0, SC_MAX_PWD_SIZE)]
+	    DWORD dwPwSize,
+	[out] LPSC_RPC_HANDLE lpServiceHandle
+
+);
+*/
+type RCreateServiceWReq struct {
+	SCContextHandle  []byte
+	ServiceName      string
+	DisplayName      string
 	DesiredAccess    uint32
 	ServiceType      uint32
 	StartType        uint32
 	ErrorControl     uint32
-	BinaryPathName   *UnicodeStr
-	LoadOrderGroup   *UnicodeStr
+	BinaryPathName   string
+	LoadOrderGroup   string
 	TagId            uint32
-	Dependencies     *UnicodeStr
+	Dependencies     string
 	DependSize       uint32
-	ServiceStartName *UnicodeStr
-	Password         *UnicodeStr
+	ServiceStartName string
+	Password         []byte
 	PwSize           uint32
 }
 
-type RCreateServiceResponse struct {
+type RCreateServiceWRes struct {
 	TagId         uint32
-	ContextHandle []byte `smb:"fixed:20"`
+	ContextHandle []byte
 	ReturnCode    uint32
 }
 
-type RStartServiceWRequest struct {
-	ServiceHandle []byte `smb:"fixed:20"`
-	Argc          uint32 `smb:"count:Argv"`
-	Argv          []UnicodeStr
-}
-
-type RControlServiceRequest struct {
-	ServiceHandle []byte `smb:"fixed:20"`
-	Control       uint32
-}
-
-type RControlServiceResponse struct {
-	ServiceStatus
-	ReturnValue uint32
-}
-
-type RDeleteServiceRequest struct {
-	ServiceHandle []byte `smb:"fixed:20"`
-}
-
-type RDeleteServiceResponse struct {
-	ReturnCode uint32
-}
-
-func (self *ROpenSCManagerWRequest) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for ROpenSCManagerWRequest")
+func (self *ROpenSCManagerWReq) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for ROpenSCManagerWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -513,16 +544,16 @@ func (self *ROpenSCManagerWRequest) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *ROpenSCManagerWRequest) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of ROpenSCManagerWRequest")
+func (self *ROpenSCManagerWReq) UnmarshalBinary(buf []byte) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of ROpenSCManagerWReq")
 }
 
-func (self *ROpenSCManagerWResponse) MarshalBinary() ([]byte, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of ROpenSCManagerWRequest")
+func (self *ROpenSCManagerWRes) MarshalBinary() ([]byte, error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of ROpenSCManagerWRes")
 }
 
-func (self *ROpenSCManagerWResponse) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for ROpenSCManagerWResponse")
+func (self *ROpenSCManagerWRes) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for ROpenSCManagerWRes")
 
 	r := bytes.NewReader(buf)
 	err = binary.Read(r, le, &self.ContextHandle)
@@ -539,8 +570,8 @@ func (self *ROpenSCManagerWResponse) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *ROpenServiceWRequest) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for ROpenServiceWRequest")
+func (self *ROpenServiceWReq) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for ROpenServiceWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -555,7 +586,7 @@ func (self *ROpenServiceWRequest) MarshalBinary() (res []byte, err error) {
 		return
 	}
 	// Pointer to a conformant and varying string, so include MaxCount
-	// Not sure why there is no ReferentId here as the IDL specifies it as a pointer
+	// Skip ReferentId ptr because this is not a unique ptr
 	_, err = writeConformantVaryingString(w, self.ServiceName)
 	if err != nil {
 		log.Errorln(err)
@@ -571,16 +602,16 @@ func (self *ROpenServiceWRequest) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *ROpenServiceWRequest) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of ROpenServiceWRequest")
+func (self *ROpenServiceWReq) UnmarshalBinary(buf []byte) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of ROpenServiceWReq")
 }
 
-func (self *ROpenServiceWResponse) MarshalBinary() ([]byte, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of ROpenServiceWRequest")
+func (self *ROpenServiceWRes) MarshalBinary() ([]byte, error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of ROpenServiceWReq")
 }
 
-func (self *ROpenServiceWResponse) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for ROpenServiceWResponse")
+func (self *ROpenServiceWRes) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for ROpenServiceWRes")
 
 	self.ContextHandle = make([]byte, 20)
 	r := bytes.NewReader(buf)
@@ -922,19 +953,27 @@ func (self *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	//NOTE Is this correct?
-	_, err = writeConformantVaryingStringPtr(w, self.Dependencies, refId)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	refId++
+	if self.Dependencies != "" {
+		uncDependencies := ToUnicode(self.Dependencies + "\x00")
+		_, err = writeConformantArrayPtr(w, uncDependencies, refId)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		refId++
 
-	//NOTE Is this correct?
-	err = binary.Write(w, le, self.DependSize)
-	if err != nil {
-		log.Errorln(err)
-		return
+		err = binary.Write(w, le, uint32(len(uncDependencies)))
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	} else {
+		// Write null ptr for dependencies, and null value for DependSize
+		err = binary.Write(w, le, uint64(0))
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
 	}
 
 	_, err = writeConformantVaryingStringPtr(w, self.ServiceStartName, refId)
@@ -958,6 +997,7 @@ func (self *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
 			return
 		}
 	} else {
+		// Write null ptr for password, and null value for PwSize
 		err = binary.Write(w, le, uint64(0))
 		if err != nil {
 			log.Errorln(err)
@@ -1003,15 +1043,88 @@ func (self *RChangeServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (s *RStartServiceWRequest) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+func (self *RControlServiceReq) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for RControlServiceReq")
+
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	// Encode ServiceHandle
+	if len(self.ServiceHandle) != 20 {
+		return nil, fmt.Errorf("Invalid size of ServiceHandle!")
+	}
+
+	_, err = w.Write(self.ServiceHandle[:20])
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.Control)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *RControlServiceReq) UnmarshalBinary(buf []byte) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RControlServiceReq")
+}
+
+func (self *RControlServiceRes) MarshalBinary() ([]byte, error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of RControlServiceRes")
+}
+
+func (self *RControlServiceRes) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for RControlServiceRes")
+
+	// Skip implementing the same decoding function twice
+	res := &RQueryServiceStatusRes{}
+	err = res.UnmarshalBinary(buf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	self.ReturnValue = res.ReturnCode
+	self.ServiceStatus = res.ServiceStatus
+
+	return
+}
+
+func (self *RDeleteServiceReq) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for RDeleteServiceReq")
+
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+
+	if len(self.ServiceHandle) != 20 {
+		return nil, fmt.Errorf("Invalid size of ServiceHandle!")
+	}
+
+	_, err = w.Write(self.ServiceHandle[:20])
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *RDeleteServiceReq) UnmarshalBinary(buf []byte) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RDeleteServiceReq")
+}
+
+func (s *RStartServiceWReq) MarshalBinary() (res []byte, err error) {
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+
 	w.Write(s.ServiceHandle)
+
 	// Encode Argc
-	if err := binary.Write(w, binary.LittleEndian, s.Argc); err != nil {
-		return nil, err
+	if err = binary.Write(w, le, s.Argc); err != nil {
+		log.Errorln(err)
+		return
 	}
 
 	// If Argc is 0, Argv will be a null pointer
@@ -1020,107 +1133,247 @@ func (s *RStartServiceWRequest) MarshalBinary(meta *encoder.Metadata) ([]byte, e
 		return w.Bytes(), nil
 	}
 
-	refId := make([]byte, 4)
-	_, err := rand.Read(refId)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
+	refId := uint32(1)
 
-	_, err = w.Write(refId)
+	err = binary.Write(w, le, refId)
 	if err != nil {
 		log.Errorln(err)
-		return nil, err
+		return
 	}
+	refId++
 
 	// Encode Max Element Count in array
-	if err := binary.Write(w, binary.LittleEndian, s.Argc); err != nil {
+	if err := binary.Write(w, le, s.Argc); err != nil {
 		return nil, err
 	}
 
 	// Encode another RefId for each element in the array
 	// This is because according to NDR, the pointers are lifted outside the array element and into the parent structure
 	for i := 0; i < int(s.Argc); i++ {
-		_, err := rand.Read(refId)
+		err = binary.Write(w, le, refId)
 		if err != nil {
 			log.Errorln(err)
-			return nil, err
+			return
 		}
-
-		_, err = w.Write(refId)
-		if err != nil {
-			log.Errorln(err)
-			return nil, err
-		}
+		refId++
 	}
 
 	for i := 0; i < int(s.Argc); i++ {
-		// Encode MaxCount
-		if err := binary.Write(w, binary.LittleEndian, s.Argv[i].MaxCount); err != nil {
+		_, err = writeConformantVaryingString(w, s.Argv[i])
+		if err != nil {
 			log.Errorln(err)
-			return nil, err
-		}
-		// Encode Offset
-		if err := binary.Write(w, binary.LittleEndian, s.Argv[i].Offset); err != nil {
-			log.Errorln(err)
-			return nil, err
-		}
-		// Encode ActualCount
-		if err := binary.Write(w, binary.LittleEndian, s.Argv[i].ActualCount); err != nil {
-			log.Errorln(err)
-			return nil, err
-		}
-		// Encode String
-		if err := binary.Write(w, binary.LittleEndian, s.Argv[i].EncodedString); err != nil {
-			log.Errorln(err)
-			return nil, err
-		}
-		// Encode Padding
-		if len(s.Argv[i].Padd) > 0 {
-			if err := binary.Write(w, binary.LittleEndian, s.Argv[i].Padd); err != nil {
-				log.Errorln(err)
-				return nil, err
-			}
+			return
 		}
 	}
 
 	return w.Bytes(), nil
 }
 
-func (self *RStartServiceWRequest) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RStartServiceWRequest")
+func (self *RStartServiceWReq) UnmarshalBinary(buf []byte) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RStartServiceWReq")
+}
+
+func (self *RCreateServiceWReq) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for RCreateServiceWReq")
+
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+	refId := uint32(1)
+
+	if len(self.SCContextHandle) != 20 {
+		return nil, fmt.Errorf("Invalid size of SCContextHandle!")
+	}
+
+	if self.ServiceName == "" {
+		return nil, fmt.Errorf("Invalid ServicName. Cannot be empty!")
+	}
+
+	_, err = w.Write(self.SCContextHandle[:20])
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// Skip ReferentId ptr because this is not a unique ptr
+	_, err = writeConformantVaryingString(w, self.ServiceName)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	_, err = writeConformantVaryingStringPtr(w, self.DisplayName, refId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	refId++
+
+	err = binary.Write(w, le, self.DesiredAccess)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.ServiceType)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.StartType)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.ErrorControl)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// Skip ReferentId ptr because this is not a unique ptr
+	_, err = writeConformantVaryingString(w, self.BinaryPathName)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	_, err = writeConformantVaryingStringPtr(w, self.LoadOrderGroup, refId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	refId++
+
+	err = binary.Write(w, le, self.TagId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	if self.Dependencies != "" {
+		uncDependencies := ToUnicode(self.Dependencies + "\x00")
+		_, err = writeConformantArrayPtr(w, uncDependencies, refId)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		refId++
+
+		err = binary.Write(w, le, uint32(len(uncDependencies)))
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	} else {
+		// Write null ptr for dependencies, and null value for DependSize
+		err = binary.Write(w, le, uint64(0))
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	_, err = writeConformantVaryingStringPtr(w, self.ServiceStartName, refId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	refId++
+
+	if self.Password != nil {
+		_, err = writeConformantArrayPtr(w, self.Password, refId)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		refId++
+
+		err = binary.Write(w, le, uint32(len(self.Password)))
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	} else {
+		// Write null ptr for password and null value for PwSize
+		err = binary.Write(w, le, uint64(0))
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *RCreateServiceWReq) UnmarshalBinary(buf []byte) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RCreateServiceWReq")
+}
+
+func (self *RCreateServiceWRes) MarshalBinary() ([]byte, error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of RCreateServiceWRes")
+}
+
+func (self *RCreateServiceWRes) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for RCreateServiceWRes")
+	if len(buf) < 28 {
+		return fmt.Errorf("Buffer to small for RchangeServiceConfigWRes")
+	}
+	r := bytes.NewReader(buf)
+
+	err = binary.Read(r, le, &self.TagId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	self.ContextHandle = make([]byte, 20)
+	err = binary.Read(r, le, &self.ContextHandle)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, le, &self.ReturnCode)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return nil
 }
 
 func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err error) {
 	log.Debugln("In decodeServiceConfig")
 	if _, ok := ServiceTypeStatusMap[config.ServiceType]; !ok {
 		err = fmt.Errorf("Could not identify returned service type: %d\n", config.ServiceType)
-		fmt.Println(err)
+		log.Errorln(err)
 	}
 	res.ServiceType = ServiceTypeStatusMap[config.ServiceType]
 
 	if _, ok := StartTypeStatusMap[config.StartType]; !ok {
 		err = fmt.Errorf("Could not identify returned start type: %d\n", config.StartType)
-		fmt.Println(err)
+		log.Errorln(err)
 	}
 	res.StartType = StartTypeStatusMap[config.StartType]
 
 	if _, ok := ErrorControlStatusMap[config.ErrorControl]; !ok {
 		err = fmt.Errorf("Could not identify returned start type: %d\n", config.ErrorControl)
-		fmt.Println(err)
+		log.Errorln(err)
 	}
 	res.ErrorControl = ErrorControlStatusMap[config.ErrorControl]
 
 	res.BinaryPathName = config.BinaryPathName
 	if err != nil {
 		err = fmt.Errorf("Error decoding service config: %s\n", err)
-		fmt.Println(err)
+		log.Errorln(err)
 	}
 
 	res.LoadOrderGroup = config.LoadOrderGroup
 	if err != nil {
 		err = fmt.Errorf("Error decoding service config: %s\n", err)
-		fmt.Println(err)
+		log.Errorln(err)
 	}
 
 	res.TagId = config.TagId
@@ -1128,19 +1381,19 @@ func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err er
 	res.Dependencies = config.Dependencies
 	if err != nil {
 		err = fmt.Errorf("Error decoding service config: %s\n", err)
-		fmt.Println(err)
+		log.Errorln(err)
 	}
 
 	res.ServiceStartName = config.ServiceStartName
 	if err != nil {
 		err = fmt.Errorf("Error decoding service config: %s\n", err)
-		fmt.Println(err)
+		log.Errorln(err)
 	}
 
 	res.DisplayName = config.DisplayName
 	if err != nil {
 		err = fmt.Errorf("Error decoding service config: %s\n", err)
-		fmt.Println(err)
+		log.Errorln(err)
 	}
 
 	return
@@ -1148,7 +1401,7 @@ func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err er
 
 func (sb *ServiceBind) openSCManager(desiredAccess uint32) (handle []byte, err error) {
 	log.Debugln("In openSCManager")
-	scReq := ROpenSCManagerWRequest{
+	scReq := ROpenSCManagerWReq{
 		MachineName:   "DUMMY",
 		DatabaseName:  "ServicesActive",
 		DesiredAccess: desiredAccess,
@@ -1166,7 +1419,7 @@ func (sb *ServiceBind) openSCManager(desiredAccess uint32) (handle []byte, err e
 	}
 
 	// Retrieve context handle from response
-	res := ROpenSCManagerWResponse{}
+	res := ROpenSCManagerWRes{}
 	err = res.UnmarshalBinary(buffer)
 	if err != nil {
 		log.Errorln(err)
@@ -1174,7 +1427,13 @@ func (sb *ServiceBind) openSCManager(desiredAccess uint32) (handle []byte, err e
 	}
 
 	if res.ReturnCode != ErrorSuccess {
-		err = ServiceResponseCodeMap[res.ReturnCode]
+		status, found := ServiceResponseCodeMap[res.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for ROpenSCManagerW: 0x%x\n", res.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		return nil, status
 	}
 
 	handle = res.ContextHandle[:]
@@ -1183,7 +1442,7 @@ func (sb *ServiceBind) openSCManager(desiredAccess uint32) (handle []byte, err e
 
 func (sb *ServiceBind) openService(scHandle []byte, serviceName string, desiredAccess uint32) (handle []byte, err error) {
 	log.Debugln("In openService")
-	serviceReq := ROpenServiceWRequest{
+	serviceReq := ROpenServiceWReq{
 		SCContextHandle: scHandle,
 		ServiceName:     serviceName,
 		DesiredAccess:   desiredAccess,
@@ -1200,14 +1459,20 @@ func (sb *ServiceBind) openService(scHandle []byte, serviceName string, desiredA
 	}
 
 	// Retrieve context handle from response
-	res := ROpenServiceWResponse{}
+	res := ROpenServiceWRes{}
 	err = res.UnmarshalBinary(buffer)
 	if err != nil {
 		return
 	}
 
 	if res.ReturnCode != ErrorSuccess {
-		err = ServiceResponseCodeMap[res.ReturnCode]
+		status, found := ServiceResponseCodeMap[res.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for ROpenServiceW: 0x%x\n", res.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		return nil, status
 	}
 
 	handle = res.ContextHandle
@@ -1247,8 +1512,13 @@ func (sb *ServiceBind) GetServiceStatus(serviceName string) (status uint32, err 
 	}
 
 	if res.ReturnCode != ErrorSuccess {
-		err = ServiceResponseCodeMap[res.ReturnCode]
-		return
+		msg, found := ServiceResponseCodeMap[res.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RQueryServiceStatus: 0x%x\n", res.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		return 0, msg
 	}
 
 	status = res.ServiceStatus.CurrentState
@@ -1268,22 +1538,16 @@ func (sb *ServiceBind) StartService(serviceName string, args []string) (err erro
 	}
 	defer sb.CloseServiceHandle(serviceHandle)
 
-	ssReq := RStartServiceWRequest{ServiceHandle: serviceHandle}
+	ssReq := RStartServiceWReq{ServiceHandle: serviceHandle}
 	if args == nil || len(args) == 0 {
 		ssReq.Argc = 0
 		ssReq.Argv = nil
 	} else {
-		arr := make([]UnicodeStr, len(args))
-		refId := uint32(1)
 		ssReq.Argc = uint32(len(args))
-		for i := range args {
-			arr[i] = *NewUnicodeStr(refId, args[i])
-			refId++
-		}
-		ssReq.Argv = arr
+		ssReq.Argv = args
 	}
 
-	ssBuf, err := encoder.Marshal(&ssReq)
+	ssBuf, err := ssReq.MarshalBinary()
 	if err != nil {
 		return
 	}
@@ -1293,10 +1557,15 @@ func (sb *ServiceBind) StartService(serviceName string, args []string) (err erro
 		return
 	}
 
-	// Retrieve context handle from response
 	returnValue := binary.LittleEndian.Uint32(buffer)
 	if returnValue != ErrorSuccess {
-		return ServiceResponseCodeMap[returnValue]
+		status, found := ServiceResponseCodeMap[returnValue]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RStartServiceWReq: 0x%x\n", returnValue)
+			log.Errorln(err)
+			return err
+		}
+		return status
 	}
 
 	return
@@ -1315,11 +1584,11 @@ func (sb *ServiceBind) ControlService(serviceName string, control uint32) (err e
 	}
 	defer sb.CloseServiceHandle(serviceHandle)
 
-	csReq := RControlServiceRequest{
+	csReq := RControlServiceReq{
 		ServiceHandle: serviceHandle,
 		Control:       control,
 	}
-	csBuf, err := encoder.Marshal(csReq)
+	csBuf, err := csReq.MarshalBinary()
 	if err != nil {
 		return
 	}
@@ -1330,15 +1599,21 @@ func (sb *ServiceBind) ControlService(serviceName string, control uint32) (err e
 	}
 
 	// Parse ServiceStatus
-	res := RControlServiceResponse{}
-	err = encoder.Unmarshal(buffer, &res)
+	res := RControlServiceRes{}
+	err = res.UnmarshalBinary(buffer)
 	if err != nil {
 		return
 	}
 
 	// Retrieve context handle from response
 	if res.ReturnValue != ErrorSuccess {
-		return ServiceResponseCodeMap[res.ReturnValue]
+		status, found := ServiceResponseCodeMap[res.ReturnValue]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RControlService: 0x%x\n", res.ReturnValue)
+			log.Errorln(err)
+			return
+		}
+		return status
 	}
 
 	return
@@ -1380,8 +1655,13 @@ func (sb *ServiceBind) GetServiceConfig(serviceName string) (config ServiceConfi
 	}
 
 	if res.ErrorCode != ErrorInsufficientBuffer {
-		err = ServiceResponseCodeMap[res.ErrorCode]
-		return
+		status, found := ServiceResponseCodeMap[res.ErrorCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RQueryServiceConfigW: 0x%x\n", res.ErrorCode)
+			log.Errorln(err)
+			return
+		}
+		return config, status
 	}
 
 	// Repeat request with allocated buffer size
@@ -1404,8 +1684,13 @@ func (sb *ServiceBind) GetServiceConfig(serviceName string) (config ServiceConfi
 	}
 
 	if res.ErrorCode != ErrorSuccess {
-		err = ServiceResponseCodeMap[res.ErrorCode]
-		return
+		status, found := ServiceResponseCodeMap[res.ErrorCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RQueryServiceConfigW: 0x%x\n", res.ErrorCode)
+			log.Errorln(err)
+			return
+		}
+		return config, status
 	}
 
 	return decodeServiceConfig(res.ServiceConfig)
@@ -1486,18 +1771,13 @@ func (sb *ServiceBind) ChangeServiceConfig(
 		return status
 	}
 
-	if res.ReturnCode != ErrorSuccess {
-
-		return ServiceResponseCodeMap[res.ReturnCode]
-	}
-
 	return
 }
 
 func (sb *ServiceBind) CreateService(
 	serviceName string,
 	serviceType, startType, errorControl uint32,
-	binaryPathName, serviceStartName, displayName string, startService bool) (err error) {
+	binaryPathName, serviceStartName, password, displayName string, startService bool) (err error) {
 
 	log.Debugln("In CreateService")
 
@@ -1508,32 +1788,33 @@ func (sb *ServiceBind) CreateService(
 	}
 	defer sb.CloseServiceHandle(scHandle)
 
-	innerReq := RCreateServiceRequest{
+	innerReq := RCreateServiceWReq{
 		SCContextHandle:  scHandle,
-		ServiceName:      NewUnicodeStr(0, serviceName),
-		DisplayName:      NewUnicodeStr(1, displayName),
+		ServiceName:      serviceName,
+		DisplayName:      displayName,
 		DesiredAccess:    ServiceAllAccess,
 		ServiceType:      serviceType,
 		StartType:        startType,
 		ErrorControl:     errorControl,
-		BinaryPathName:   NewUnicodeStr(0, binaryPathName),
-		LoadOrderGroup:   nil,
-		TagId:            0,
-		Dependencies:     nil,
-		DependSize:       0,
-		ServiceStartName: NewUnicodeStr(2, serviceStartName),
+		BinaryPathName:   binaryPathName,
+		ServiceStartName: serviceStartName,
 	}
 
-	log.Debugf("ServiceName: %s\n", innerReq.ServiceName.EncodedString)
-	// To support specifying a password I must figure out how the encryption is
-	// performed as this parameter expects an encrypted passphrase with some
-	// session key
-	//if password != "" {
-	//    innerReq.Password = NewUnicodeStr(0, password)
-	//    innerReq.PwSize = uint32((len(password)+1) * 2) // Null-terminated unicode string
-	//}
+	/*
+	   MS-SCMR Section 3.1.4.12 explains that in RPC over TCP, the password should be plaintext,
+	   but over SMB it must be encrypted
+	*/
+	if password != "" {
+		uncPassword := ToUnicode(password + "\x00")
+		encPassword, err := encryptSecret(sb.f.GetSessionKey(), uncPassword)
+		if err != nil {
+			log.Errorln(err)
+			return err
+		}
+		innerReq.Password = encPassword
+	}
 
-	innerBuf, err := encoder.Marshal(innerReq)
+	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1546,24 +1827,30 @@ func (sb *ServiceBind) CreateService(
 	}
 
 	// Parse ServiceConfig
-	res := RCreateServiceResponse{}
-	err = encoder.Unmarshal(buffer, &res)
+	res := RCreateServiceWRes{}
+	err = res.UnmarshalBinary(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	if res.ReturnCode != ErrorSuccess {
-		err = ServiceResponseCodeMap[res.ReturnCode]
-		return
+		status, found := ServiceResponseCodeMap[res.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RCreateServiceW: 0x%x\n", res.ReturnCode)
+			log.Errorln(err)
+			return err
+		}
+		return status
 	}
+
 	defer sb.CloseServiceHandle(res.ContextHandle)
 
 	if startService {
-		ssReq := RStartServiceWRequest{ServiceHandle: res.ContextHandle}
+		ssReq := RStartServiceWReq{ServiceHandle: res.ContextHandle}
 		ssReq.Argc = 0
 		// When Argc is 0 I need to marshal 0x00000000 for Argc and same for Argv e.g., 4 bytes combined of 0s
 
-		ssBuf, err2 := encoder.Marshal(&ssReq)
+		ssBuf, err2 := ssReq.MarshalBinary()
 		if err != nil {
 			return err2
 		}
@@ -1575,7 +1862,13 @@ func (sb *ServiceBind) CreateService(
 
 		returnValue := binary.LittleEndian.Uint32(buffer)
 		if returnValue != ErrorSuccess {
-			return ServiceResponseCodeMap[returnValue]
+			status, found := ServiceResponseCodeMap[returnValue]
+			if !found {
+				err = fmt.Errorf("Received unknown return code for RStartServiceW: 0x%x\n", returnValue)
+				log.Errorln(err)
+				return err
+			}
+			return status
 		}
 	}
 
@@ -1595,11 +1888,11 @@ func (sb *ServiceBind) DeleteService(serviceName string) (err error) {
 	defer sb.CloseServiceHandle(handle)
 
 	// Attempt to stop the service before deletion
-	csReq := RControlServiceRequest{
+	csReq := RControlServiceReq{
 		ServiceHandle: handle,
 		Control:       ServiceControlStop,
 	}
-	csBuf, err := encoder.Marshal(csReq)
+	csBuf, err := csReq.MarshalBinary()
 	if err != nil {
 		return
 	}
@@ -1610,11 +1903,11 @@ func (sb *ServiceBind) DeleteService(serviceName string) (err error) {
 		// Continue with deletion even if stop failed for some reason
 	}
 
-	innerReq := RDeleteServiceRequest{
+	innerReq := RDeleteServiceReq{
 		ServiceHandle: handle,
 	}
 
-	innerBuf, err := encoder.Marshal(innerReq)
+	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
 		return
 	}
@@ -1624,16 +1917,24 @@ func (sb *ServiceBind) DeleteService(serviceName string) (err error) {
 		return
 	}
 
-	// Parse ServiceConfig
-	res := RDeleteServiceResponse{}
-	err = encoder.Unmarshal(buffer, &res)
-	if err != nil {
+	if len(buffer) < 4 {
+		err = fmt.Errorf("Invalid response to RDeleteServiceReq")
+		log.Errorln(err)
 		return
 	}
-	if res.ReturnCode != ErrorSuccess {
-		err = ServiceResponseCodeMap[res.ReturnCode]
-		return
+
+	returnCode := le.Uint32(buffer[:4])
+
+	if returnCode != ErrorSuccess {
+		status, found := ServiceResponseCodeMap[returnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RDeleteServiceReq: 0x%x\n", returnCode)
+			log.Errorln(err)
+			return err
+		}
+		return status
 	}
+
 	return
 }
 
@@ -1644,24 +1945,30 @@ func (sb *ServiceBind) CloseServiceHandle(serviceHandle []byte) {
 	}
 	closeBuf, err := closeReq.MarshalBinary()
 	if err != nil {
-		fmt.Printf("Failed to encode close service handle request")
+		log.Errorf("Failed to encode close service handle request with error: %v\n", err)
 		return
 	}
 
 	buffer, err := sb.MakeIoCtlRequest(SvcCtlRCloseServiceHandle, closeBuf)
 	if err != nil {
-		fmt.Printf("Failed to close service handle with error: %s\n", err)
+		log.Errorf("Failed to close service handle with error: %v\n", err)
 		return
 	}
 	res := RCloseServiceHandleRes{}
 	err = res.UnmarshalBinary(buffer)
 	if err != nil {
-		fmt.Printf("Failed to unmarshal response of close service handle")
+		log.Errorf("Failed to unmarshal response of close service handle with error: %v\n", err)
 		return
 	}
 
 	if res.ReturnCode != ErrorSuccess {
-		log.Errorf("Failed to close service handle with error (return value: 0x%x): %v\n", res.ReturnCode, ServiceResponseCodeMap[res.ReturnCode])
+		status, found := ServiceResponseCodeMap[res.ReturnCode]
+		if !found {
+			log.Errorf("Received unknown return code for RCloseService: 0x%x\n", res.ReturnCode)
+			return
+		}
+		log.Errorf("Failed to close service handle with error (return value: 0x%x): %v\n", res.ReturnCode, status)
+		return
 	}
 
 	return
