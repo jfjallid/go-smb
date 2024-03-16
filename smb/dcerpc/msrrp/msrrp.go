@@ -24,26 +24,21 @@ package msrrp
 import (
 	"encoding/binary"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/jfjallid/go-smb/smb/dcerpc"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/golog"
 )
 
 var log = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc/msrrp")
 
 var (
-	MSRRPUuid                       = "338CD001-2244-31F1-AAAA-900038001003"
-	MSRRPPipe                       = "winreg"
-	MSRRPMajorVersion uint16        = 1
-	MSRRPMinorVersion uint16        = 0
-	NDRUuid                         = "8a885d04-1ceb-11c9-9fe8-08002b104860"
-	re                regexp.Regexp = *regexp.MustCompile(`([\dA-Fa-f]{8})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})([\dA-Fa-f]{8})`)
-	ContextItemLen                  = 44
-	ContextResItemLen               = 24
+	MSRRPUuid                = "338CD001-2244-31F1-AAAA-900038001003"
+	MSRRPPipe                = "winreg"
+	MSRRPMajorVersion uint16 = 1
+	MSRRPMinorVersion uint16 = 0
+	NDRUuid                  = "8a885d04-1ceb-11c9-9fe8-08002b104860"
 )
 
 // MS-RRP Section 2.2.3 REGSAM
@@ -396,13 +391,11 @@ func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 	req := BaseRegEnumKeyReq{
 		HKey:  hKey,
 		Index: index,
-		NameIn: PRRPUnicodeStr2{
-			Length:    0,
-			MaxLength: 512,
+		NameIn: RRPUnicodeStr{
+			MaxLength: 256,
 		},
-		ClassIn: PRRPUnicodeStr2{
-			Length:    0,
-			MaxLength: 512,
+		ClassIn: RRPUnicodeStr{
+			MaxLength: 256,
 		},
 		LastWriteTime: &PFiletime{1, 2},
 	}
@@ -432,11 +425,11 @@ func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 	}
 
 	info = &KeyInfo{
-		KeyName:   res.NameOut.Buffer,
-		ClassName: res.ClassOut.Buffer,
+		KeyName:   res.NameOut.S,
+		ClassName: res.ClassOut.S,
 	}
-	info.ClassName = info.ClassName[:len(info.ClassName)-1] // Remove null byte
-	info.KeyName = info.KeyName[:len(info.KeyName)-1]       // Remove null byte
+	//info.ClassName = info.ClassName[:len(info.ClassName)-1] // Remove null byte
+	//info.KeyName = info.KeyName[:len(info.KeyName)-1]       // Remove null byte
 
 	return
 }
@@ -447,7 +440,7 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 	req := BaseRegEnumValueReq{
 		HKey:    hKey,
 		Index:   index,
-		NameIn:  PRRPUnicodeStr2{Length: 0, MaxLength: 2048},
+		NameIn:  RRPUnicodeStr{MaxLength: 4096},
 		Type:    1024,
 		MaxLen:  4096,
 		DataLen: 0,
@@ -505,7 +498,7 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 	}
 
 	value = &ValueInfo{
-		Name:     res.NameOut.Buffer,
+		Name:     res.NameOut.S,
 		Type:     res.Type,
 		ValueLen: res.DataLen,
 		Value:    res.Data,
@@ -577,14 +570,9 @@ func NewSecurityDescriptor(control uint16, owner, group *SID, dacl, sacl *PACL) 
 }
 
 func (r *RPCCon) OpenSubKey(hKey []byte, subkey string) (handle []byte, err error) {
-	name, err := encoder.Utf8ToUtf16(encoder.ToUnicode(subkey + "\x00"))
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
 	req := BaseRegOpenKeyReq{
 		HKey:          hKey,
-		SubKey:        PRRPUnicodeStr2{Length: uint16(len(name)), MaxLength: uint16(len(name)), Buffer: name},
+		SubKey:        RRPUnicodeStr{MaxLength: uint16(len(subkey)), S: subkey},
 		Options:       0, // Impacket sets this to 1. Can't find any reference to what that means
 		DesiredAccess: PermMaximumAllowed,
 		//DesiredAccess: KeyEnumerateSubKeys|KeyQueryValue, // These permissions result in AccessDenied for certain keys
@@ -622,10 +610,8 @@ func (r *RPCCon) OpenSubKey(hKey []byte, subkey string) (handle []byte, err erro
 func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 	req := BaseRegQueryInfoKeyReq{
 		HKey: hKey,
-		ClassIn: RRPUnicodeStr3{
-			Length:    0,
+		ClassIn: RRPUnicodeStr{
 			MaxLength: 18,
-			Buffer:    nil,
 		},
 	}
 
@@ -653,7 +639,7 @@ func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 	}
 
 	info = &KeyInfo{
-		ClassName:       res.ClassOut.Buffer,
+		ClassName:       res.ClassOut.S,
 		SubKeys:         res.SubKeys,
 		MaxSubKeyLen:    res.MaxSubKeyLen,
 		MaxClassLen:     res.MaxClassLen,
@@ -671,16 +657,11 @@ func (r *RPCCon) QueryValue(hKey []byte, name string) (result []byte, err error)
 	// If I send the parameter Data (lpData) as nil and the DataLen(lpcbData) and MaxSize(lpcbLen) to 0
 	// The server will respond with the size of the requested value in the lpcbData parameter.
 
-	name = NullTerminate(name)
-	encodedName, err := encoder.Utf8ToUtf16(encoder.ToUnicode(name))
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
+	name = nullTerminate(name)
 
 	req := BaseRegQueryValueReq{
 		HKey:      hKey,
-		ValueName: PRRPUnicodeStr2{Length: uint16(len(name)), MaxLength: uint16(len(name)), Buffer: encodedName},
+		ValueName: RRPUnicodeStr{MaxLength: uint16(len(name)), S: name},
 		Type:      1024,
 		Data:      nil,
 		MaxLen:    1024,
@@ -742,7 +723,7 @@ func (r *RPCCon) QueryValueString(hKey []byte, name string) (result string, err 
 		return
 	}
 
-	return encoder.FromUnicodeString(data[:len(data)-2])
+	return FromUnicodeString(data[:len(data)-2])
 }
 
 func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err error) {
@@ -779,30 +760,17 @@ func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err err
 		log.Errorln(err)
 		return
 	}
-	sdbuf, err := sd.MarshalBinary(nil)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	sdbufLen := uint32(len(sdbuf))
 	rd := RpcSecurityDescriptor{
-		SecurityDescriptor:    *sd,
-		InSecurityDescriptor:  sdbufLen,
-		OutSecurityDescriptor: sdbufLen,
+		SecurityDescriptor: sd,
 	}
 
 	sa := &RpcSecurityAttributes{
 		SecurityDescriptor: rd,
-		Length:             sdbufLen + 12 + 8, // Includes the size of the length parameters
 		InheritHandle:      0,
-	}
-	filenameBuf, err := encoder.Utf8ToUtf16(encoder.ToUnicode(filename))
-	if err != nil {
-		return
 	}
 	req := BaseRegSaveKeyReq{
 		HKey:               hKey,
-		FileName:           PRRPUnicodeStr2{Length: uint16(len(filenameBuf)), MaxLength: uint16(len(filenameBuf)), Buffer: filenameBuf},
+		FileName:           RRPUnicodeStr{MaxLength: uint16(len(filename)), S: filename},
 		SecurityAttributes: *sa,
 	}
 
@@ -835,13 +803,13 @@ func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err err
 func (r *RPCCon) GetKeySecurity(hKey []byte) (sd *SecurityDescriptor, err error) {
 
 	//TODO check if I can ask for size first and then send another request with that size
+	// Suggest a pretty big security descriptor like 4096 bytes, but check if server responds with error
+	// that the buffer was too small and if so, send another request with as big of a buffer as the server demands
 	req := BaseRegGetKeySecurityReq{
 		HKey:                hKey,
 		SecurityInformation: OwnerSecurityInformation | GroupSecurityInformation | DACLSecurityInformation,
-		SecurityDescriptorIn: SecurityData{
-			Size:            4096, // Perhaps I can figure out what value I need here with some other request? Or should I just set it really high?
-			Len:             0,
-			KeySecurityData: nil,
+		SecurityDescriptorIn: RpcSecurityDescriptor{
+			InSecurityDescriptor: 4096,
 		},
 	}
 
@@ -858,43 +826,29 @@ func (r *RPCCon) GetKeySecurity(hKey []byte) (sd *SecurityDescriptor, err error)
 		return
 	}
 
-	res := BaseRegGetKeySecurityRes{
-		SecurityDescriptorOut: SecurityData{
-			KeySecurityData: &SecurityDescriptor{},
-		},
-		ReturnCode: ReturnCode{},
-	}
+	res := BaseRegGetKeySecurityRes{}
 	err = res.UnmarshalBinary(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode.uint32 != ErrorSuccess {
-		err = ReturnCodeMap[res.ReturnCode.uint32]
+	if res.ReturnCode != ErrorSuccess {
+		err = ReturnCodeMap[res.ReturnCode]
 		log.Errorln(err)
 		return
 	}
 	log.Debugln("Successfully got the security information")
-	sd = res.SecurityDescriptorOut.KeySecurityData
+	sd = res.SecurityDescriptorOut.SecurityDescriptor
 
 	return
 }
 
 func (r *RPCCon) SetKeySecurity(hKey []byte, sd *SecurityDescriptor) (err error) {
-
-	sdbuf, err := sd.MarshalBinary(nil)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
 	req := BaseRegSetKeySecurityReq{
 		HKey: hKey,
-		SecurityDescriptorIn: SecurityData{
-			Size:            uint32(len(sdbuf)),
-			Len:             uint32(len(sdbuf)),
-			KeySecurityData: sd,
+		SecurityDescriptorIn: RpcSecurityDescriptor{
+			SecurityDescriptor: sd,
 		},
 	}
 	if sd.Sacl != nil {
@@ -911,7 +865,7 @@ func (r *RPCCon) SetKeySecurity(hKey []byte, sd *SecurityDescriptor) (err error)
 	}
 
 	//log.Debugf("Trying to Query key value for (%s)\n", name)
-	reqBuf, err := req.MarshalBinary(nil)
+	reqBuf, err := req.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -959,12 +913,7 @@ func (r *RPCCon) GetSubKeyNames(hKey []byte, subkey string) (names []string, err
 			return
 		}
 
-		tmp := encoder.Utf16ToUtf8(res2.KeyName)
-		name, err := encoder.FromUnicodeString(tmp)
-		if err != nil {
-			log.Errorln(err)
-			return nil, err
-		}
+		name := res2.KeyName
 
 		//names = append(names, subkey + "\\" + name[:len(name)-1]) //Skip trailing null byte
 		//names = append(names, subkey + "\\" + name)
@@ -988,22 +937,8 @@ func (r *RPCCon) GetValueNames(hKey []byte) (names []string, err error) {
 			log.Errorln(err)
 			return nil, err
 		}
-		name, err := encoder.FromUnicodeString(encoder.Utf16ToUtf8(value.Name))
-		if err != nil {
-			log.Errorln(err)
-			return nil, err
-		}
-
+		name := value.Name
 		names = append(names, name[:len(name)-1])
 	}
 	return
-}
-
-func NullTerminate(s string) string {
-	if s == "" {
-		s = "\x00"
-	} else if s[len(s)-1] != 0x00 {
-		return s + "\x00"
-	}
-	return s
 }
