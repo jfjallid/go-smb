@@ -25,8 +25,6 @@ import (
 	"bytes"
 	"encoding/hex"
 
-	"github.com/jfjallid/go-smb/smb/encoder"
-
 	"testing"
 )
 
@@ -37,12 +35,12 @@ func TestBindReq(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req, err := NewBindReq(2596996162, "367abb81-9844-35f1-ad32-98f038001003", 2, 0, "8a885d04-1ceb-11c9-9fe8-08002b104860")
+	req, err := NewBindReq(2596996162, "367abb81-9844-35f1-ad32-98f038001003", 2, 0, "8a885d04-1ceb-11c9-9fe8-08002b104860", 4280, 4280)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	buf, err := encoder.Marshal(req)
+	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,8 +56,8 @@ func TestBindRes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var res BindRes = NewBindRes()
-	err = encoder.Unmarshal(resPkt, &res)
+	var res BindRes
+	err = res.UnmarshalBinary(resPkt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,12 +102,15 @@ func TestBindRes(t *testing.T) {
 		t.Fatal("Fail")
 	}
 
-	if res.CtxCount != 1 {
+	if res.ResultList.Results != 1 {
 		t.Fatal("Fail")
 	}
-	var items ContextResItems = *res.Context
 
-	if items[0].Result != 0 {
+	if res.ResultList.Items[0].Result != acceptance {
+		t.Fatal("Fail")
+	}
+
+	if res.ResultList.Items[0].Reason != reasonNotSpecified {
 		t.Fatal("Fail")
 	}
 
@@ -118,11 +119,11 @@ func TestBindRes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !bytes.Equal(items[0].TransferUUID, ndr) {
+	if !bytes.Equal(res.ResultList.Items[0].TransferSyntax.UUID, ndr) {
 		t.Fatal("Fail")
 	}
 
-	if items[0].TransferVersion != 2 {
+	if res.ResultList.Items[0].TransferSyntax.Version != 2 {
 		t.Fatal("Fail")
 	}
 }

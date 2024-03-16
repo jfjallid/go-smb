@@ -20,12 +20,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 //
-// The marshal/unmarshal of requerst and responses according to the NDR syntax
+// The marshal/unmarshal of request and responses according to the NDR syntax
 // has been implemented on a per RPC request basis and not in any complete way.
 // As such, for each new functionality, a manual marshal and unmarshal method
 // has to be written for the relevant messages. This makes it a bit cumbersome
-// to implement new features, so at some point a major rewrite should be
-// performed to ideally handle the NDR syntax dynamically.
+// to implement new features but for now that seems preferable to implementing
+// a generic NDR encoder/decoder.
 
 package dcerpc
 
@@ -34,31 +34,21 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"math/rand"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/golog"
 )
 
-var log = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc")
-
 var (
-	MSRPCSvcCtlPipe                          = "svcctl"
-	MSRPCUuidSvcCtl                          = "367ABB81-9844-35F1-AD32-98F038001003"
-	MSRPCSvcCtlMajorVersion uint16           = 2
-	MSRPCSvcCtlMinorVersion uint16           = 0
-	MSRPCUuidSrvSvc                          = "4B324FC8-1670-01D3-1278-5A47BF6EE188"
-	MSRPCSrvSvcMajorVersion uint16           = 3
-	MSRPCSrvSvcMinorVersion uint16           = 0
-	MSRPCUuidNdr                             = "8a885d04-1ceb-11c9-9fe8-08002b104860" // NDR Transfer Syntax version 2.0
-	re                      regexp.Regexp    = *regexp.MustCompile(`([\dA-Fa-f]{8})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})([\dA-Fa-f]{8})`)
-	ContextItemLen                           = 44
-	ContextResItemLen                        = 24
-	le                      binary.ByteOrder = binary.LittleEndian
+	MSRPCUuidNdr                  = "8a885d04-1ceb-11c9-9fe8-08002b104860" // NDR Transfer Syntax version 2.0
+	re           regexp.Regexp    = *regexp.MustCompile(`([\dA-Fa-f]{8})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})([\dA-Fa-f]{8})`)
+	le           binary.ByteOrder = binary.LittleEndian
+	log                           = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc")
 )
 
 // MSRPC Packet Types
@@ -69,6 +59,18 @@ const (
 	PacketTypeBindAck  uint8 = 12
 )
 
+// C706 Section 12.6.3.1 PFC Flags
+const (
+	PfcFirstFrag     uint8 = 0x1
+	PfcLastFrag      uint8 = 0x2
+	PfcPendingCancel uint8 = 0x4 // Cancel was pending at sender
+	PfcReserved      uint8 = 0x8
+	PfcConcMpx       uint8 = 0x10 // Support concurrent multiplexing of a single connection
+	PfcDidNotExecute uint8 = 0x20
+	PfcMaybe         uint8 = 0x40
+	PfcObjectUUID    uint8 = 0x80
+)
+
 // Unused
 //type RPCClient interface {
 //	Bind(interface_uuid, transfer_uuid string) (bool, error)
@@ -76,225 +78,685 @@ const (
 //}
 
 type ServiceBind struct {
-	f *smb.File
+	// callId always contains the last used value, so call Add(1) first
+	callId *atomic.Uint32 // Use it with callId.Add(1)
+	f      *smb.File
+	// Currently unused, but should probably be respected at some point
+	maxFragTransmitSize uint16 // Max size of fragment the server accepts
+	// Currently unused, but should probably be validated at some point
+	maxFragReceiveSize uint16 // Max size of fragment server should send
 }
 
-type Header struct { // 16 bytes
-	MajorVersion   byte
-	MinorVersion   byte
+// Defined in C706 (DCE 1.1: Remote Procedure Call) section 12.6.3.1 as "common fields"
+type Header struct {
+	MajorVersion   byte // rpc_vers
+	MinorVersion   byte // rpc_vers_minor
 	Type           byte
 	Flags          byte
-	Representation uint32
+	Representation uint32 // NDR data representation
 	FragLength     uint16
 	AuthLength     uint16
 	CallId         uint32
 }
 
+type SyntaxId struct {
+	UUID []byte // 16 bytes
+	// Major version is encoded in the 16 least significant bits
+	// Minor version is encoded in the 16 most significant bits
+	Version uint32
+}
+
+/*
+C706 Section 12.6.3.1
+
+	typedef struct {
+	  p_context_id_t p_cont_id;
+	  u_int8 n_transfer_syn;               // number of items
+	  u_int8 reserved;                     // alignment pad, m.b.z.
+	  p_syntax_id_t abstract_syntax;       // transfer syntax list
+	  p_syntax_id_t [size_is(n_transfer_syn)] transfer_syntaxes[];
+	} p_cont_elem_t;
+*/
+type ContextItem struct {
+	Id             uint16
+	Count          byte // Determined by number of items in TransferSyntax list
+	Reserved       byte // Alignment
+	AbstractSyntax SyntaxId
+	TransferSyntax []SyntaxId
+}
+
+/*
+C706 Section 12.6.3.1
+
+	typedef struct {
+	  u_int8 n_context_elem;               // number of items
+	  u_int8 reserved;                     // alignment pad, m.b.z.
+	  u_short reserved2;                   // alignment pad, m.b.z.
+	  p_cont_elem_t [size_is(n_cont_elem)] p_cont_elem[];
+	} p_cont_list_t;
+*/
+type ContextList struct {
+	Count     byte
+	Reserved  byte   // Alignment
+	Reserved2 uint16 // Alignment
+	Items     []ContextItem
+}
+
+// C706 Section 12.6.4.3
+type BindReq struct {
+	Header          // 16 Bytes
+	MaxSendFragSize uint16
+	MaxRecvFragSize uint16
+	Association     uint32      // A value of 0 means a request for a new Association group
+	ContextList     ContextList // p_cont_list_t
+	// Auth verifier? An optional field if AuthLength is != 0
+	// Haven't implemented any support for that
+}
+
+// C706 Section 12.6.3.1 p_const_def_result_t enum
+type resultType uint16
+
+const (
+	acceptance        resultType = iota // 0
+	userRejection                       // 1
+	providerRejection                   // 2
+)
+
+// C706 Section 12.6.3.1 p_provider_reason_t enum
+type providerReason uint16
+
+const (
+	reasonNotSpecified                 providerReason = iota // 0
+	abstractSyntaxNotSupported                               // 1
+	proposedTransferSyntaxNotSupported                       // 2
+	localLimitExceeded                                       // 3
+)
+
+/*
+C706 12.6.3.1
+
+	typedef struct {
+	  p_cont_def_result_t result;
+	  p_provider_reason_t reason; // only relevant if result != acceptance
+	  p_syntax_id_t transfer_syntax; // tr syntax selected 0 if result not accepted
+	} p_result_t;
+*/
+type ContextResItem struct {
+	Result         resultType
+	Reason         providerReason
+	TransferSyntax SyntaxId
+}
+
+/*
+C706 12.6.3.1
+
+	typedef struct {
+	  u_int8 n_results;        // count
+	  u_int8 reserved;         // alignment pad, m.b.z.
+	  u_int16 reserved2;       // alignment pad, m.b.z.
+	  p_result_t [size_is(n_results)] p_results[];
+	} p_result_list_t;
+*/
+type ContextResList struct {
+	Results   byte   // Count of ContextResItem list
+	Reserved  byte   // Alignment
+	Reserved2 uint16 // Alignment
+	Items     []ContextResItem
+}
+
+// C706 Section 12.6.4.4 (bind_ack)
+type BindRes struct {
+	Header          // 16 Bytes
+	MaxSendFragSize uint16
+	MaxRecvFragSize uint16
+	Association     uint32
+	SecAddrLen      uint16
+	SecAddr         []byte
+	ResultList      ContextResList
+	// Auth verifier? An optional field if AuthLength != 0
+}
+
+// C706 Section 12.6.4.9
+type RequestReq struct { // 24 + optional fields + len of Buffer
+	Header // 16 bytes
+	// AllocHint is an optional field useful for hinting required space when
+	// sending fragmented requests
+	AllocHint uint32
+	ContextId uint16 // Data representation
+	Opnum     uint16
+	// Optional field object uuid_t
+	// Only present if PfcObjectUUID is set in the header flags
+	Buffer []byte
+	// Auth verifier? An optional field if AuthLength != 0
+}
+
+// C706 Section 12.6.4.10
+type RequestRes struct {
+	Header // 16 bytes
+	// This optional field AllocHint is used to hint about how much
+	// contiguous space to allocate for fragmented requests.
+	AllocHint   uint32
+	ContextId   uint16
+	CancelCount byte
+	Reserved    byte
+	Buffer      []byte
+	// Auth verifier? An optional field if AuthLength != 0
+}
+
+func (self *Header) MarshalBinary() (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+
+	_, err = w.Write([]byte{self.MajorVersion, self.MinorVersion, self.Type, self.Flags})
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, self.Representation)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, self.FragLength)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, self.AuthLength)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, self.CallId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *Header) UnmarshalBinary(buf []byte) (err error) {
+	if len(buf) < 16 {
+		return fmt.Errorf("Buffer is too small to unmarshal Header")
+	}
+	r := bytes.NewReader(buf)
+
+	err = binary.Read(r, le, &self.MajorVersion)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &self.MinorVersion)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &self.Type)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &self.Flags)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &self.Representation)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &self.FragLength)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &self.AuthLength)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &self.CallId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return
+}
+
+func (self *ContextItem) MarshalBinary() (ret []byte, err error) {
+	log.Debugln("In MarshalBinary for ContextItem")
+	w := bytes.NewBuffer(ret)
+	err = binary.Write(w, le, self.Id)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, byte(len(self.TransferSyntax)))
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, byte(0)) // Alignment
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, self.AbstractSyntax.UUID)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, self.AbstractSyntax.Version)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	for i := range self.TransferSyntax {
+		err = binary.Write(w, le, self.TransferSyntax[i].UUID)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		err = binary.Write(w, le, self.TransferSyntax[i].Version)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	return w.Bytes(), nil
+}
+
+func readContextItem(r *bytes.Reader, bo binary.ByteOrder) (res *ContextItem, err error) {
+	log.Debugln("In readContextItem")
+	res = &ContextItem{}
+	err = binary.Read(r, bo, &res.Id)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, bo, &res.Count)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	_, err = r.ReadByte() // Skip reserved
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	res.AbstractSyntax.UUID = make([]byte, 16)
+	_, err = r.Read(res.AbstractSyntax.UUID)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, bo, &res.AbstractSyntax.Version)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	for i := 0; i < int(res.Count); i++ {
+		syntaxId := SyntaxId{UUID: make([]byte, 16)}
+		_, err = r.Read(syntaxId.UUID)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		err = binary.Read(r, bo, &syntaxId.Version)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		res.TransferSyntax = append(res.TransferSyntax, syntaxId)
+	}
+	return
+}
+
+func (self *ContextItem) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for ContextItem")
+	r := bytes.NewReader(buf)
+
+	self, err = readContextItem(r, le)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return
+}
+
+func (self *ContextList) MarshalBinary() (ret []byte, err error) {
+	log.Debugln("In MarshalBinary for ContextList")
+	w := bytes.NewBuffer(ret)
+	err = binary.Write(w, le, byte(len(self.Items)))
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, []byte{0, 0, 0}) // Alignment
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	var itemBuf []byte
+	for i := range self.Items {
+		itemBuf, err = self.Items[i].MarshalBinary()
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		_, err = w.Write(itemBuf)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+	return w.Bytes(), nil
+}
+
+func (self *ContextList) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for ContextList")
+	r := bytes.NewReader(buf)
+
+	err = binary.Read(r, le, &self.Count)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	_, err = r.Seek(3, io.SeekCurrent) // Skip alignment bytes
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	for i := 0; i < int(self.Count); i++ {
+		item := &ContextItem{}
+		item, err = readContextItem(r, le)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		self.Items = append(self.Items, *item)
+	}
+
+	return nil
+}
+
+func (self *BindReq) MarshalBinary() (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+	log.Debugln("In MarshalBinary for BindReq")
+
+	// Encode Header
+	hBuf, err := self.Header.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	_, err = w.Write(hBuf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.MaxSendFragSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, self.MaxRecvFragSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, self.Association)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Encode Context Item list
+	contextBuf := []byte{}
+	contextBuf, err = self.ContextList.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	_, err = w.Write(contextBuf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *BindReq) UnmarshalBinary(buf []byte) (err error) {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of BindReq")
+}
+
+func readContextResItem(r *bytes.Reader, bo binary.ByteOrder) (res *ContextResItem, err error) {
+	res = &ContextResItem{}
+	err = binary.Read(r, le, &res.Result)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &res.Reason)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	res.TransferSyntax.UUID = make([]byte, 16)
+	err = binary.Read(r, le, &res.TransferSyntax.UUID)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &res.TransferSyntax.Version)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	return
+}
+
+func readContextResList(r *bytes.Reader, bo binary.ByteOrder) (res *ContextResList, err error) {
+	res = &ContextResList{}
+	res.Results, err = r.ReadByte()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	_, err = r.Seek(3, io.SeekCurrent) // Skip alignment bytes
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	for i := 0; i < int(res.Results); i++ {
+		item := &ContextResItem{}
+		item, err = readContextResItem(r, bo)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		res.Items = append(res.Items, *item)
+	}
+
+	return
+}
+
+func (self *ContextResList) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for ContextResList")
+	r := bytes.NewReader(buf)
+
+	self, err = readContextResList(r, le)
+	return nil
+}
+
+func (self *BindRes) MarshalBinary() (ret []byte, err error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for BindRes")
+}
+
+func (self *BindRes) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for BindRes")
+	err = self.Header.UnmarshalBinary(buf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Skip over header bytes
+	r := bytes.NewReader(buf[16:])
+	err = binary.Read(r, le, &self.MaxSendFragSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &self.MaxRecvFragSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &self.Association)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &self.SecAddrLen)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	self.SecAddr = make([]byte, self.SecAddrLen)
+	err = binary.Read(r, le, &self.SecAddr)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	alignmentBytes := 4 - ((self.SecAddrLen + 2) % 4)
+	_, err = r.Seek(int64(alignmentBytes), io.SeekCurrent) // Align to 4-byte boundary
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	resList := &ContextResList{}
+	resList, err = readContextResList(r, le)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	self.ResultList = *resList
+	return
+}
+
+func (self *RequestReq) MarshalBinary() (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+	log.Debugln("In MarshalBinary for RequestReq")
+
+	// Encode Header
+	hBuf, err := self.Header.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	_, err = w.Write(hBuf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, uint32(len(self.Buffer))) // AllocHint
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.ContextId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, self.Opnum)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	_, err = w.Write(self.Buffer)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	return w.Bytes(), nil
+}
+
+func (self *RequestReq) UnmarshalBinary(buf []byte) (err error) {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RequestReq")
+}
+
+func (self *RequestRes) MarshalBinary() (ret []byte, err error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for RequestRes")
+}
+
+func (self *RequestRes) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for RequestRes")
+	err = self.Header.UnmarshalBinary(buf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	if len(buf[16:]) < (int(self.Header.FragLength) - 24) {
+		return fmt.Errorf("Provided buffer is too small to unmarshal a RequestRes")
+	}
+	// Skip over header bytes
+	r := bytes.NewReader(buf[16:])
+	err = binary.Read(r, le, &self.AllocHint)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &self.ContextId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	self.CancelCount, err = r.ReadByte()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	self.Reserved, err = r.ReadByte()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	self.Buffer = make([]byte, self.Header.FragLength-24)
+	_, err = r.Read(self.Buffer)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	return
+}
+
 func newHeader() Header {
 	return Header{
-		MajorVersion:   5,
-		MinorVersion:   0,
-		Type:           0,
-		Flags:          0x01 | 0x02,
+		MajorVersion: 5,
+		MinorVersion: 0,
+		Type:         0,
+		Flags:        PfcFirstFrag | PfcLastFrag,
+		// At some point it might be worth to implement support for other
+		// representations such as Big-Endian
 		Representation: 0x00000010, // 0x10000000, // Little-endian, char = ASCII, float = IEEE
 		FragLength:     72,         // Always 72
 		AuthLength:     0,
 		CallId:         0,
 	}
-}
-
-type ContextItem struct { // 44 bytes size
-	Id               uint16
-	Count            byte
-	Reserved         byte
-	AbstractUUID     []byte `smb:"fixed:16"`
-	BindMajorVersion uint16
-	BindMinVersion   uint16
-	TransferUUID     []byte `smb:"fixed:16"`
-	TransferVersion  uint32
-}
-
-type ContextResItem struct { // 24 bytes size
-	Result          uint32 // Perhaps only uint16 with 2 bytes padding after?
-	TransferUUID    []byte `smb:"fixed:16"`
-	TransferVersion uint32
-}
-
-type ContextItems []ContextItem
-type ContextResItems []ContextResItem
-
-type BindReq struct { // 28 bytes before Context list
-	Header          // 16 Bytes
-	MaxSendFragSize uint16
-	MaxRecvFragSize uint16
-	Association     uint32
-	CtxCount        byte   `smb:"count:Context"`
-	Reserved        byte   // Alignment
-	Reserved2       uint16 // Alignment
-	Context         *ContextItems
-}
-
-type BindRes struct { // 28 bytes before Context list
-	Header          // 16 Bytes
-	MaxSendFragSize uint16
-	MaxRecvFragSize uint16
-	Association     uint32
-	SecAddrLen      uint16 `smb:"len:SecAddr"`
-	SecAddr         []byte
-	Align           []byte `smb:"align:4"`
-	CtxCount        byte   `smb:"count:Context"`
-	Reserved        byte   // Alignment
-	Reserved2       uint16 // Alignment
-	Context         *ContextResItems
-}
-
-type RequestReq struct { // 24 + len of Buffer
-	Header    // 16 bytes
-	AllocHint uint32
-	ContextId uint16
-	Opnum     uint16
-	Buffer    []byte // Always start at an 8-byte boundary
-}
-
-type RequestRes struct {
-	Header             // 16 bytes
-	AllocHint   uint32 `smb:"len:Buffer"` // Not sure this field is guaranteed to contain buffer length
-	ContextId   uint16
-	CancelCount byte
-	Reserved    byte
-	Buffer      []byte // Always start at an 8-byte boundary
-}
-
-type UnicodeStr struct {
-	ReferentIdPtr uint32 `smb:"omitempty:0"`
-	MaxCount      uint32
-	Offset        uint32 // Defaults to 0
-	ActualCount   uint32
-	EncodedString []byte //utf16le encoded string
-	Padd          []byte `smb:"align:4"`
-}
-
-func (s *ContextItems) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	//log.Debugln("In MarshalBinary for ContextItems")
-	var ret []byte
-	w := bytes.NewBuffer(ret)
-	for _, item := range *s {
-		buf, err := encoder.Marshal(item)
-		if err != nil {
-			return nil, err
-		}
-		if err := binary.Write(w, binary.LittleEndian, buf); err != nil {
-			return nil, err
-		}
-	}
-	return w.Bytes(), nil
-}
-
-func (s *ContextItems) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	//log.Debugln("In UnmarshalBinary for ContextItems")
-
-	slice := []ContextItem{}
-	c, ok := meta.Counts[meta.CurrField]
-	if !ok {
-		return fmt.Errorf("Cannot unmarshal field '%s'. Missing count\n", meta.CurrField)
-	}
-	for i := 0; i < int(c); i++ {
-		var item ContextItem
-		err := encoder.Unmarshal(buf[i*ContextItemLen:(i+1)*ContextItemLen], &item)
-		if err != nil {
-			return err
-		}
-		slice = append(slice, item)
-	}
-
-	*s = slice
-	return nil
-}
-
-func (s *ContextResItems) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	log.Debugln("In MarshalBinary for ContextResItems")
-	var ret []byte
-	w := bytes.NewBuffer(ret)
-	for _, item := range *s {
-		buf, err := encoder.Marshal(item)
-		if err != nil {
-			return nil, err
-		}
-		if err := binary.Write(w, binary.LittleEndian, buf); err != nil {
-			return nil, err
-		}
-	}
-	return w.Bytes(), nil
-}
-
-func (s *ContextResItems) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	log.Debugln("In UnmarshalBinary for ContextResItems")
-
-	slice := []ContextResItem{}
-	c, ok := meta.Counts[meta.CurrField]
-	if !ok {
-		return fmt.Errorf("Cannot unmarshal field '%s'. Missing count\n", meta.CurrField)
-	}
-	for i := 0; i < int(c); i++ {
-		var item ContextResItem
-		err := encoder.Unmarshal(buf[i*ContextResItemLen:(i+1)*ContextResItemLen], &item)
-		if err != nil {
-			return err
-		}
-		slice = append(slice, item)
-	}
-
-	res := ContextResItems(slice)
-	*s = res
-	return nil
-}
-
-func (self *ContextItem) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	log.Debugln("In MarshalBinary for ContextItem")
-	buf := make([]byte, 0, 43)
-	buf = binary.LittleEndian.AppendUint16(buf, self.Id)
-	buf = append(buf, self.Count)
-	buf = append(buf, self.AbstractUUID...)
-	buf = binary.LittleEndian.AppendUint16(buf, self.BindMajorVersion)
-	buf = binary.LittleEndian.AppendUint16(buf, self.BindMinVersion)
-	buf = append(buf, self.TransferUUID...)
-	buf = binary.LittleEndian.AppendUint32(buf, self.TransferVersion)
-	return buf, nil
-}
-
-func (self *ContextItem) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	log.Debugln("In UnmarshalBinary for ContextItem")
-	self.Id = binary.LittleEndian.Uint16(buf)
-	self.Count = buf[2]
-	self.Reserved = buf[3]
-	self.AbstractUUID = buf[4:20]
-	self.BindMajorVersion = binary.LittleEndian.Uint16(buf[20:22])
-	self.BindMinVersion = binary.LittleEndian.Uint16(buf[22:24])
-	self.TransferUUID = buf[24:40]
-	self.TransferVersion = binary.LittleEndian.Uint32(buf[40:44])
-	return nil
-}
-
-func NewUnicodeStr(referentId uint32, s string) *UnicodeStr {
-	us := UnicodeStr{}
-	if referentId != 0 {
-		us.ReferentIdPtr = referentId
-	}
-	data := s + "\x00"
-	unc := encoder.ToUnicode(data)
-	count := (len(unc) / 2)
-	us.MaxCount = uint32(count)
-	us.Offset = 0
-	us.ActualCount = uint32(count)
-
-	us.EncodedString = make([]byte, len(unc))
-	copy(us.EncodedString, unc)
-	padd := (len(unc) % 4) //Got to be 4 byte aligned
-	if padd != 0 {
-		padd = 4 - padd
-	}
-	us.Padd = make([]byte, padd)
-	return &us
 }
 
 func uuid_to_bin(uuid string) ([]byte, error) {
@@ -350,51 +812,51 @@ func uuid_to_bin(uuid string) ([]byte, error) {
 	return buf, nil
 }
 
-func NewBindReq(callId uint32, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string) (*BindReq, error) {
-	log.Debugln("In NewBindReq")
+func newBindReq(callId uint32, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string, maxTransmitSize, maxRecvSize uint16) (req *BindReq, err error) {
+	log.Debugln("In newBindReq")
 
 	srsv_uuid, err := uuid_to_bin(interface_uuid)
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		log.Errorln(err)
+		return
 	}
 	ndr_uuid, err := uuid_to_bin(transfer_uuid)
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		log.Errorln(err)
+		return
 	}
 	header := newHeader()
 	header.Type = PacketTypeBind
 	header.CallId = callId
-
-	return &BindReq{
-		Header:          header,
-		MaxSendFragSize: 4280,
-		MaxRecvFragSize: 4280,
-		Association:     0,
-		CtxCount:        1,
-		Context: &ContextItems{
-			{
-				Id:               0,
-				Count:            1,
-				AbstractUUID:     srsv_uuid,
-				BindMajorVersion: majorVersion,
-				BindMinVersion:   minorVersion,
-				TransferUUID:     ndr_uuid,
-				TransferVersion:  2,
+	ctxItem := ContextItem{
+		Id:    0,
+		Count: 1,
+		AbstractSyntax: SyntaxId{
+			UUID:    srsv_uuid,
+			Version: (uint32(minorVersion) << 16) | uint32(majorVersion),
+		},
+		TransferSyntax: []SyntaxId{
+			SyntaxId{
+				UUID:    ndr_uuid,
+				Version: 2,
 			},
 		},
-	}, nil
-}
-
-func NewBindRes() BindRes {
-	return BindRes{
-		Header:  newHeader(),
-		Context: new(ContextResItems),
 	}
+	ctxList := ContextList{
+		Count: 1,
+		Items: []ContextItem{ctxItem},
+	}
+	req = &BindReq{
+		Header:          header,
+		MaxSendFragSize: maxTransmitSize,
+		MaxRecvFragSize: maxRecvSize,
+		Association:     0,
+		ContextList:     ctxList,
+	}
+	return
 }
 
-func NewRequestReq(callId uint32, op uint16) (*RequestReq, error) {
+func newRequestReq(callId uint32, op uint16) (*RequestReq, error) {
 	header := newHeader()
 	header.Type = PacketTypeRequest
 	header.CallId = callId
@@ -409,13 +871,15 @@ func NewRequestReq(callId uint32, op uint16) (*RequestReq, error) {
 
 func Bind(f *smb.File, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string) (bind *ServiceBind, err error) {
 	log.Debugln("In Bind")
-	callId := rand.Uint32()
-	bindReq, err := NewBindReq(callId, interface_uuid, majorVersion, minorVersion, transfer_uuid)
+	callId := atomic.Uint32{}
+	maxFragRxSize := uint16(4280)
+	maxFragTxSize := uint16(4280)
+	bindReq, err := newBindReq(callId.Add(1), interface_uuid, majorVersion, minorVersion, transfer_uuid, maxFragTxSize, maxFragRxSize)
 	if err != nil {
 		return
 	}
 
-	buf, err := encoder.Marshal(bindReq)
+	buf, err := bindReq.MarshalBinary()
 	if err != nil {
 		return
 	}
@@ -430,35 +894,51 @@ func Bind(f *smb.File, interface_uuid string, majorVersion, minorVersion uint16,
 		return
 	}
 
-	bindRes := NewBindRes()
-	err = encoder.Unmarshal(ioCtlRes.Buffer, &bindRes)
+	var bindRes BindRes
+	err = bindRes.UnmarshalBinary(ioCtlRes.Buffer)
 	if err != nil {
 		return
 	}
 
 	// Check if Bind was successful
-	var contextRes ContextResItems
-	contextRes = *bindRes.Context
 	if bindRes.CallId != bindReq.CallId {
 		return nil, fmt.Errorf("Received invalid callId: %d\n", bindRes.CallId)
 	}
 	if bindRes.Type != PacketTypeBindAck {
 		return nil, fmt.Errorf("Invalid response from server: %v\n", bindRes)
 	}
-	if contextRes[0].Result != 0 {
-		return nil, fmt.Errorf("Server did not approve bind request: %v\n", contextRes)
+	if len(bindRes.ResultList.Items) == 0 {
+		return nil, fmt.Errorf("Invalid response from server with no Context Items: %v\n", bindRes.ResultList)
+	}
+	// Perhaps add support for handling multiple Context Items in the result?
+	if bindRes.ResultList.Items[0].Result != acceptance {
+		errMsg := ""
+		switch bindRes.ResultList.Items[0].Reason {
+		case reasonNotSpecified:
+			errMsg = "Reason not specified"
+		case abstractSyntaxNotSupported:
+			errMsg = "Abstract syntax not supported"
+		case proposedTransferSyntaxNotSupported:
+			errMsg = "Proposed transfer syntax not supported"
+		case localLimitExceeded:
+			errMsg = "Local limit exceeded"
+		default:
+			errMsg = fmt.Sprintf("Unknown reason: %d\n", bindRes.ResultList.Items[0].Reason)
+		}
+		return nil, fmt.Errorf("Server did not approve bind request with reason: \"%s\"\n", errMsg)
 	}
 
-	return &ServiceBind{f: f}, nil
-}
-
-func roundup(x, align int) int {
-	return (x + (align - 1)) &^ (align - 1)
+	return &ServiceBind{
+		callId:              &callId,
+		f:                   f,
+		maxFragReceiveSize:  bindRes.MaxSendFragSize,
+		maxFragTransmitSize: bindRes.MaxRecvFragSize,
+	}, nil
 }
 
 func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result []byte, err error) {
-	callId := rand.Uint32()
-	req, err := NewRequestReq(callId, opcode)
+	callId := sb.callId.Add(1)
+	req, err := newRequestReq(callId, opcode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -466,12 +946,10 @@ func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result 
 
 	req.Buffer = make([]byte, len(innerBuf))
 	copy(req.Buffer, innerBuf)
-
-	req.AllocHint = uint32(len(innerBuf))
-	req.FragLength = uint16(req.AllocHint + 24) // Includes header size
+	req.FragLength = uint16(len(innerBuf) + 24) // Includes header size
 
 	// Encode DCERPC Request
-	buf, err := encoder.Marshal(req)
+	buf, err := req.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -495,7 +973,7 @@ func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result 
 
 	// Unmarshal DCERPC Request response
 	var reqRes RequestRes
-	err = encoder.Unmarshal(ioCtlRes.Buffer, &reqRes)
+	err = reqRes.UnmarshalBinary(ioCtlRes.Buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -509,63 +987,4 @@ func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result 
 
 	// Return response data
 	return reqRes.Buffer, err
-}
-
-func (s *UnicodeStr) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	var ret []byte
-	w := bytes.NewBuffer(ret)
-	if s == nil {
-		// Workaround for the generic encoder function that calls MarshalBinary even when the ptr is nil
-		w.Write([]byte{0, 0, 0, 0})
-		return w.Bytes(), nil
-	}
-	if s.ReferentIdPtr != 0 {
-		binary.Write(w, binary.LittleEndian, s.ReferentIdPtr)
-	}
-
-	binary.Write(w, binary.LittleEndian, s.MaxCount)
-	binary.Write(w, binary.LittleEndian, s.Offset)
-	binary.Write(w, binary.LittleEndian, s.ActualCount)
-	w.Write(s.EncodedString)
-
-	l := len(w.Bytes())
-
-	requiredPadd := 4 - (l % 4)
-	if requiredPadd != 4 {
-		w.Write(make([]byte, requiredPadd))
-	}
-
-	return w.Bytes(), nil
-}
-
-func (self *UnicodeStr) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	//NOTE This function will only work when unmarshalling a standalone UnicodeStr struct.
-	// If the UnicodeStr is part of an array for instance, the ReferentIdPtr will not be
-	// part of this buffer but rather be placed earlier in the byte stream.
-
-	// Not sure how to handle if the ReferentId Ptr is placed somewhere earlier in the byte stream, before the actual struct
-	// e.g., if all the elements of the struct are not serialized in order right next to each other
-
-	self.ReferentIdPtr = binary.LittleEndian.Uint32(buf)
-	self.MaxCount = binary.LittleEndian.Uint32(buf[4:])
-	self.Offset = binary.LittleEndian.Uint32(buf[8:])
-	self.ActualCount = binary.LittleEndian.Uint32(buf[12:])
-
-	if int(self.Offset) > len(buf) {
-		return fmt.Errorf("Specified offset of encoded string is outside buffer\n")
-	}
-	if int(self.Offset+self.ActualCount*2) > len(buf) {
-		return fmt.Errorf("Encoded strings is placed outside buffer based on specified offset and ActualCount\n")
-	}
-
-	self.EncodedString = make([]byte, self.ActualCount*2)
-	copy(self.EncodedString, buf[self.Offset:self.Offset+2*self.ActualCount])
-
-	l := 16 + self.ActualCount*2
-	paddLen := 4 - (l % 4)
-	if paddLen != 4 {
-		self.Padd = make([]byte, paddLen)
-	}
-
-	return nil
 }

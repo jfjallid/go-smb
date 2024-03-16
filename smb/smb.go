@@ -525,15 +525,18 @@ type NegotiateReq struct {
 // MS-SMB2 Section 2.2.4
 type NegotiateRes struct {
 	Header
-	StructureSize          uint16
-	SecurityMode           uint16
-	DialectRevision        uint16
-	NegotiateContextCount  uint16 `smb:"count:ContextList"`
-	ServerGuid             []byte `smb:"fixed:16"`
-	Capabilities           uint32
-	MaxTransactSize        uint32
-	MaxReadSize            uint32
-	MaxWriteSize           uint32
+	StructureSize         uint16
+	SecurityMode          uint16
+	DialectRevision       uint16
+	NegotiateContextCount uint16 `smb:"count:ContextList"`
+	ServerGuid            []byte `smb:"fixed:16"`
+	Capabilities          uint32
+	// MaxTransactSize is the maximum size, in bytes, of the buffer sent by the
+	// client in SetInfo, or sent by the server in the response to QueryInfo,
+	// QueryDirectory, and ChangeNotify requests
+	MaxTransactSize        uint32 // Max buffer size
+	MaxReadSize            uint32 // Max value for Length of Read request the server will accept
+	MaxWriteSize           uint32 // Max value for Length of Write request the server will accept
 	SystemTime             uint64
 	ServerStartTime        uint64
 	SecurityBufferOffset   uint16 `smb:"offset:SecurityBlob"`

@@ -34,7 +34,7 @@ import (
 
 func FromUnicodeString(buf []byte) (res string, err error) {
 	buflen := len(buf)
-	if buflen%2 != 0 {
+	if (buflen % 2) != 0 {
 		err = fmt.Errorf("Invalid Unicode (UTF-16-LE) string")
 		return
 	}
