@@ -79,9 +79,9 @@ type TargetInfo struct {
 }
 
 type Session struct {
-	IsSigningRequired   atomic.Bool
-	IsSigningDisabled   bool
-	IsAuthenticated     bool
+	isSigningRequired   atomic.Bool
+	isSigningDisabled   bool
+	isAuthenticated     bool
 	supportsEncryption  bool
 	clientGuid          []byte
 	securityMode        uint16
@@ -91,8 +91,8 @@ type Session struct {
 	sessionFlags        uint16
 	supportsMultiCredit bool
 	//SequenceWindow            uint64
-	MaxReadSize               uint32
-	MaxWriteSize              uint32
+	maxReadSize               uint32
+	maxWriteSize              uint32
 	preauthIntegrityHashValue [64]byte // Session preauthIntegrityHashValue
 	exportedSessionKey        []byte   // From SPNego Auth
 	// Used in SMB 3.1.1 instead of sessionKey for higher level applications
@@ -169,6 +169,14 @@ func (s *Session) GetSessionKey() []byte {
 		return s.applicationKey
 	}
 	return s.exportedSessionKey
+}
+
+func (s *Session) IsAuthenticated() bool {
+	return s.isAuthenticated
+}
+
+func (s *Session) IsSigningRequired() bool {
+	return s.isSigningRequired.Load()
 }
 
 func (c *Connection) NegotiateProtocol() error {
@@ -283,12 +291,12 @@ func (c *Connection) NegotiateProtocol() error {
 
 	// Determine whether signing is required
 	mode := uint16(c.securityMode)
-	if !c.IsSigningRequired.Load() {
+	if !c.isSigningRequired.Load() {
 		if mode&SecurityModeSigningEnabled > 0 {
 			if mode&SecurityModeSigningRequired > 0 {
-				c.IsSigningRequired.Store(true)
+				c.isSigningRequired.Store(true)
 			} else {
-				c.IsSigningRequired.Store(false)
+				c.isSigningRequired.Store(false)
 			}
 		}
 	}
@@ -305,9 +313,9 @@ func (c *Connection) NegotiateProtocol() error {
 		c.capabilities |= GlobalCapEncryption
 	}
 
-	// Update MaxReadSize and MaxWriteSize from response
-	c.MaxReadSize = negRes.MaxReadSize
-	c.MaxWriteSize = negRes.MaxWriteSize
+	// Update maxReadSize and maxWriteSize from response
+	c.maxReadSize = negRes.MaxReadSize
+	c.maxWriteSize = negRes.MaxWriteSize
 
 	if c.dialect != DialectSmb_3_1_1 {
 		return nil
@@ -413,7 +421,7 @@ func (c *Connection) SessionSetup() error {
 	// Make sure to reset relevant options to allow multiple logins
 	c.disableSession()
 	c.sessionID = 0
-	c.IsAuthenticated = false
+	c.isAuthenticated = false
 
 	spnegoClient := newSpnegoClient([]Initiator{c.options.Initiator})
 	log.Debugln("Sending SessionSetup1 request")
@@ -499,7 +507,7 @@ func (c *Connection) SessionSetup() error {
 
 	c.sessionID = ssres.Header.SessionID
 
-	if c.IsSigningRequired.Load() {
+	if c.isSigningRequired.Load() {
 		if ssres.Flags&SessionFlagIsGuest != 0 {
 			err = fmt.Errorf("guest account doesn't support signing")
 			log.Errorln(err)
@@ -606,7 +614,7 @@ func (c *Connection) SessionSetup() error {
 
 	// Check if we authenticated as guest or with a null session. If so, disable signing and encryption
 	if ((ssres2.Flags & SessionFlagIsGuest) == SessionFlagIsGuest) || ((ssres.Flags & SessionFlagIsNull) == SessionFlagIsNull) {
-		c.IsSigningRequired.Store(false)
+		c.isSigningRequired.Store(false)
 		c.options.DisableEncryption = true
 		c.sessionFlags = ssres2.Flags             //NOTE Replace all sessionFlags here?
 		c.sessionFlags &= ^SessionFlagEncryptData // Make sure encryption is disabled
@@ -618,7 +626,7 @@ func (c *Connection) SessionSetup() error {
 		}
 	}
 
-	c.IsAuthenticated = true
+	c.isAuthenticated = true
 
 	// Handle signing and encryption options
 	if c.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {
@@ -627,7 +635,7 @@ func (c *Connection) SessionSetup() error {
 
 		switch c.dialect {
 		case DialectSmb_2_0_2, DialectSmb_2_1:
-			if !c.IsSigningDisabled {
+			if !c.isSigningDisabled {
 				c.Session.signer = hmac.New(sha256.New, sessionKey)
 				c.Session.verifier = hmac.New(sha256.New, sessionKey)
 			}
@@ -769,7 +777,7 @@ func (c *Connection) Logoff() error {
 	}
 	c.disableSession()
 	c.sessionID = 0
-	c.IsAuthenticated = false
+	c.isAuthenticated = false
 
 	return nil
 }

@@ -35,7 +35,7 @@ func TestBindReq(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req, err := NewBindReq(2596996162, "367abb81-9844-35f1-ad32-98f038001003", 2, 0, "8a885d04-1ceb-11c9-9fe8-08002b104860", 4280, 4280)
+	req, err := newBindReq(2596996162, "367abb81-9844-35f1-ad32-98f038001003", 2, 0, "8a885d04-1ceb-11c9-9fe8-08002b104860", 4280, 4280)
 	if err != nil {
 		t.Fatal(err)
 	}

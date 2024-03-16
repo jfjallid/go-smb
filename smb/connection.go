@@ -217,7 +217,7 @@ func (c *Connection) runReceiver() {
 
 			// When server responds with StatusPending, the packet signature is the same as on the
 			// last packet and the signing flag is not set
-			if c.Session.IsSigningRequired.Load() && !encrypted && (h.Status != StatusPending) {
+			if c.Session.isSigningRequired.Load() && !encrypted && (h.Status != StatusPending) {
 				//TODO Change this logic. Should verify signatures that are present but not enforce them to be present unless required?
 				if (h.Flags & SMB2_FLAGS_SIGNED) != SMB2_FLAGS_SIGNED {
 					err = fmt.Errorf("Skip: Signing is required but PDU is not signed")
@@ -336,9 +336,9 @@ func NewConnection(opt Options) (c *Connection, err error) {
 	}
 
 	c.Session = &Session{
-		IsSigningRequired: atomic.Bool{},
-		IsAuthenticated:   false,
-		IsSigningDisabled: opt.DisableSigning,
+		isSigningRequired: atomic.Bool{},
+		isAuthenticated:   false,
+		isSigningDisabled: opt.DisableSigning,
 		clientGuid:        make([]byte, 16),
 		securityMode:      0,
 		messageID:         0,
@@ -347,7 +347,7 @@ func NewConnection(opt Options) (c *Connection, err error) {
 		options:           opt,
 		trees:             make(map[string]uint32),
 	}
-	c.Session.IsSigningRequired.Store(opt.RequireMessageSigning)
+	c.Session.isSigningRequired.Store(opt.RequireMessageSigning)
 
 	if opt.ProxyDialer != nil {
 		c.useProxy = true
@@ -389,7 +389,7 @@ func NewConnection(opt Options) (c *Connection, err error) {
 		if err != nil {
 			return
 		}
-		log.Debugf("IsSigningRequired: %v, RequireMessageSigning: %v, EncryptData: %v, IsNullSession: %v, IsGuestSession: %v\n", c.IsSigningRequired.Load(), c.options.RequireMessageSigning, c.Session.sessionFlags&SessionFlagEncryptData == SessionFlagEncryptData, c.Session.sessionFlags&SessionFlagIsNull == SessionFlagIsNull, c.Session.sessionFlags&SessionFlagIsGuest == SessionFlagIsGuest)
+		log.Debugf("isSigningRequired: %v, RequireMessageSigning: %v, EncryptData: %v, IsNullSession: %v, IsGuestSession: %v\n", c.isSigningRequired.Load(), c.options.RequireMessageSigning, c.Session.sessionFlags&SessionFlagEncryptData == SessionFlagEncryptData, c.Session.sessionFlags&SessionFlagIsNull == SessionFlagIsNull, c.Session.sessionFlags&SessionFlagIsGuest == SessionFlagIsGuest)
 	}
 
 	return c, nil
@@ -452,7 +452,7 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 					log.Errorln(err)
 					return
 				}
-			} else if !c.Session.IsSigningDisabled || (c.dialect == DialectSmb_3_1_1) {
+			} else if !c.Session.isSigningDisabled || (c.dialect == DialectSmb_3_1_1) {
 				// Must sign or encrypt with SMB 3.1.1
 				// TODO fix this control to check if encryption is performed instead.
 				if c.Session.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {

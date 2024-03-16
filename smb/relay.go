@@ -296,9 +296,9 @@ ClientLoop:
 			}
 
 			c.Session = &Session{
-				IsSigningRequired: atomic.Bool{},
-				IsAuthenticated:   false,
-				IsSigningDisabled: true,
+				isSigningRequired: atomic.Bool{},
+				isAuthenticated:   false,
+				isSigningDisabled: true,
 				clientGuid:        make([]byte, 16),
 				options:           opt,
 				trees:             make(map[string]uint32),
@@ -598,7 +598,7 @@ ClientLoop:
 							return nil, err
 						}
 
-						c.IsAuthenticated = true
+						c.isAuthenticated = true
 						c.enableSession()
 						c.authUsername = authUsername
 						log.Noticef("Client (%s) successfully authenticated as (%s) against (%s)!", clientConn.RemoteAddr().String(), authUsername, c.conn.RemoteAddr().String())
