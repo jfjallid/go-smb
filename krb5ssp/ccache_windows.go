@@ -26,6 +26,6 @@ import (
 	"fmt"
 )
 
-func getClientFromCachedTicket(cfg *config.Config, username string) (c *client.Client, err error) {
+func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string) (c *client.Client, err error) {
 	return nil, fmt.Errorf("CCACHE files not implemented on Windows")
 }
