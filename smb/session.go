@@ -46,6 +46,7 @@ import (
 	"github.com/jfjallid/go-smb/smb/crypto/ccm"
 	"github.com/jfjallid/go-smb/smb/crypto/cmac"
 	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/spnego"
 	"golang.org/x/net/proxy"
 )
 
@@ -123,7 +124,7 @@ type Options struct {
 	RequireMessageSigning bool
 	DisableEncryption     bool
 	ForceSMB2             bool
-	Initiator             Initiator
+	Initiator             gss.Mechanism
 	DialTimeout           time.Duration
 	ProxyDialer           proxy.Dialer
 	RelayPort             int
@@ -276,14 +277,16 @@ func (c *Connection) NegotiateProtocol() error {
 	}
 
 	hasNTLMSSP := false
+	hasKerberosSSP := false
 	for _, mechType := range negRes.SecurityBlob.Data.MechTypes {
 		if mechType.Equal(gss.NtLmSSPMechTypeOid) {
 			hasNTLMSSP = true
-			break
+		} else if mechType.Equal(gss.KerberosSSPMechTypeOid) {
+			hasKerberosSSP = true
 		}
 	}
-	if !hasNTLMSSP {
-		return fmt.Errorf("Right now, this library only supports NTLMSSP and the server does not support NTLMSSP")
+	if !hasNTLMSSP && !hasKerberosSSP {
+		return fmt.Errorf("Right now, this library only supports NTLMSSP and KRB5 Kerberos, and the server supports neither")
 	}
 
 	c.securityMode = negRes.SecurityMode
@@ -423,7 +426,11 @@ func (c *Connection) SessionSetup() error {
 	c.sessionID = 0
 	c.isAuthenticated = false
 
-	spnegoClient := newSpnegoClient([]Initiator{c.options.Initiator})
+	spnegoClient, err := spnego.NewClient([]gss.Mechanism{c.options.Initiator})
+	if err != nil {
+		log.Errorln(err)
+		return err
+	}
 	log.Debugln("Sending SessionSetup1 request")
 	ssreq, err := c.NewSessionSetup1Req(spnegoClient)
 	if err != nil {
@@ -453,48 +460,51 @@ func (c *Connection) SessionSetup() error {
 		return err
 	}
 
-	challenge := ntlmssp.NewChallenge()
 	resp := ssres.SecurityBlob
-	if err := encoder.Unmarshal(resp.ResponseToken, &challenge); err != nil {
-		log.Debugln(err)
-		return err
-	}
+	// Extracting target info only works for NTLMSSP and not for Kerberos
+	if resp.SupportedMech.Equal(gss.NtLmSSPMechTypeOid) {
+		challenge := ntlmssp.NewChallenge()
+		if err := encoder.Unmarshal(resp.ResponseToken, &challenge); err != nil {
+			log.Debugln(err)
+			return err
+		}
 
-	// Extract target info from server Challange
-	versionBuf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(versionBuf, challenge.Version)
-	buildNumber := binary.LittleEndian.Uint16(versionBuf[2:4])
-	c.targetInfo = &TargetInfo{
-		OS:               challenge.Version,
-		GuessedOSVersion: fmt.Sprintf("Windows NT %d.%d Build %d", versionBuf[0], versionBuf[1], buildNumber),
-	}
-	for _, av := range *challenge.TargetInfo {
-		switch av.AvID {
-		case ntlmssp.MsvAvDnsDomainName:
-			c.targetInfo.DnsDomainName, err = encoder.FromUnicodeString(av.Value)
-			if err != nil {
-				log.Errorf("Failed to decode DNS Domain Name from AV Pair with error: %s\n", err)
+		// Extract target info from server Challange
+		versionBuf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(versionBuf, challenge.Version)
+		buildNumber := binary.LittleEndian.Uint16(versionBuf[2:4])
+		c.targetInfo = &TargetInfo{
+			OS:               challenge.Version,
+			GuessedOSVersion: fmt.Sprintf("Windows NT %d.%d Build %d", versionBuf[0], versionBuf[1], buildNumber),
+		}
+		for _, av := range *challenge.TargetInfo {
+			switch av.AvID {
+			case ntlmssp.MsvAvDnsDomainName:
+				c.targetInfo.DnsDomainName, err = encoder.FromUnicodeString(av.Value)
+				if err != nil {
+					log.Errorf("Failed to decode DNS Domain Name from AV Pair with error: %s\n", err)
+				}
+			case ntlmssp.MsvAvDnsComputerName:
+				c.targetInfo.DnsComputerName, err = encoder.FromUnicodeString(av.Value)
+				if err != nil {
+					log.Errorf("Failed to decode DNS Computer Name from AV Pair with error: %s\n", err)
+				}
+			case ntlmssp.MsvAvNbDomainName:
+				c.targetInfo.NBDomainName, err = encoder.FromUnicodeString(av.Value)
+				if err != nil {
+					log.Errorf("Failed to decode NB Domain Name from AV Pair with error: %s\n", err)
+				}
+			case ntlmssp.MsvAvNbComputerName:
+				c.targetInfo.NBComputerName, err = encoder.FromUnicodeString(av.Value)
+				if err != nil {
+					log.Errorf("Failed to decode NB Computer Name from AV Pair with error: %s\n", err)
+				}
+			default:
 			}
-		case ntlmssp.MsvAvDnsComputerName:
-			c.targetInfo.DnsComputerName, err = encoder.FromUnicodeString(av.Value)
-			if err != nil {
-				log.Errorf("Failed to decode DNS Computer Name from AV Pair with error: %s\n", err)
-			}
-		case ntlmssp.MsvAvNbDomainName:
-			c.targetInfo.NBDomainName, err = encoder.FromUnicodeString(av.Value)
-			if err != nil {
-				log.Errorf("Failed to decode NB Domain Name from AV Pair with error: %s\n", err)
-			}
-		case ntlmssp.MsvAvNbComputerName:
-			c.targetInfo.NBComputerName, err = encoder.FromUnicodeString(av.Value)
-			if err != nil {
-				log.Errorf("Failed to decode NB Computer Name from AV Pair with error: %s\n", err)
-			}
-		default:
 		}
 	}
 
-	if ssres.Header.Status != StatusMoreProcessingRequired {
+	if (ssres.Header.Status != StatusMoreProcessingRequired) && (ssres.Header.Status != StatusOk) {
 		status, found := StatusMap[ssres.Header.Status]
 		if !found {
 			err = fmt.Errorf("Received unknown SMB Header status for SessionSetup1 response: 0x%x\n", ssres.Header.Status)
@@ -520,7 +530,6 @@ func (c *Connection) SessionSetup() error {
 	}
 
 	//TODO Validate Challenge security options?
-
 	c.sessionFlags = ssres.Flags
 	if c.Session.options.DisableEncryption {
 		c.sessionFlags &= ^SessionFlagEncryptData
@@ -538,99 +547,116 @@ func (c *Connection) SessionSetup() error {
 			h.Write(rr.pkt)
 			h.Sum(c.Session.preauthIntegrityHashValue[:0])
 
-			h.Reset()
-			h.Write(c.Session.preauthIntegrityHashValue[:])
-			h.Write(ssresbuf)
-			h.Sum(c.Session.preauthIntegrityHashValue[:0])
+			if ssres.Header.Status == StatusMoreProcessingRequired {
+				h.Reset()
+				h.Write(c.Session.preauthIntegrityHashValue[:])
+				h.Write(ssresbuf)
+				h.Sum(c.Session.preauthIntegrityHashValue[:0])
+			}
 		}
 	}
 
-	if c.options.Initiator.isNullSession() {
+	if c.options.Initiator.IsNullSession() {
 		// Anonymous auth
 		c.sessionFlags |= SessionFlagIsNull
 		c.sessionFlags &= ^SessionFlagEncryptData
 	}
 
-	log.Debugln("Sending SessionSetup2 request")
-	ss2req, err := c.NewSessionSetup2Req(spnegoClient, &ssres)
+	securityBlob, err := encoder.Marshal(ssres.SecurityBlob)
 	if err != nil {
-		log.Debugln(err)
+		log.Errorln(err)
 		return err
 	}
+
+	sc, err := spnegoClient.InitSecContext(securityBlob)
+
+	var ss2req SessionSetup2Req
 
 	// Retrieve the full username used in the authentication attempt
 	// <domain\username> or just <username> if domain component is empty
-	c.Session.authUsername = c.options.Initiator.getUsername()
+	c.Session.authUsername = c.options.Initiator.GetUsername()
 
-	ss2req.Header.Credits = 127
+	if ssres.Status == StatusMoreProcessingRequired {
+		log.Debugln("Sending SessionSetup2 request")
+		ss2req, err = c.NewSessionSetup2Req(sc, &ssres)
+		if err != nil {
+			log.Debugln(err)
+			return err
+		}
+		ss2req.Header.Credits = 127
 
-	rr, err = c.send(ss2req)
-	if err != nil {
-		log.Errorln(err)
-		log.Debugln(err)
-		return err
-	}
+		rr, err = c.send(ss2req)
+		if err != nil {
+			log.Errorln(err)
+			log.Debugln(err)
+			return err
+		}
 
-	ss2resbuf, err := c.recv(rr)
-	if err != nil {
-		log.Errorln(err)
-		return err
-	}
-	log.Debugln("Unmarshalling SessionSetup2 response header")
-	var authResp Header
-	if err := encoder.Unmarshal(ss2resbuf, &authResp); err != nil {
-		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(ss2resbuf))
-		return err
-	}
-	if authResp.Status != StatusOk {
-		status, found := StatusMap[authResp.Status]
-		if !found {
-			err = fmt.Errorf("Received unknown SMB Header status for SessionSetup2 response: 0x%x\n", authResp.Status)
+		ss2resbuf, err := c.recv(rr)
+		if err != nil {
 			log.Errorln(err)
 			return err
 		}
-		log.Debugf("NT Status Error: %v\n", status)
-		return status
-	}
+		log.Debugln("Unmarshalling SessionSetup2 response header")
 
-	log.Debugln("Unmarshalling SessionSetup2 response")
-	ssres2, err := NewSessionSetup2Res()
-	if err != nil {
-		log.Debugln(err)
-		return err
-	}
-	if err := encoder.Unmarshal(ss2resbuf, &ssres2); err != nil {
-		log.Debugln(err)
-		return err
-	}
+		var authResp Header
+		if err := encoder.Unmarshal(ss2resbuf, &authResp); err != nil {
+			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(ss2resbuf))
+			return err
+		}
+		if authResp.Status != StatusOk {
+			status, found := StatusMap[authResp.Status]
+			if !found {
+				err = fmt.Errorf("Received unknown SMB Header status for SessionSetup2 response: 0x%x\n", authResp.Status)
+				log.Errorln(err)
+				return err
+			}
+			log.Debugf("NT Status Error: %v\n", status)
+			return status
+		}
 
-	// When relaying through a proxy, if we don't have a sessionID yet,
-	// take it from the SessionSetup2Res message
-	if c.useProxy {
-		c.sessionID = ssres2.SessionID
-	}
+		log.Debugln("Unmarshalling SessionSetup2 response")
+		ssres2, err := NewSessionSetup2Res()
+		if err != nil {
+			log.Debugln(err)
+			return err
+		}
+		if err := encoder.Unmarshal(ss2resbuf, &ssres2); err != nil {
+			log.Debugln(err)
+			return err
+		}
 
-	//TODO Unmarshal the Security Blob as well?
+		// When relaying through a proxy, if we don't have a sessionID yet,
+		// take it from the SessionSetup2Res message
+		if c.useProxy {
+			c.sessionID = ssres2.SessionID
+		}
+
+		//TODO Unmarshal the Security Blob as well?
+
+		if ssres2.Header.Status == StatusOk {
+			if ssres2.Flags&SessionFlagIsGuest == SessionFlagIsGuest {
+				c.Session.sessionFlags |= SessionFlagIsGuest
+			}
+			if ssres2.Flags&SessionFlagIsNull == SessionFlagIsNull {
+				c.Session.sessionFlags |= SessionFlagIsNull
+			}
+		}
+	}
 
 	// Check if we authenticated as guest or with a null session. If so, disable signing and encryption
-	if ((ssres2.Flags & SessionFlagIsGuest) == SessionFlagIsGuest) || ((ssres.Flags & SessionFlagIsNull) == SessionFlagIsNull) {
+	if ((c.sessionFlags & SessionFlagIsGuest) == SessionFlagIsGuest) || ((c.sessionFlags & SessionFlagIsNull) == SessionFlagIsNull) {
 		c.isSigningRequired.Store(false)
 		c.options.DisableEncryption = true
-		c.sessionFlags = ssres2.Flags             //NOTE Replace all sessionFlags here?
+		//c.sessionFlags = ssres2.Flags             //NOTE Replace all sessionFlags here?
 		c.sessionFlags &= ^SessionFlagEncryptData // Make sure encryption is disabled
-
-		if (ssres2.Flags & SessionFlagIsGuest) == SessionFlagIsGuest {
-			c.sessionFlags |= SessionFlagIsGuest
-		} else {
-			c.sessionFlags |= SessionFlagIsNull
-		}
 	}
 
 	c.isAuthenticated = true
 
 	// Handle signing and encryption options
 	if c.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {
-		sessionKey := spnegoClient.sessionKey()
+		sessionKey := spnegoClient.SessionKey()[:16]
 		c.exportedSessionKey = sessionKey
 
 		switch c.dialect {
@@ -642,10 +668,14 @@ func (c *Connection) SessionSetup() error {
 		case DialectSmb_3_1_1:
 			switch c.preauthIntegrityHashId {
 			case SHA512:
-				h := sha512.New()
-				h.Write(c.Session.preauthIntegrityHashValue[:])
-				h.Write(rr.pkt)
-				h.Sum(c.Session.preauthIntegrityHashValue[:0])
+				if ssres.Header.Status == StatusMoreProcessingRequired {
+					// Calculate the preauthIntegrityHashValue over the second SessionSetup req sent
+					// Make sure to only perform the below steps for Kerberos if MoreProcessing was required
+					h := sha512.New()
+					h.Write(c.Session.preauthIntegrityHashValue[:])
+					h.Write(rr.pkt)
+					h.Sum(c.Session.preauthIntegrityHashValue[:0])
+				}
 			}
 
 			// SMB 3.1.1 requires either signing or encryption of requests, so can't disable signing.
@@ -777,6 +807,7 @@ func (c *Connection) Logoff() error {
 	}
 	c.disableSession()
 	c.sessionID = 0
+	c.options.Initiator.Logoff()
 	c.isAuthenticated = false
 
 	return nil
@@ -1069,7 +1100,6 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 		return
 	}
 
-	//TODO Handle response
 	start, stop := uint32(0), res.OutputBufferLength
 	for {
 		var fs FileBothDirectoryInformationStruct
@@ -1091,7 +1121,7 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 			continue
 		}
 		sharedFile := SharedFile{
-			Name:           fileName, //string(f.FileName[:f.FileNameLength]),
+			Name:           fileName,
 			Size:           fs.EndOfFile,
 			CreationTime:   fs.CreationTime,
 			LastAccessTime: fs.LastAccessTime,

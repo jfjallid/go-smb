@@ -24,10 +24,10 @@ package smb
 import (
 	"bytes"
 	"crypto/rand"
-	"encoding/asn1"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"github.com/jfjallid/gofork/encoding/asn1"
 	"net"
 	"sync/atomic"
 	"time"
