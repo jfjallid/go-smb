@@ -24,6 +24,8 @@ package krb5ssp
 
 import (
 	"fmt"
+	"github.com/jfjallid/gokrb5/v8/client"
+	"github.com/jfjallid/gokrb5/v8/config"
 )
 
 func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string) (c *client.Client, err error) {
