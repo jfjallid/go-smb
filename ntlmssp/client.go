@@ -52,22 +52,20 @@ var version = []byte{
 }
 
 type Client struct {
-	User               string
-	Password           string
-	Hash               []byte // Password Hash
-	NTHash             []byte // Output from Ntowfv2
-	LMHash             []byte // Output from Lmowfv2
-	LocalUser          bool   // Don't use domain name from server
-	Domain             string
-	Workstation        string
-	NullSession        bool
-	guestSession       bool
-	SigningDisabled    bool
-	EncryptionDisabled bool
-	session            *Session
-	neg                *Negotiate
-	TargetSPN          string
-	channelBinding     *channelBindings // Reserved for future use
+	User           string
+	Password       string
+	Hash           []byte // Password Hash
+	NTHash         []byte // Output from Ntowfv2
+	LMHash         []byte // Output from Lmowfv2
+	LocalUser      bool   // Don't use domain name from server
+	Domain         string
+	Workstation    string
+	NullSession    bool
+	guestSession   bool
+	session        *Session
+	neg            *Negotiate
+	TargetSPN      string
+	channelBinding *channelBindings // Reserved for future use
 
 }
 
@@ -98,13 +96,6 @@ func (c *Client) Negotiate() ([]byte, error) {
 		req.NegotiateFlags |= FlgNegOEMWorkstationSupplied
 	}
 
-	if !c.EncryptionDisabled {
-		req.NegotiateFlags |= FlgNegSeal
-	}
-
-	//if !c.SigningDisabled {
-	//	req.NegotiateFlags |= FlgNegAlwaysSign
-	//}
 	req.NegotiateFlags |= FlgNegKeyExch
 	req.Version = le.Uint64(version)
 	c.neg = &req

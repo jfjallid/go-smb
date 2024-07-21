@@ -10,6 +10,8 @@ It is based upon the work of https://github.com/stacktitan/smb but has seen a
 lot of changes to add support for SMB3, DCERPC and MSRRP where parts of the
 code are taken from or inspired by another go-smb project located at
 https://github.com/hirochachacha/go-smb2.
+Kerberos support is implemented with the help of a forked and modified version
+of the gokrb5 library from https://github.com/jcmturner/gokrb5
 
 For inspiration on how to use the library, look at some of the other projects
 that implement it:
@@ -38,6 +40,10 @@ system and then hijacking the authenticated connection. This won't work if
 SMB signing is required or if only SMB 3.x is supported as the current
 implementation is locked to SMB 2.1.
 
+For inspiration on how to use the various forms of establishing a connection and
+how to use the different methods of authentication I recommended inspecting the
+[go-ShareEnum](https://github.com/jfjallid/go-shareenum) repo.
+
 The following snippet of code illustrates how a program could be written to use
 different connection types.
 
@@ -55,7 +61,7 @@ different connection types.
 	options := smb.Options{
 		Host: targetHost,
 		Port: targetPort,
-		Initiator: &smb.NTLMInitiator{
+		Initiator: &spnego.NTLMInitiator{
 			User:      username,
 			Password:  password,
 			Hash:      hashBytes,
@@ -106,6 +112,7 @@ import (
 	"fmt"
 
 	"github.com/jfjallid/go-smb/smb"
+	"github.com/jfjallid/go-smb/spnego"
 	"github.com/jfjallid/go-smb/smb/dcerpc"
 )
 
@@ -115,7 +122,7 @@ func main() {
     options := smb.Options{
         Host:           hostname,
         Port:           445,
-        Initiator:      &smb.NTLMInitiator{
+        Initiator:      &spnego.NTLMInitiator{
             User:       "Administrator",
             Password:   "AdminPass123",
             Domain:     "",

@@ -32,6 +32,7 @@ import (
 
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/spnego"
 )
 
 var log = golog.Get("github.com/jfjallid/go-smb/smb")
@@ -1048,7 +1049,7 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 		Dialects:      dialects,
 	}
 	if s.isSigningRequired.Load() {
-		req.SecurityMode = SecurityModeSigningRequired
+		req.SecurityMode = SecurityModeSigningEnabled | SecurityModeSigningRequired
 	}
 
 	if !s.options.DisableEncryption {
@@ -1146,13 +1147,13 @@ func NewNegotiateRes() NegotiateRes {
 	return res
 }
 
-func (s *Connection) NewSessionSetup1Req(spnegoClient *spnegoClient) (req SessionSetup1Req, err error) {
+func (s *Connection) NewSessionSetup1Req(spnegoClient *spnego.Client) (req SessionSetup1Req, err error) {
 	header := newHeader()
 	header.Command = CommandSessionSetup
 	header.CreditCharge = 1
 	header.SessionID = s.sessionID
 
-	negTokenInitbytes, err := spnegoClient.initSecContext()
+	negTokenInitbytes, err := spnegoClient.InitSecContext(nil)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1164,10 +1165,6 @@ func (s *Connection) NewSessionSetup1Req(spnegoClient *spnegoClient) (req Sessio
 		log.Errorln(err)
 		return
 	}
-
-	//if s.sessionID != 0 {
-	//	return SessionSetup1Req{}, errors.New("Bad session ID for session setup 1 message")
-	//}
 
 	req = SessionSetup1Req{
 		Header:               header,
@@ -1212,38 +1209,24 @@ func NewSessionSetup1Res() (SessionSetup1Res, error) {
 	return ret, nil
 }
 
-func (s *Connection) NewSessionSetup2Req(client *spnegoClient, msg *SessionSetup1Res) (SessionSetup2Req, error) {
+func (s *Connection) NewSessionSetup2Req(sc []byte, msg *SessionSetup1Res) (SessionSetup2Req, error) {
 	header := newHeader()
 	header.Command = CommandSessionSetup
 	header.CreditCharge = 1
 	header.SessionID = s.sessionID
 
-	securityBlob, err := encoder.Marshal(msg.SecurityBlob)
-	if err != nil {
-		log.Errorln(err)
-		return SessionSetup2Req{}, err
-	}
-
-	respBytes, err := client.acceptSecContext(securityBlob)
 	var resp gss.NegTokenResp
-	err = encoder.Unmarshal(respBytes, &resp)
+	err := encoder.Unmarshal(sc, &resp)
 	if err != nil {
 		log.Errorln(err)
 		return SessionSetup2Req{}, err
 	}
-
-	// When relaying the connection through a proxy such as impacket's
-	// ntlmrelayx, the sessionID might not be handled correctly
-	//if s.sessionID == 0 && !s.useProxy {
-	//	return SessionSetup2Req{}, errors.New("Bad session ID for session setup 2 message")
-	//}
 
 	// Session setup request #2
 	req := SessionSetup2Req{
-		Header:        header,
-		StructureSize: 25,
-		Flags:         0x00,
-		//SecurityMode:         byte(SecurityModeSigningEnabled),
+		Header:               header,
+		StructureSize:        25,
+		Flags:                0x00,
 		Capabilities:         s.capabilities,
 		Channel:              0,
 		SecurityBufferOffset: 88,

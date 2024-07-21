@@ -37,6 +37,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
@@ -87,10 +88,9 @@ func (c *Connection) disableSession() {
 
 // Update the Initiator used for authentication.
 // Calling this function when already logged in will kill the existing session.
-func (c *Connection) SetInitiator(initiator Initiator) error {
+func (c *Connection) SetInitiator(initiator gss.Mechanism) error {
 	if c.useSession() {
 		c.Logoff()
-		//return fmt.Errorf("You are only allowed to update the initiator before establishing a session")
 	}
 	c.options.Initiator = initiator
 	return nil
@@ -215,19 +215,26 @@ func (c *Connection) runReceiver() {
 				}
 			}
 
-			// When server responds with StatusPending, the packet signature is the same as on the
-			// last packet and the signing flag is not set
-			if c.Session.isSigningRequired.Load() && !encrypted && (h.Status != StatusPending) {
-				//TODO Change this logic. Should verify signatures that are present but not enforce them to be present unless required?
-				if (h.Flags & SMB2_FLAGS_SIGNED) != SMB2_FLAGS_SIGNED {
-					err = fmt.Errorf("Skip: Signing is required but PDU is not signed")
-					log.Errorln(err)
-					continue
-				} else {
-					if !c.verify(data) {
-						err = fmt.Errorf("Skip: Signing is required and invalid signature found")
+			/*
+			   If dialect is 3.1.1, If message is not encrypted check message signature.
+			   If dialect is NOT 3.1.1, check signing only if required
+			*/
+			if ((c.dialect == DialectSmb_3_1_1) && !encrypted && (c.sessionFlags & (SessionFlagIsGuest|SessionFlagIsNull) == 0)) || ((c.dialect != DialectSmb_3_1_1) && c.Session.isSigningRequired.Load()) {
+				// When server responds with StatusPending, the packet signature is the same as on the
+				// last packet and the signing flag is not set
+				if h.Status != StatusPending {
+					if (h.Flags & SMB2_FLAGS_SIGNED) != SMB2_FLAGS_SIGNED {
+						err = fmt.Errorf("Skip: Signing is required but PDU is not signed")
 						log.Errorln(err)
+						// Perhaps crash here instead of continuing to wait for a proper package?
 						continue
+					} else {
+						if !c.verify(data) {
+							err = fmt.Errorf("Skip: Signing is required and invalid signature found")
+							log.Errorln(err)
+							// Perhaps crash here instead of continuing to wait for a proper package?
+							continue
+						}
 					}
 				}
 			}
@@ -382,6 +389,16 @@ func NewConnection(opt Options) (c *Connection, err error) {
 	log.Debugln("Negotiating protocol")
 	err = c.NegotiateProtocol()
 	if err != nil {
+		return
+	}
+	// Determine if signing is required but client wants to disable it
+	if opt.DisableSigning && c.isSigningRequired.Load() && (!c.supportsEncryption) {
+		err = fmt.Errorf("Signing is required and cannot be disabled")
+		log.Errorln(err)
+		return
+	} else if opt.DisableSigning && opt.DisableEncryption && (c.dialect == DialectSmb_3_1_1) {
+		err = fmt.Errorf("Signing or Encryption is required when using SMB 3.1.1")
+		log.Errorln(err)
 		return
 	}
 	if !opt.ManualLogin {

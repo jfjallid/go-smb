@@ -1,9 +1,8 @@
 package gss
 
 import (
-	"encoding/asn1"
+	"github.com/jfjallid/gofork/encoding/asn1"
 
-	"github.com/jfjallid/ber"
 	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/golog"
 )
@@ -11,13 +10,58 @@ import (
 var log = golog.Get("github.com/jfjallid/go-smb/gss")
 var SpnegoOid = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 5, 5, 2})
 var MsKerberosOid = asn1.ObjectIdentifier([]int{1, 2, 840, 48018, 1, 2, 2})
-var KerberosOid = asn1.ObjectIdentifier([]int{1, 2, 840, 113554, 1, 2, 2})
+var KerberosSSPMechTypeOid = asn1.ObjectIdentifier([]int{1, 2, 840, 113554, 1, 2, 2})
 var NtLmSSPMechTypeOid = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 4, 1, 311, 2, 2, 10})
 
-const GssStateAcceptCompleted = 0
-const GssStateAcceptIncomplete = 1
-const GssStateReject = 2
-const GssStateRequestMic = 3
+const (
+	_ = iota
+	StatusBadBindings
+	StatusBadMech
+	StatusBadName
+	StatusBadNameType
+	//...
+)
+
+const (
+	GssStateAcceptCompleted  = 0
+	GssStateAcceptIncomplete = 1
+	GssStateReject           = 2
+	GssStateRequestMic       = 3
+)
+
+// RFC 4121 Section 2
+const (
+	KGUsageAcceptorSeal  = 22
+	KGUsageAcceptorSign  = 23
+	KGUsageInitiatorSeal = 24
+	KGUsageInitiatorSign = 25
+)
+
+// RFC 4121 Section 4.1.1.1
+// RFC 4178 Section 4.2.1
+// https://www.gnu.org/software/gss/reference/gss-api.html#GSS-C-DELEG-FLAG:CAPS
+const (
+	GssContextFlagDeleg    = 1
+	GssContextFlagMutual   = 1
+	GssContextFlagReplay   = 4
+	GssContextFlagSequence = 8
+	GssContextFlagConf     = 16
+	GssContextFlagInteg    = 32
+	GssContextFlagAnon     = 64
+)
+
+// RFC4178
+// Interface to define a security mechanism available for the initiator
+type Mechanism interface {
+	Oid() asn1.ObjectIdentifier
+	InitSecContext([]byte) ([]byte, error)   // GSS_Init_sec_context
+	AcceptSecContext([]byte) ([]byte, error) // GSS_Accept_sec_context
+	Sum([]byte) []byte                       // GSS_getMIC
+	SessionKey() []byte                      // QueryContextAttributes(ctx, SECPKG_ATTR_SESSION_KEY, &out)
+	IsNullSession() bool
+	GetUsername() string
+	Logoff()
+}
 
 type NegTokenInitData struct {
 	MechTypes    []asn1.ObjectIdentifier `asn1:"explicit,tag:0"`
@@ -47,13 +91,12 @@ func NewNegTokenInit(types []asn1.ObjectIdentifier, token []byte) ([]byte, error
 	req := NegTokenInit{
 		OID: SpnegoOid,
 		Data: NegTokenInitData{
-			MechTypes:    []asn1.ObjectIdentifier{NtLmSSPMechTypeOid},
+			MechTypes:    types,
 			ReqFlags:     asn1.BitString{},
 			MechToken:    token,
 			MechTokenMIC: []byte{},
 		},
 	}
-	//NOTE Failes to marshal the NegTokenInit
 
 	return encoder.Marshal(&req)
 }
@@ -77,7 +120,7 @@ func (n *NegTokenInit) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 
 func (n *NegTokenInit) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	data := NegTokenInit{}
-	if _, err := ber.UnmarshalWithParams(buf, &data, "application"); err != nil {
+	if _, err := asn1.UnmarshalWithParams(buf, &data, "application"); err != nil {
 		log.Debugln(err)
 		return err
 	}
@@ -95,7 +138,7 @@ func (r *NegTokenResp) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 
 func (r *NegTokenResp) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	data := NegTokenResp{}
-	if _, err := ber.UnmarshalWithParams(buf, &data, "explicit,tag:1"); err != nil {
+	if _, err := asn1.UnmarshalWithParams(buf, &data, "explicit,tag:1"); err != nil {
 		log.Criticalln(err)
 		return err
 	}
