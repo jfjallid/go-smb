@@ -49,6 +49,16 @@ func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string)
 				log.Errorln(err)
 				return
 			}
+			cacheDomain := cache.GetClientRealm()
+			if domain != "" && !strings.EqualFold(cacheDomain, domain) {
+				log.Infof("Kerberos cache only contains credentials for the %s domain, but not for %s as requested\n", cacheDomain, domain)
+				return
+			}
+			cacheUser := cache.DefaultPrincipal.PrincipalName.PrincipalNameString()
+			if username != "" && !strings.EqualFold(username, cacheUser) {
+				log.Infof("Kerberos cache only contains credentials for the %s username, but not for %s as requested\n", cacheUser, username)
+				return
+			}
 			c, err = client.NewFromCCache(cache, strings.Split(spn, "/"), cfg, client.DisablePAFXFAST(true))
 			if err != nil {
 				log.Errorln(err)

@@ -207,30 +207,17 @@ func InitKerberosClient(username, domain, password string, hash, aesKey []byte, 
 		} else {
 			return nil, fmt.Errorf("Cannot initialize a Kerberos client with an empty cache and without specifying either a password, hash or AES key")
 		}
-	}
-
-	if c.Client == nil {
-		return nil, fmt.Errorf("Failed to initialize Kerberos client")
-	}
-
-	// Check for TGS
-	if _, _, found := c.Client.GetCachedTicket(spn); !found {
-		// We haven't found a TGS for the target but perhaps a TGT?
-		parts := strings.Split(spn, "/")
-		if len(parts) == 2 {
-			target := parts[1]
-			if _, _, found := c.Client.GetCachedTicket(fmt.Sprintf("krbtgt/%s", target)); found {
-				// Found TGT so won't do anything more here
-				return
-			}
-		}
-		// No TGS and no TGT, better login
 		err = c.Client.Login()
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	}
+
+	if c.Client == nil {
+		return nil, fmt.Errorf("Failed to initialize Kerberos client")
+	}
+
 	return
 }
 
