@@ -69,9 +69,17 @@ const (
 var ServiceTypeStatusMap = map[uint32]string{
 	ServiceKernelDriver:       "SERVICE_KERNEL_DRIVER",
 	ServiceFileSystemDriver:   "SERVICE_FILE_SYSTEM_DRIVER",
-	ServiceWin32OwnProcess:    "SERIVCE_WIN32_OWN_PROCESS",
+	ServiceWin32OwnProcess:    "SERVICE_WIN32_OWN_PROCESS",
 	ServiceWin32ShareProcess:  "SERVICE_WIN32_SHARE_PROCESS",
 	ServiceInteractiveProcess: "SERVICE_INTERACTIVE_PROCESS",
+}
+
+var ServiceTypeMap = map[string]uint32{
+	"SERVICE_KERNEL_DRIVER":       ServiceKernelDriver,
+	"SERVICE_FILE_SYSTEM_DRIVER":  ServiceFileSystemDriver,
+	"SERVICE_WIN32_OWN_PROCESS":   ServiceWin32OwnProcess,
+	"SERVICE_WIN32_SHARE_PROCESS": ServiceWin32ShareProcess,
+	"SERVICE_INTERACTIVE_PROCESS": ServiceInteractiveProcess,
 }
 
 // MS-SCMR (svcctl) Table 2.2.15 StartType
@@ -91,6 +99,14 @@ var StartTypeStatusMap = map[uint32]string{
 	ServiceDisabled:    "SERVICE_DISABLED",
 }
 
+var StartTypeMap = map[string]uint32{
+	"SERVICE_BOOT_START":   ServiceBootStart,
+	"SERVICE_SYSTEM_START": ServiceSystemStart,
+	"SERIVCE_AUTO_START":   ServiceAutoStart,
+	"SERVICE_DEMAND_START": ServiceDemandStart,
+	"SERVICE_DISABLED":     ServiceDisabled,
+}
+
 // MS-SCMR (svcctl) Table 2.2.15 ErrorControl
 const (
 	ServiceErrorIgnore   uint32 = 0x00000000
@@ -104,6 +120,13 @@ var ErrorControlStatusMap = map[uint32]string{
 	ServiceErrorNormal:   "SERVICE_ERROR_NORMAL",
 	ServiceErrorSevere:   "SERIVCE_ERROR_SEVERE",
 	ServiceErrorCritical: "SERVICE_ERROR_CRITICAL",
+}
+
+var ErrorControlMap = map[string]uint32{
+	"SERVICE_ERROR_IGNORE":   ServiceErrorIgnore,
+	"SERVICE_ERROR_NORMAL":   ServiceErrorNormal,
+	"SERIVCE_ERROR_SEVERE":   ServiceErrorSevere,
+	"SERVICE_ERROR_CRITICAL": ServiceErrorCritical,
 }
 
 // MS-SCMR (svcctl) Table 3.1.4
@@ -1365,38 +1388,53 @@ func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err er
 	res.ErrorControl = ErrorControlStatusMap[config.ErrorControl]
 
 	res.BinaryPathName = config.BinaryPathName
-	if err != nil {
-		err = fmt.Errorf("Error decoding service config: %s\n", err)
-		log.Errorln(err)
-	}
-
 	res.LoadOrderGroup = config.LoadOrderGroup
-	if err != nil {
-		err = fmt.Errorf("Error decoding service config: %s\n", err)
-		log.Errorln(err)
-	}
-
 	res.TagId = config.TagId
-
 	res.Dependencies = config.Dependencies
-	if err != nil {
-		err = fmt.Errorf("Error decoding service config: %s\n", err)
-		log.Errorln(err)
-	}
-
 	res.ServiceStartName = config.ServiceStartName
-	if err != nil {
-		err = fmt.Errorf("Error decoding service config: %s\n", err)
-		log.Errorln(err)
-	}
-
 	res.DisplayName = config.DisplayName
+
 	if err != nil {
 		err = fmt.Errorf("Error decoding service config: %s\n", err)
 		log.Errorln(err)
 	}
 
 	return
+}
+
+// NOTE That currently the config LoadOrderGroup, TagId and Dependencies cannot be modified
+func (sb *ServiceBind) ChangeServiceConfig2(serviceName string, config *ServiceConfig) (err error) {
+	log.Debugln("In ChangeServiceConfig2")
+	var binaryPathName, serviceStartName, displayName string
+	var serviceType, startType, errorControl uint32
+
+	if _, ok := ServiceTypeMap[config.ServiceType]; !ok {
+		err = fmt.Errorf("Could not identify service type: %s\n", config.ServiceType)
+		log.Errorln(err)
+	}
+	serviceType = ServiceTypeMap[config.ServiceType]
+
+	if _, ok := StartTypeMap[config.StartType]; !ok {
+		err = fmt.Errorf("Could not identify start type: %s\n", config.StartType)
+		log.Errorln(err)
+	}
+	startType = StartTypeMap[config.StartType]
+
+	if _, ok := ErrorControlMap[config.ErrorControl]; !ok {
+		err = fmt.Errorf("Could not identify start type: %s\n", config.ErrorControl)
+		log.Errorln(err)
+	}
+	errorControl = ErrorControlMap[config.ErrorControl]
+	if err != nil {
+		err = fmt.Errorf("Error decoding service config: %s\n", err)
+		log.Errorln(err)
+	}
+
+	binaryPathName = config.BinaryPathName
+	serviceStartName = config.ServiceStartName
+	displayName = config.DisplayName
+
+	return sb.ChangeServiceConfig(serviceName, serviceType, startType, errorControl, binaryPathName, serviceStartName, "", displayName)
 }
 
 func (sb *ServiceBind) openSCManager(desiredAccess uint32) (handle []byte, err error) {
@@ -1714,6 +1752,7 @@ func (sb *ServiceBind) ChangeServiceConfig(
 	}
 	defer sb.CloseServiceHandle(serviceHandle)
 
+	//TODO Add support for modifying the LoadOrderGroup, TagId, and Dependencies
 	innerReq := RChangeServiceConfigWReq{
 		ServiceHandle:    serviceHandle,
 		ServiceType:      serviceType,

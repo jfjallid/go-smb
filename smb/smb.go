@@ -66,6 +66,7 @@ const (
 	StatusUserSessionDeleted     = 0xc0000203
 	StatusPasswordMustChange     = 0xc0000224
 	StatusAccountLockedOut       = 0xc0000234
+	StatusVirusInfected          = 0xc0000906
 )
 
 var StatusMap = map[uint32]error{
@@ -91,6 +92,7 @@ var StatusMap = map[uint32]error{
 	StatusUserSessionDeleted:     fmt.Errorf("User session deleted"),
 	StatusPasswordMustChange:     fmt.Errorf("User is required to change password at next logon"),
 	StatusAccountLockedOut:       fmt.Errorf("User account has been locked!"),
+	StatusVirusInfected:          fmt.Errorf("The file contains a virus"),
 }
 
 const DialectSmb_2_0_2 uint16 = 0x0202
@@ -1513,6 +1515,9 @@ func (s *Session) NewWriteReq(share string, fileid []byte,
 }
 
 func (f *File) NewIoCTLReq(operation uint32, data []byte) (*IoCtlReq, error) {
+	if f.fd == nil {
+		return nil, fmt.Errorf("Can't operate on a closed file")
+	}
 	header := newHeader()
 	header.Command = CommandIOCtl
 	header.CreditCharge = 1

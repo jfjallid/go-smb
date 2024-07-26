@@ -1010,6 +1010,13 @@ func (c *Connection) TreeDisconnect(name string) error {
 	return nil
 }
 
+func (f *File) IsOpen() bool {
+	if f.fd == nil {
+		return false
+	}
+	return true
+}
+
 func (f *File) CloseFile() error {
 
 	if f.fd == nil {
@@ -1051,6 +1058,9 @@ func (f *File) CloseFile() error {
 }
 
 func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, bufferSize uint32) (sf []SharedFile, err error) {
+	if f.fd == nil {
+		return nil, fmt.Errorf("Can't operate on a closed file")
+	}
 	sf = make([]SharedFile, 0)
 	req, err := f.NewQueryDirectoryReq(
 		f.share,
@@ -1471,6 +1481,9 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 }
 
 func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
+	if f.fd == nil {
+		return 0, fmt.Errorf("Can't operate on a closed file")
+	}
 	maxReadBufferSize := 65536
 	if f.supportsMultiCredit {
 		// Reading data in chunks of max 1MiB blocks as f.MaxReadSize seems to cause problems
@@ -1655,6 +1668,9 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 }
 
 func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
+	if f.fd == nil {
+		return 0, fmt.Errorf("Can't operate on a closed file")
+	}
 	maxWriteBufferSize := 65536
 	if f.supportsMultiCredit {
 		// Reading data in chunks of max 1MiB blocks as f.MaxReadSize seems to cause problems

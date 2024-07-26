@@ -871,6 +871,13 @@ func newRequestReq(callId uint32, op uint16) (*RequestReq, error) {
 
 func Bind(f *smb.File, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string) (bind *ServiceBind, err error) {
 	log.Debugln("In Bind")
+	// Sanity check
+	if f == nil {
+		return nil, fmt.Errorf("File argument cannot be nil")
+	}
+	if !f.IsOpen() {
+		return nil, fmt.Errorf("File must be opened before calling Bind")
+	}
 	callId := atomic.Uint32{}
 	maxFragRxSize := uint16(4280)
 	maxFragTxSize := uint16(4280)
