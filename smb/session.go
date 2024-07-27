@@ -94,6 +94,7 @@ type Session struct {
 	//SequenceWindow            uint64
 	maxReadSize               uint32
 	maxWriteSize              uint32
+	maxTransactSize           uint32
 	preauthIntegrityHashValue [64]byte // Session preauthIntegrityHashValue
 	exportedSessionKey        []byte   // From SPNego Auth
 	// Used in SMB 3.1.1 instead of sessionKey for higher level applications
@@ -316,9 +317,10 @@ func (c *Connection) NegotiateProtocol() error {
 		c.capabilities |= GlobalCapEncryption
 	}
 
-	// Update maxReadSize and maxWriteSize from response
+	// Update maxReadSize, maxWriteSize, and maxTransactSize from response
 	c.maxReadSize = negRes.MaxReadSize
 	c.maxWriteSize = negRes.MaxWriteSize
+	c.maxTransactSize = negRes.MaxTransactSize
 
 	if c.dialect != DialectSmb_3_1_1 {
 		return nil
@@ -1202,7 +1204,7 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 
 	maxResponseBufferSize := uint32(65536)
 	if s.supportsMultiCredit {
-		maxResponseBufferSize = 131072 // Arbitrary value of 128 KiB
+		maxResponseBufferSize = s.maxTransactSize
 	}
 
 	// QueryDirectory request
@@ -1450,8 +1452,7 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 	}
 
 	log.Debugln("Sending ReadFile requests")
-	// Reading data in chunks of max 1MiB blocks as f.MaxReadSize seems to cause problems
-	data := make([]byte, 1048576)
+	data := make([]byte, s.maxReadSize)
 	fileSize := res.EndOfFile
 
 	readOffset := offset
@@ -1486,12 +1487,11 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 	}
 	maxReadBufferSize := 65536
 	if f.supportsMultiCredit {
-		// Reading data in chunks of max 1MiB blocks as f.MaxReadSize seems to cause problems
-		maxReadBufferSize = 1048576 // Arbitrary value of 1MiB
+		maxReadBufferSize = len(b)
 	}
 
 	// If connection supports multi-credit requests, we can request as large chunks
-	// as the caller wants up to an upper limit of 1MiB. Otherwise the size is limited to
+	// as the caller wants up to an upper limit of the connection maxReadSize. Otherwise the size is limited to
 	// 64KiB
 	if len(b) > maxReadBufferSize {
 		b = b[:maxReadBufferSize]
@@ -1642,11 +1642,10 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 	defer f.CloseFile()
 
 	log.Debugln("Sending WriteFile requests")
-	// Writing data in chunks of max 1MiB blocks as f.MaxWriteSize seems to cause problems
 
 	writeOffset := offset
 	for {
-		outBuffer := make([]byte, 1048576)
+		outBuffer := make([]byte, s.maxWriteSize)
 		nr, err := callback(outBuffer)
 		if err != nil {
 			if err == io.EOF {
@@ -1674,7 +1673,8 @@ func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
 	maxWriteBufferSize := 65536
 	if f.supportsMultiCredit {
 		// Reading data in chunks of max 1MiB blocks as f.MaxReadSize seems to cause problems
-		maxWriteBufferSize = 1048576 // Arbitrary value of 1MiB
+		//maxWriteBufferSize = 1048576 // Arbitrary value of 1MiB
+		maxWriteBufferSize = len(data)
 	}
 
 	// If connection supports multi-credit requests, we can send as large chunks
