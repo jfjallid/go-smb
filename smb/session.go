@@ -571,6 +571,10 @@ func (c *Connection) SessionSetup() error {
 	}
 
 	sc, err := spnegoClient.InitSecContext(securityBlob)
+	if err != nil {
+		log.Errorln(err)
+		return err
+	}
 
 	var ss2req SessionSetup2Req
 

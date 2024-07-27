@@ -149,13 +149,32 @@ func (i *KRB5Initiator) InitSecContext(inputToken []byte) (res []byte, err error
 			log.Errorln(err)
 			return
 		}
-		if token.TokenId != krb5ssp.TokenIdKrb5APRep {
+		switch token.TokenId {
+		case krb5ssp.TokenIdKrb5APRep:
+			i.client.ParseAPRep(token.APRep.EncPart)
+		case krb5ssp.TokenIdKrb5Error:
+			if token.KRBError.ErrorCode == 41 {
+				if i.SPN != "" {
+					parts := strings.Split(i.SPN, "/")
+					if len(parts) == 2 {
+						targetName := strings.TrimSuffix(token.KRBError.SName.PrincipalNameString(), "$")
+						if !strings.EqualFold(targetName, parts[1]) {
+							err = fmt.Errorf("Server could not decrypt provided TGS. TGS was issued for %s and sent to %s\n", parts[1], targetName)
+							log.Errorln(err)
+							return
+						}
+					}
+				}
+				err = fmt.Errorf("Server could not decrypt provided TGS")
+			} else {
+				err = fmt.Errorf("Server returned Kerberos Error: %v\n", token.KRBError.Error())
+			}
+			log.Errorln(err)
+		default:
 			err = fmt.Errorf("Invalid KRB5Token in InitSecContext. Expected an APRep but got tokenId: %d\n", token.TokenId)
 			log.Errorln(err)
-			return
 		}
 
-		i.client.ParseAPRep(token.APRep.EncPart)
 		// No return token is expected here
 		return
 	}
