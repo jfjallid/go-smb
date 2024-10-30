@@ -137,6 +137,9 @@ func (r *NegTokenResp) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 }
 
 func (r *NegTokenResp) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	if len(buf) == 0 {
+		return nil
+	}
 	data := NegTokenResp{}
 	if _, err := asn1.UnmarshalWithParams(buf, &data, "explicit,tag:1"); err != nil {
 		log.Criticalln(err)
