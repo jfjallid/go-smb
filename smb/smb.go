@@ -979,10 +979,15 @@ func (s SID) String() string {
 	return fmt.Sprintf("S-1-%s-%s", ia, strings.Join(subAuthorities, "-"))
 }
 
+type FileSecurityInformationACL struct {
+	Permissions []string
+	SID         string
+}
+
 type FileSecurityInformation struct {
-	OwnerSID      SID
-	GroupSID      SID
-	AccessAllowed []ACEAccessAllowed
+	OwnerSID      string
+	GroupSID      string
+	AccessAllowed []FileSecurityInformationACL
 }
 
 type FileBothDirectoryInformationStruct struct {

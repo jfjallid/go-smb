@@ -1216,9 +1216,14 @@ func (f *File) QueryInfoSecurity(flags uint32, bufferSize uint32) (fs *FileSecur
 	}
 
 	fs = &FileSecurityInformation{
-		OwnerSID:      sd.OwnerSID,
-		GroupSID:      sd.GroupSID,
-		AccessAllowed: sd.Dacl.ACEs,
+		OwnerSID: sd.OwnerSID.String(),
+		GroupSID: sd.GroupSID.String(),
+	}
+	for _, acl := range sd.Dacl.ACEs {
+		fs.AccessAllowed = append(fs.AccessAllowed, FileSecurityInformationACL{
+			Permissions: acl.Permissions(),
+			SID:         acl.SID.String(),
+		})
 	}
 
 	return
