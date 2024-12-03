@@ -24,6 +24,7 @@ package smb
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
@@ -803,6 +804,20 @@ func (sd *SecurityDescriptor) MarshalBinary(meta *encoder.Metadata) ([]byte, err
 	return []byte{}, nil
 }
 
+type offsetMeta struct {
+	offset uint32
+	length uint32
+	name   string
+}
+
+const (
+	securityDescriptorOwner = "owner"
+	securityDescriptorGroup = "group"
+	securityDescriptorDACL  = "dacl"
+	securityDescriptorSACL  = "sacl"
+	securityDescriptorEnd   = "end"
+)
+
 func (sd *SecurityDescriptor) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	log.Debugln("In UnmarshalBinary for SecurityDescriptor")
 	err := encoder.Unmarshal(buf[:20], &sd.SecurityDescriptorHeader)
@@ -812,76 +827,58 @@ func (sd *SecurityDescriptor) UnmarshalBinary(buf []byte, meta *encoder.Metadata
 		return err
 	}
 
-	payload := bytes.NewReader(buf[20:])
-
-	stop := uint32(len(buf))
-	daclLen := uint32(0)
-	daclOffset := stop
-	if sd.OffsetDacl > 0 {
-		daclOffset = sd.OffsetDacl
-		daclLen = stop - sd.OffsetDacl
+	offsets := []offsetMeta{
+		{offset: sd.OffsetOwner, name: securityDescriptorOwner},
+		{offset: sd.OffsetGroup, name: securityDescriptorGroup},
+		{offset: sd.OffsetSacl, name: securityDescriptorSACL},
+		{offset: sd.OffsetDacl, name: securityDescriptorDACL},
 	}
-	// TODO: implement SACL information
-	// saclLen := uint32(0)
-	saclOffset := daclOffset
-	if sd.OffsetSacl > 0 {
-		saclOffset = sd.OffsetSacl
-		// saclLen = daclOffset - sd.OffsetSacl
-	}
-	groupSidLen := uint32(0)
-	groupSidOffset := saclOffset
-	if sd.OffsetGroup > 0 {
-		groupSidOffset = sd.OffsetGroup
-		groupSidLen = saclOffset - sd.OffsetGroup
-	}
-	ownerSidLen := uint32(0)
-	ownerSidOffset := groupSidOffset
-	if sd.OffsetOwner > 0 {
-		ownerSidOffset = sd.OffsetOwner
-		ownerSidLen = groupSidOffset - sd.OffsetOwner
+	offsets = slices.DeleteFunc(offsets, func(o offsetMeta) bool { return o.offset == 0 })
+	slices.SortFunc(offsets, func(a, b offsetMeta) int { return cmp.Compare(a.offset, b.offset) })
+	offsets = append(offsets, offsetMeta{offset: uint32(len(buf)), name: securityDescriptorEnd})
+	for i := 0; i < len(offsets)-1; i++ {
+		offsets[i].length = offsets[i+1].offset - offsets[i].offset
 	}
 
-	if ownerSidOffset > 0 {
-		ownerBuf := make([]byte, ownerSidLen)
-		ownerSid := &SID{}
-		payload.Read(ownerBuf)
-		err = encoder.Unmarshal(ownerBuf, ownerSid)
-		if err != nil {
-			return fmt.Errorf("unmarshal owner sid: %w", err)
-		}
-		sd.OwnerSID = *ownerSid
-	}
+	for _, meta := range offsets {
+		switch meta.name {
+		case securityDescriptorOwner:
+			ownerSid := &SID{}
+			err = encoder.Unmarshal(buf[meta.offset:meta.offset+meta.length], ownerSid)
+			if err != nil {
+				return fmt.Errorf("unmarshal owner sid: %w", err)
+			}
+			sd.OwnerSID = *ownerSid
 
-	if groupSidOffset > 0 {
-		groupBuf := make([]byte, groupSidLen)
-		groupSid := &SID{}
-		payload.Read(groupBuf)
-		err = encoder.Unmarshal(groupBuf, groupSid)
-		if err != nil {
-			return fmt.Errorf("unmarshal group sid: %w", err)
-		}
-		sd.GroupSID = *groupSid
-	}
+		case securityDescriptorGroup:
+			groupSid := &SID{}
+			err = encoder.Unmarshal(buf[meta.offset:meta.offset+meta.length], groupSid)
+			if err != nil {
+				return fmt.Errorf("unmarshal group sid: %w", err)
+			}
+			sd.GroupSID = *groupSid
 
-	if daclLen > 0 {
-		dacl := &ACL{}
-		err = binary.Read(payload, binary.LittleEndian, &dacl.ACLHeader)
-		if err != nil {
-			return fmt.Errorf("binary read DACL header: %w", err)
-		}
-		for i := uint16(0); i < dacl.ACECount; i++ {
-			ace := ACEHeader{}
-			binary.Read(payload, binary.LittleEndian, &ace)
-			acePayload := make([]byte, ace.Size-4) // 4 is ACEHeader size
-			payload.Read(acePayload)
-			switch ace.Type {
-			case 0: // ACCESS_ALLOWED_ACE_TYPE
-				accessAllowed := &ACEAccessAllowed{}
-				err = encoder.Unmarshal(acePayload, accessAllowed)
-				if err != nil {
-					return fmt.Errorf("unmarshal ACE AccessAllowed: %w", err)
+		case securityDescriptorDACL:
+			dacl := &ACL{}
+			payload := bytes.NewReader(buf[meta.offset : meta.offset+meta.length])
+			err = binary.Read(payload, binary.LittleEndian, &dacl.ACLHeader)
+			if err != nil {
+				return fmt.Errorf("binary read DACL header: %w", err)
+			}
+			for i := uint16(0); i < dacl.ACECount; i++ {
+				ace := ACEHeader{}
+				binary.Read(payload, binary.LittleEndian, &ace)
+				acePayload := make([]byte, ace.Size-4) // 4 is ACEHeader size
+				payload.Read(acePayload)
+				switch ace.Type {
+				case 0: // ACCESS_ALLOWED_ACE_TYPE
+					accessAllowed := &ACEAccessAllowed{}
+					err = encoder.Unmarshal(acePayload, accessAllowed)
+					if err != nil {
+						return fmt.Errorf("unmarshal ACE AccessAllowed: %w", err)
+					}
+					sd.Dacl.ACEs = append(sd.Dacl.ACEs, *accessAllowed)
 				}
-				sd.Dacl.ACEs = append(sd.Dacl.ACEs, *accessAllowed)
 			}
 		}
 	}
