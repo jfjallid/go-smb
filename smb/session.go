@@ -1157,6 +1157,73 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 	return
 }
 
+func (f *File) QueryInfoSecurity(flags uint32, bufferSize uint32) (fs *FileSecurityInformation, err error) {
+	if f.fd == nil {
+		return nil, fmt.Errorf("Can't operate on a closed file")
+	}
+	req, err := f.NewQueryInfoReq(
+		f.share,
+		f.fd,
+		OInfoSecurity,
+		0,
+		flags,
+		bufferSize,
+	)
+	if err != nil {
+		err = fmt.Errorf("new request: %w", err)
+		log.Debugln(err)
+		return
+	}
+
+	buf, err := f.sendrecv(req)
+	if err != nil {
+		err = fmt.Errorf("sendrecv: %w", err)
+		log.Debugln(err)
+		return
+	}
+
+	var res QueryInfoRes
+	log.Debugf("Unmarshalling QueryInfo response [%s]\n", f.share)
+	if err := encoder.Unmarshal(buf, &res); err != nil {
+		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
+		return nil, err
+	}
+
+	if res.Header.Status == StatusNoSuchFile {
+		return
+	}
+
+	if res.Header.Status != StatusOk {
+		status, found := StatusMap[res.Header.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for QueryInfo response: 0x%x\n", res.Header.Status)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("Failed QueryInfo with NT Status Error: %v\n", status)
+		err = fmt.Errorf("status not ok: %w", status)
+		return
+	}
+	if res.OutputBufferLength == 0 {
+		return
+	}
+
+	start, stop := uint32(0), res.OutputBufferLength
+	sd := &SecurityDescriptor{}
+	err = encoder.Unmarshal(res.Buffer[start:stop], sd)
+	if err != nil {
+		return nil, fmt.Errorf("failed parsing security descriptor: %w", err)
+	}
+
+	fs = &FileSecurityInformation{
+		OwnerSID:      sd.OwnerSID,
+		GroupSID:      sd.GroupSID,
+		AccessAllowed: sd.Dacl.ACEs,
+	}
+
+	return
+}
+
 // Assumes a tree connect is already performed
 func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFile, err error) {
 	req, err := s.NewCreateReq(share, dir,

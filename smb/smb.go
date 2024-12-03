@@ -23,10 +23,14 @@
 package smb
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"math"
+	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/jfjallid/golog"
 
@@ -752,6 +756,236 @@ type QueryDirectoryRes struct {
 	OutputBufferOffset uint16 `smb:"offset:Buffer"`
 	OutputBufferLength uint32 `smb:"len:Buffer"`
 	Buffer             []byte
+}
+
+type QueryInfoReq struct {
+	Header
+	StructureSize         uint16 // Must always be 41 regardless of Buffer size
+	InfoType              byte
+	FileInfoClass         byte
+	OutputBufferLength    uint32
+	InputBufferOffset     uint16 `smb:"offset:Buffer"`
+	Reserved              uint16
+	InputBufferLength     uint32 `smb:"len:Buffer"`
+	AdditionalInformation uint32
+	Flags                 uint32
+	FileId                []byte `smb:"fixed:16"`
+	Buffer                []byte
+}
+
+type QueryInfoRes struct {
+	Header
+	StructureSize      uint16 // Must always be 9
+	OutputBufferOffset uint16 `smb:"offset:Buffer"`
+	OutputBufferLength uint32 `smb:"len:Buffer"`
+	Buffer             []byte
+}
+
+type SecurityDescriptorHeader struct {
+	Revision    byte
+	Sbz1        byte
+	Control     uint16
+	OffsetOwner uint32
+	OffsetGroup uint32
+	OffsetSacl  uint32
+	OffsetDacl  uint32
+}
+
+type SecurityDescriptor struct {
+	SecurityDescriptorHeader
+	OwnerSID SID
+	GroupSID SID
+	Sacl     ACL
+	Dacl     ACL
+}
+
+func (sd *SecurityDescriptor) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+	return []byte{}, nil
+}
+
+func (sd *SecurityDescriptor) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	log.Debugln("In UnmarshalBinary for SecurityDescriptor")
+	err := encoder.Unmarshal(buf[:20], &sd.SecurityDescriptorHeader)
+	if err != nil {
+		err = fmt.Errorf("encoder unmarshal header: %w", err)
+		log.Errorln(err)
+		return err
+	}
+
+	payload := bytes.NewReader(buf[20:])
+
+	stop := uint32(len(buf))
+	daclLen := uint32(0)
+	daclOffset := stop
+	if sd.OffsetDacl > 0 {
+		daclOffset = sd.OffsetDacl
+		daclLen = stop - sd.OffsetDacl
+	}
+	// TODO: implement SACL information
+	// saclLen := uint32(0)
+	saclOffset := daclOffset
+	if sd.OffsetSacl > 0 {
+		saclOffset = sd.OffsetSacl
+		// saclLen = daclOffset - sd.OffsetSacl
+	}
+	groupSidLen := uint32(0)
+	groupSidOffset := saclOffset
+	if sd.OffsetGroup > 0 {
+		groupSidOffset = sd.OffsetGroup
+		groupSidLen = saclOffset - sd.OffsetGroup
+	}
+	ownerSidLen := uint32(0)
+	ownerSidOffset := groupSidOffset
+	if sd.OffsetOwner > 0 {
+		ownerSidOffset = sd.OffsetOwner
+		ownerSidLen = groupSidOffset - sd.OffsetOwner
+	}
+
+	if ownerSidOffset > 0 {
+		ownerBuf := make([]byte, ownerSidLen)
+		ownerSid := &SID{}
+		payload.Read(ownerBuf)
+		err = encoder.Unmarshal(ownerBuf, ownerSid)
+		if err != nil {
+			return fmt.Errorf("unmarshal owner sid: %w", err)
+		}
+		sd.OwnerSID = *ownerSid
+	}
+
+	if groupSidOffset > 0 {
+		groupBuf := make([]byte, groupSidLen)
+		groupSid := &SID{}
+		payload.Read(groupBuf)
+		err = encoder.Unmarshal(groupBuf, groupSid)
+		if err != nil {
+			return fmt.Errorf("unmarshal group sid: %w", err)
+		}
+		sd.GroupSID = *groupSid
+	}
+
+	if daclLen > 0 {
+		dacl := &ACL{}
+		err = binary.Read(payload, binary.LittleEndian, &dacl.ACLHeader)
+		if err != nil {
+			return fmt.Errorf("binary read DACL header: %w", err)
+		}
+		for i := uint16(0); i < dacl.ACECount; i++ {
+			ace := ACEHeader{}
+			binary.Read(payload, binary.LittleEndian, &ace)
+			acePayload := make([]byte, ace.Size-4) // 4 is ACEHeader size
+			payload.Read(acePayload)
+			switch ace.Type {
+			case 0: // ACCESS_ALLOWED_ACE_TYPE
+				accessAllowed := &ACEAccessAllowed{}
+				err = encoder.Unmarshal(acePayload, accessAllowed)
+				if err != nil {
+					return fmt.Errorf("unmarshal ACE AccessAllowed: %w", err)
+				}
+				sd.Dacl.ACEs = append(sd.Dacl.ACEs, *accessAllowed)
+			}
+		}
+	}
+
+	return nil
+}
+
+type ACLHeader struct {
+	ACLRevision byte
+	Sbz1        byte
+	ACLSize     uint16
+	ACECount    uint16
+	Sbz2        uint16
+}
+
+type ACL struct {
+	ACLHeader
+	ACEs []ACEAccessAllowed
+}
+
+type ACEHeader struct {
+	Type  byte
+	Flags byte
+	Size  uint16
+}
+
+type ACEAccessAllowed struct {
+	Mask uint32
+	SID  SID
+}
+
+type SID struct {
+	Revision            byte
+	SubAuthorityCount   byte   `smb:"count:SubAuthority"`
+	IdentifierAuthority []byte `smb:"fixed:6"`
+	SubAuthority        []uint32
+}
+
+var (
+	IdentifierAuthorityMap = map[string][]byte{
+		"0":  {0, 0, 0, 0, 0, 0x00}, // IdentifierAuthorityNull
+		"1":  {0, 0, 0, 0, 0, 0x01}, // IdentifierAuthorityWorld
+		"2":  {0, 0, 0, 0, 0, 0x02}, // IdentifierAuthorityLocal
+		"3":  {0, 0, 0, 0, 0, 0x03}, // IdentifierAuthorityCreator
+		"4":  {0, 0, 0, 0, 0, 0x04}, // IdentifierAuthorityNonUnique
+		"5":  {0, 0, 0, 0, 0, 0x05}, // IdentifierAuthoritySecurityNT
+		"F":  {0, 0, 0, 0, 0, 0x0F}, // IdentifierAuthoritySecurityApp
+		"16": {0, 0, 0, 0, 0, 0x10}, // IdentifierAuthoritySecurityMandatory
+		"17": {0, 0, 0, 0, 0, 0x11}, // IdentifierAuthoritySecurityScopedPolicy
+		"18": {0, 0, 0, 0, 0, 0x12}, // IdentifierAuthoritySecurityAuthentication
+	}
+
+	accessMaskMap = map[uint32]string{
+		0x80000000: "GENERIC_READ",
+		0x4000000:  "GENERIC_WRITE",
+		0x20000000: "GENERIC_EXECUTE",
+		0x10000000: "GENERIC_ALL",
+		0x02000000: "MAXIMUM_ALLOWED",
+		0x01000000: "ACCESS_SYSTEM_SECURITY",
+		0x00100000: "SYNCHRONIZE",
+		0x00080000: "WRITE_OWNER",
+		0x00040000: "WRITE_DACL",
+		0x00020000: "READ_CONTROL",
+		0x00010000: "DELETE",
+	}
+)
+
+func ParseAccessMask(mask uint32) []string {
+	permissions := []string{}
+	for v, s := range accessMaskMap {
+		if mask&v > 0 {
+			permissions = append(permissions, s)
+		}
+	}
+	slices.Sort(permissions)
+	return permissions
+}
+
+func (a ACEAccessAllowed) Permissions() []string {
+	return ParseAccessMask(a.Mask)
+}
+
+func (a ACEAccessAllowed) String() string {
+	return fmt.Sprintf("ACE: Mask: (%s), SID: %s", strings.Join(a.Permissions(), ","), a.SID)
+}
+
+func (s SID) String() string {
+	ia := "0"
+	for p, b := range IdentifierAuthorityMap {
+		if slices.Equal(s.IdentifierAuthority, b) {
+			ia = p
+		}
+	}
+	subAuthorities := make([]string, len(s.SubAuthority))
+	for i, sub := range s.SubAuthority {
+		subAuthorities[i] = strconv.FormatUint(uint64(sub), 10)
+	}
+	return fmt.Sprintf("S-1-%s-%s", ia, strings.Join(subAuthorities, "-"))
+}
+
+type FileSecurityInformation struct {
+	OwnerSID      SID
+	GroupSID      SID
+	AccessAllowed []ACEAccessAllowed
 }
 
 type FileBothDirectoryInformationStruct struct {
@@ -1570,5 +1804,37 @@ func (s *Session) NewSetInfoReq(share string, fileId []byte) (SetInfoReq, error)
 		InfoType:      OInfoFile,
 		FileInfoClass: FileDispositionInformation,
 		FileId:        fileId,
+	}, nil
+}
+
+func (s *Session) NewQueryInfoReq(
+	share string,
+	fileId []byte,
+	infoType byte,
+	fileInformationClass byte,
+	additionalInformation uint32,
+	outputBufferLength uint32,
+) (QueryInfoReq, error) {
+	header := newHeader()
+	header.Command = CommandQueryInfo
+	header.CreditCharge = 1
+	header.SessionID = s.sessionID
+	header.TreeID = s.trees[share]
+
+	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
+		header.Credits = 127
+		if header.CreditCharge > 127 {
+			header.Credits = header.CreditCharge
+		}
+	}
+
+	return QueryInfoReq{
+		Header:                header, //Size 64 bytes
+		StructureSize:         41,
+		InfoType:              infoType,
+		FileInfoClass:         fileInformationClass,
+		AdditionalInformation: additionalInformation,
+		FileId:                fileId,
+		OutputBufferLength:    outputBufferLength,
 	}, nil
 }
