@@ -1210,19 +1210,19 @@ func (f *File) QueryInfoSecurity(flags uint32, bufferSize uint32) (fs *FileSecur
 
 	start, stop := uint32(0), res.OutputBufferLength
 	sd := &SecurityDescriptor{}
-	err = encoder.Unmarshal(res.Buffer[start:stop], sd)
+	err = sd.UnmarshalBinary(res.Buffer[start:stop])
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing security descriptor: %w", err)
 	}
 
 	fs = &FileSecurityInformation{
-		OwnerSID: sd.OwnerSID.String(),
-		GroupSID: sd.GroupSID.String(),
+		OwnerSID: sd.GroupSid.String(),
+		GroupSID: sd.GroupSid.String(),
 	}
-	for _, acl := range sd.Dacl.ACEs {
+	for _, acl := range sd.Dacl.ACLS {
 		fs.AccessAllowed = append(fs.AccessAllowed, FileSecurityInformationACL{
 			Permissions: acl.Permissions(),
-			SID:         acl.SID.String(),
+			SID:         acl.Sid.String(),
 		})
 	}
 

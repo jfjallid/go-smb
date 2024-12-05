@@ -24,10 +24,10 @@ package smb
 
 import (
 	"bytes"
-	"cmp"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"slices"
 	"strconv"
@@ -484,6 +484,63 @@ const (
 
 )
 
+// MS-DTYP Section 2.4.6 Security_Descriptor Control Flag
+const (
+	SecurityDescriptorFlagOD uint16 = 0x0001 // Owner Default
+	SecurityDescriptorFlagGD uint16 = 0x0002 // Group Default
+	SecurityDescriptorFlagDP uint16 = 0x0004 // DACL Present
+	SecurityDescriptorFlagDD uint16 = 0x0008 // DACL Defaulted
+	SecurityDescriptorFlagSP uint16 = 0x0010 // SACL Present
+	SecurityDescriptorFlagSD uint16 = 0x0020 // SACL Defaulted
+	SecurityDescriptorFlagDT uint16 = 0x0040 // DACL Trusted
+	SecurityDescriptorFlagSS uint16 = 0x0080 // Server Security
+	SecurityDescriptorFlagDC uint16 = 0x0100 // DACL Computed Inheritance Required
+	SecurityDescriptorFlagSC uint16 = 0x0200 // SACL Computed Inheritance Required
+	SecurityDescriptorFlagDI uint16 = 0x0400 // DACL Auto-Inherited
+	SecurityDescriptorFlagSI uint16 = 0x0800 // SACL Auto-Inherited
+	SecurityDescriptorFlagPD uint16 = 0x1000 // DACL Protected
+	SecurityDescriptorFlagPS uint16 = 0x2000 // SACL Protected
+	SecurityDescriptorFlagPM uint16 = 0x4000 // RM Control Valid
+	SecurityDescriptorFlagSR uint16 = 0x8000 // Self-Relative
+)
+
+// MS-DTYP Section 2.4.4.1 ACE_HEADER
+// AceType
+const (
+	AccessAllowedAceType               byte = 0x00
+	AccessDeniedAceType                byte = 0x01
+	SystemAuditAceType                 byte = 0x02
+	SystemAlarmAceType                 byte = 0x03
+	AccessAllowedCompoundAceType       byte = 0x04
+	AccessAllowedObjectAceType         byte = 0x05
+	AccessDeniedObjectAceType          byte = 0x06
+	SystemAuditObjectAceType           byte = 0x07
+	SystemAlarmObjectAceType           byte = 0x08
+	AccessAllowedCallbackAceType       byte = 0x09
+	AccessDeniedCallbackAceType        byte = 0x0a
+	AccessAllowedCallbackObjectAceType byte = 0x0b
+	AccessDeniedCallbackObjectAceType  byte = 0x0c
+	SystemAuditCallbackAceType         byte = 0x0d
+	SystemAlarmCallbackAceType         byte = 0x0e
+	SystemAuditCallbackObjectAceType   byte = 0x0f
+	SystemAlarmCallbackObjectAceType   byte = 0x10
+	SystemMandatoryLabelAceType        byte = 0x11
+	SystemResourceAttribyteAceType     byte = 0x12
+	SystemScopedPolicyIdAceType        byte = 0x13
+)
+
+// AceFlags
+const (
+	ObjectInheritAce        byte = 0x01
+	ContainerInheritAce     byte = 0x02
+	NoPropagateInheritAce   byte = 0x04
+	InheritOnlyAce          byte = 0x08
+	InheritedAce            byte = 0x10
+	SuccessfulAccessAceFlag byte = 0x40
+	FailedAccessAceFlag     byte = 0x80
+	DefaultAceFlag          byte = 0x02 // ContainerInheritAce
+)
+
 // Custom error not part of SMB
 var ErrorNotDir = fmt.Errorf("Not a directory")
 
@@ -782,32 +839,44 @@ type QueryInfoRes struct {
 	Buffer             []byte
 }
 
-type SecurityDescriptorHeader struct {
-	Revision    byte
-	Sbz1        byte
+type SecurityDescriptor struct {
+	Revision    uint16
 	Control     uint16
 	OffsetOwner uint32
 	OffsetGroup uint32
-	OffsetSacl  uint32
-	OffsetDacl  uint32
+	OffsetSacl  uint32 // From beginning of struct?
+	OffsetDacl  uint32 // From beginning of struct?
+	OwnerSid    *SID
+	GroupSid    *SID
+	Sacl        *PACL
+	Dacl        *PACL
 }
 
-type SecurityDescriptor struct {
-	SecurityDescriptorHeader
-	OwnerSID SID
-	GroupSID SID
-	Sacl     ACL
-	Dacl     ACL
+type PACL struct {
+	AclRevision uint16
+	AclSize     uint16
+	AceCount    uint32
+	ACLS        []ACE
 }
 
-func (sd *SecurityDescriptor) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	return []byte{}, nil
+// MS-DTYP Section 2.4.4.1 ACE_HEADER
+type ACEHeader struct {
+	Type  byte
+	Flags byte
+	Size  uint16 //Includes header size?
 }
 
-type offsetMeta struct {
-	offset uint32
-	length uint32
-	name   string
+type ACE struct {
+	Header ACEHeader
+	Mask   uint32
+	Sid    SID //Must be multiple of 4
+}
+
+type SID struct {
+	Revision       byte
+	NumAuth        byte
+	Authority      []byte
+	SubAuthorities []uint32
 }
 
 const (
@@ -818,119 +887,429 @@ const (
 	securityDescriptorEnd   = "end"
 )
 
-func (sd *SecurityDescriptor) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	log.Debugln("In UnmarshalBinary for SecurityDescriptor")
-	err := encoder.Unmarshal(buf[:20], &sd.SecurityDescriptorHeader)
+func (self *SecurityDescriptor) MarshalBinary() (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+	ptrBuf := make([]byte, 0)
+	// Order: 1. SACL, 2. DACL, 3. Owner, 4. Group
+	bufOffset := uint32(20)
+
+	if self.Sacl != nil {
+		sBuf, err := self.Sacl.MarshalBinary()
+		if err != nil {
+			log.Errorln(err)
+			return nil, err
+		}
+		ptrBuf = append(ptrBuf, sBuf...)
+		self.Control |= SecurityDescriptorFlagSP
+		self.OffsetSacl = bufOffset
+		bufOffset += uint32(len(sBuf))
+	}
+	if self.Dacl != nil {
+		dBuf, err := self.Dacl.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+		ptrBuf = append(ptrBuf, dBuf...)
+		self.Control |= SecurityDescriptorFlagDP
+		self.OffsetDacl = bufOffset
+		bufOffset += uint32(len(dBuf))
+	}
+
+	if self.OwnerSid != nil {
+		oBuf, err := self.OwnerSid.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+		ptrBuf = append(ptrBuf, oBuf...)
+		self.OffsetOwner = bufOffset
+		bufOffset += uint32(len(oBuf))
+	}
+
+	if self.OffsetGroup != 0 {
+		gBuf, err := self.GroupSid.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+		ptrBuf = append(ptrBuf, gBuf...)
+		self.OffsetGroup = bufOffset
+	}
+
+	// Encode revision
+	err = binary.Write(w, binary.LittleEndian, self.Revision)
 	if err != nil {
-		err = fmt.Errorf("encoder unmarshal header: %w", err)
 		log.Errorln(err)
-		return err
+		return
+	}
+	// Encode control
+	err = binary.Write(w, binary.LittleEndian, self.Control)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Encode  OffsetOwner
+	err = binary.Write(w, binary.LittleEndian, self.OffsetOwner)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Encode  OffsetGroup
+	err = binary.Write(w, binary.LittleEndian, self.OffsetGroup)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Encode  OffsetSacl
+	err = binary.Write(w, binary.LittleEndian, self.OffsetSacl)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Encode  OffsetDacl
+	err = binary.Write(w, binary.LittleEndian, self.OffsetDacl)
+	if err != nil {
+		log.Errorln(err)
+		return
 	}
 
-	offsets := []offsetMeta{
-		{offset: sd.OffsetOwner, name: securityDescriptorOwner},
-		{offset: sd.OffsetGroup, name: securityDescriptorGroup},
-		{offset: sd.OffsetSacl, name: securityDescriptorSACL},
-		{offset: sd.OffsetDacl, name: securityDescriptorDACL},
-	}
-	offsets = slices.DeleteFunc(offsets, func(o offsetMeta) bool { return o.offset == 0 })
-	slices.SortFunc(offsets, func(a, b offsetMeta) int { return cmp.Compare(a.offset, b.offset) })
-	offsets = append(offsets, offsetMeta{offset: uint32(len(buf)), name: securityDescriptorEnd})
-	for i := 0; i < len(offsets)-1; i++ {
-		offsets[i].length = offsets[i+1].offset - offsets[i].offset
+	// Encode serialized Owner, Group, Sacl and Dacl
+	_, err = w.Write(ptrBuf)
+	if err != nil {
+		log.Errorln(err)
+		return
 	}
 
-	for _, meta := range offsets {
-		switch meta.name {
-		case securityDescriptorOwner:
-			ownerSid := &SID{}
-			err = encoder.Unmarshal(buf[meta.offset:meta.offset+meta.length], ownerSid)
-			if err != nil {
-				return fmt.Errorf("unmarshal owner sid: %w", err)
-			}
-			sd.OwnerSID = *ownerSid
+	return w.Bytes(), nil
+}
 
-		case securityDescriptorGroup:
-			groupSid := &SID{}
-			err = encoder.Unmarshal(buf[meta.offset:meta.offset+meta.length], groupSid)
-			if err != nil {
-				return fmt.Errorf("unmarshal group sid: %w", err)
-			}
-			sd.GroupSID = *groupSid
+func (self *SecurityDescriptor) UnmarshalBinary(buf []byte) (err error) {
 
-		case securityDescriptorDACL:
-			dacl := &ACL{}
-			payload := bytes.NewReader(buf[meta.offset : meta.offset+meta.length])
-			err = binary.Read(payload, binary.LittleEndian, &dacl.ACLHeader)
-			if err != nil {
-				return fmt.Errorf("binary read DACL header: %w", err)
-			}
-			for i := uint16(0); i < dacl.ACECount; i++ {
-				ace := ACEHeader{}
-				binary.Read(payload, binary.LittleEndian, &ace)
-				acePayload := make([]byte, ace.Size-4) // 4 is ACEHeader size
-				payload.Read(acePayload)
-				switch ace.Type {
-				case 0: // ACCESS_ALLOWED_ACE_TYPE
-					accessAllowed := &ACEAccessAllowed{}
-					err = encoder.Unmarshal(acePayload, accessAllowed)
-					if err != nil {
-						return fmt.Errorf("unmarshal ACE AccessAllowed: %w", err)
-					}
-					sd.Dacl.ACEs = append(sd.Dacl.ACEs, *accessAllowed)
-				}
-			}
+	r := bytes.NewReader(buf)
+
+	err = binary.Read(r, binary.LittleEndian, &self.Revision)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &self.Control)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &self.OffsetOwner)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &self.OffsetGroup)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &self.OffsetSacl)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &self.OffsetDacl)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	if self.OffsetOwner != 0 {
+		_, err = r.Seek(int64(self.OffsetOwner), io.SeekStart)
+		self.OwnerSid, err = readSID(r)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+	if self.OffsetGroup != 0 {
+		_, err = r.Seek(int64(self.OffsetGroup), io.SeekStart)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		self.GroupSid, err = readSID(r)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	if (self.Control & SecurityDescriptorFlagSP) == SecurityDescriptorFlagSP {
+		_, err = r.Seek(int64(self.OffsetSacl), io.SeekStart)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		self.Sacl, err = readPACL(r)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	if (self.Control & SecurityDescriptorFlagDP) == SecurityDescriptorFlagDP {
+		_, err = r.Seek(int64(self.OffsetDacl), io.SeekStart)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		self.Dacl, err = readPACL(r)
+		if err != nil {
+			log.Errorln(err)
+			return
 		}
 	}
 
 	return nil
 }
 
-type ACLHeader struct {
-	ACLRevision byte
-	Sbz1        byte
-	ACLSize     uint16
-	ACECount    uint16
-	Sbz2        uint16
+func (self *SID) MarshalBinary() (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+
+	// Encode ACE SID
+	err = binary.Write(w, binary.LittleEndian, self.Revision)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, binary.LittleEndian, byte(len(self.SubAuthorities)))
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, binary.LittleEndian, self.Authority)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, binary.LittleEndian, self.SubAuthorities)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
 }
 
-type ACL struct {
-	ACLHeader
-	ACEs []ACEAccessAllowed
+func readSID(r *bytes.Reader) (s *SID, err error) {
+	s = &SID{}
+	// Decode ACE SID
+	err = binary.Read(r, binary.LittleEndian, &s.Revision)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &s.NumAuth)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	s.Authority = make([]byte, 6)
+	err = binary.Read(r, binary.LittleEndian, &s.Authority)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	s.SubAuthorities = make([]uint32, s.NumAuth)
+	for i := range s.SubAuthorities {
+		err = binary.Read(r, binary.LittleEndian, &s.SubAuthorities[i])
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	return
 }
 
-type ACEHeader struct {
-	Type  byte
-	Flags byte
-	Size  uint16
+func (self *SID) UnmarshalBinary(buf []byte) (err error) {
+	r := bytes.NewReader(buf)
+	sid, err := readSID(r)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	*self = *sid
+	return nil
 }
 
-type ACEAccessAllowed struct {
-	Mask uint32
-	SID  SID
+func (self *ACE) MarshalBinary() (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+
+	err = binary.Write(w, binary.LittleEndian, self.Header.Type)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, binary.LittleEndian, self.Header.Flags)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, binary.LittleEndian, self.Header.Size)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, binary.LittleEndian, self.Mask)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// Encode ACE SID
+	sidBuf, err := self.Sid.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+	err = binary.Write(w, binary.LittleEndian, sidBuf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	return w.Bytes(), nil
 }
 
-type SID struct {
-	Revision            byte
-	SubAuthorityCount   byte   `smb:"count:SubAuthority"`
-	IdentifierAuthority []byte `smb:"fixed:6"`
-	SubAuthority        []uint32
+func readACE(r *bytes.Reader) (a *ACE, err error) {
+	a = &ACE{}
+	err = binary.Read(r, binary.LittleEndian, &a.Header.Type)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &a.Header.Flags)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &a.Header.Size)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &a.Mask)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	sid, err := readSID(r)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	a.Sid = *sid
+
+	return
+}
+
+func (self *ACE) UnmarshalBinary(buf []byte) (err error) {
+	r := bytes.NewReader(buf)
+	ace, err := readACE(r)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	*self = *ace
+	return nil
+}
+
+func (self *PACL) MarshalBinary() (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+
+	err = binary.Write(w, binary.LittleEndian, self.AclRevision)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, binary.LittleEndian, self.AclSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// Encode AceCount at 4 byte boundary
+	err = binary.Write(w, binary.LittleEndian, uint32(len(self.ACLS)))
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	for _, item := range self.ACLS {
+		var aceBuf []byte
+		aceBuf, err = item.MarshalBinary()
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		_, err = w.Write(aceBuf)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	return w.Bytes(), nil
+}
+
+func readPACL(r *bytes.Reader) (p *PACL, err error) {
+	p = &PACL{}
+	err = binary.Read(r, binary.LittleEndian, &p.AclRevision)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &p.AclSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &p.AceCount)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	p.ACLS = make([]ACE, p.AceCount)
+	for i := range p.ACLS {
+		var ace *ACE
+		ace, err = readACE(r)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		p.ACLS[i] = *ace
+	}
+
+	return
+}
+
+func (self *PACL) UnmarshalBinary(buf []byte) (err error) {
+	r := bytes.NewReader(buf)
+	pacl, err := readPACL(r)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	*self = *pacl
+
+	return nil
 }
 
 var (
-	IdentifierAuthorityMap = map[string][]byte{
-		"0":  {0, 0, 0, 0, 0, 0x00}, // IdentifierAuthorityNull
-		"1":  {0, 0, 0, 0, 0, 0x01}, // IdentifierAuthorityWorld
-		"2":  {0, 0, 0, 0, 0, 0x02}, // IdentifierAuthorityLocal
-		"3":  {0, 0, 0, 0, 0, 0x03}, // IdentifierAuthorityCreator
-		"4":  {0, 0, 0, 0, 0, 0x04}, // IdentifierAuthorityNonUnique
-		"5":  {0, 0, 0, 0, 0, 0x05}, // IdentifierAuthoritySecurityNT
-		"F":  {0, 0, 0, 0, 0, 0x0F}, // IdentifierAuthoritySecurityApp
-		"16": {0, 0, 0, 0, 0, 0x10}, // IdentifierAuthoritySecurityMandatory
-		"17": {0, 0, 0, 0, 0, 0x11}, // IdentifierAuthoritySecurityScopedPolicy
-		"18": {0, 0, 0, 0, 0, 0x12}, // IdentifierAuthoritySecurityAuthentication
-	}
-
 	accessMaskMap = map[uint32]string{
 		0x80000000: "GENERIC_READ",
 		0x4000000:  "GENERIC_WRITE",
@@ -957,23 +1336,18 @@ func ParseAccessMask(mask uint32) []string {
 	return permissions
 }
 
-func (a ACEAccessAllowed) Permissions() []string {
+func (a ACE) Permissions() []string {
 	return ParseAccessMask(a.Mask)
-}
-
-func (a ACEAccessAllowed) String() string {
-	return fmt.Sprintf("ACE: Mask: (%s), SID: %s", strings.Join(a.Permissions(), ","), a.SID)
 }
 
 func (s SID) String() string {
 	ia := "0"
-	for p, b := range IdentifierAuthorityMap {
-		if slices.Equal(s.IdentifierAuthority, b) {
-			ia = p
-		}
+	l := len(s.Authority)
+	if l > 0 {
+		ia = strconv.FormatUint(uint64(s.Authority[l-1]), 10)
 	}
-	subAuthorities := make([]string, len(s.SubAuthority))
-	for i, sub := range s.SubAuthority {
+	subAuthorities := make([]string, len(s.SubAuthorities))
+	for i, sub := range s.SubAuthorities {
 		subAuthorities[i] = strconv.FormatUint(uint64(sub), 10)
 	}
 	return fmt.Sprintf("S-1-%s-%s", ia, strings.Join(subAuthorities, "-"))
