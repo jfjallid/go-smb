@@ -1157,7 +1157,7 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 	return
 }
 
-func (f *File) QueryInfoSecurity(flags uint32, bufferSize uint32) (fs *FileSecurityInformation, err error) {
+func (f *File) QueryInfoSecurity(additionalInformation uint32, bufferSize uint32) (fs *FileSecurityInformation, err error) {
 	if f.fd == nil {
 		return nil, fmt.Errorf("Can't operate on a closed file")
 	}
@@ -1166,8 +1166,10 @@ func (f *File) QueryInfoSecurity(flags uint32, bufferSize uint32) (fs *FileSecur
 		f.fd,
 		OInfoSecurity,
 		0,
-		flags,
+		additionalInformation,
+		0,
 		bufferSize,
+		nil,
 	)
 	if err != nil {
 		err = fmt.Errorf("new request: %w", err)
@@ -1190,7 +1192,7 @@ func (f *File) QueryInfoSecurity(flags uint32, bufferSize uint32) (fs *FileSecur
 	}
 
 	if res.Header.Status == StatusNoSuchFile {
-		return
+		return nil, fmt.Errorf("file not found")
 	}
 
 	if res.Header.Status != StatusOk {
@@ -1205,22 +1207,25 @@ func (f *File) QueryInfoSecurity(flags uint32, bufferSize uint32) (fs *FileSecur
 		return
 	}
 	if res.OutputBufferLength == 0 {
-		return
+		return nil, fmt.Errorf("server response didn't contain any info")
 	}
 
 	start, stop := uint32(0), res.OutputBufferLength
 	sd := &SecurityDescriptor{}
-	err = sd.UnmarshalBinary(res.Buffer[start:stop])
+	err = encoder.Unmarshal(res.Buffer[start:stop], sd)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing security descriptor: %w", err)
 	}
 
 	fs = &FileSecurityInformation{
-		OwnerSID: sd.GroupSid.String(),
+		OwnerSID: sd.OwnerSid.String(),
 		GroupSID: sd.GroupSid.String(),
 	}
 	for _, acl := range sd.Dacl.ACLS {
-		fs.AccessAllowed = append(fs.AccessAllowed, FileSecurityInformationACL{
+		if acl.Header.Type != AccessAllowedAceType {
+			continue
+		}
+		fs.Access = append(fs.Access, FileSecurityInformationACL{
 			Permissions: acl.Permissions(),
 			SID:         acl.Sid.String(),
 		})

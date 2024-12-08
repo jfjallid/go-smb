@@ -541,6 +541,22 @@ const (
 	DefaultAceFlag          byte = 0x02 // ContainerInheritAce
 )
 
+var (
+	accessMaskMap = map[uint32]string{
+		0x80000000: "GENERIC_READ",
+		0x4000000:  "GENERIC_WRITE",
+		0x20000000: "GENERIC_EXECUTE",
+		0x10000000: "GENERIC_ALL",
+		0x02000000: "MAXIMUM_ALLOWED",
+		0x01000000: "ACCESS_SYSTEM_SECURITY",
+		0x00100000: "SYNCHRONIZE",
+		0x00080000: "WRITE_OWNER",
+		0x00040000: "WRITE_DACL",
+		0x00020000: "READ_CONTROL",
+		0x00010000: "DELETE",
+	}
+)
+
 // Custom error not part of SMB
 var ErrorNotDir = fmt.Errorf("Not a directory")
 
@@ -822,20 +838,20 @@ type QueryInfoReq struct {
 	InfoType              byte
 	FileInfoClass         byte
 	OutputBufferLength    uint32
-	InputBufferOffset     uint16 `smb:"offset:Buffer"`
+	InputBufferOffset     uint16
 	Reserved              uint16
-	InputBufferLength     uint32 `smb:"len:Buffer"`
+	InputBufferLength     uint32
 	AdditionalInformation uint32
 	Flags                 uint32
-	FileId                []byte `smb:"fixed:16"`
+	FileId                []byte
 	Buffer                []byte
 }
 
 type QueryInfoRes struct {
 	Header
 	StructureSize      uint16 // Must always be 9
-	OutputBufferOffset uint16 `smb:"offset:Buffer"`
-	OutputBufferLength uint32 `smb:"len:Buffer"`
+	OutputBufferOffset uint16
+	OutputBufferLength uint32
 	Buffer             []byte
 }
 
@@ -879,22 +895,14 @@ type SID struct {
 	SubAuthorities []uint32
 }
 
-const (
-	securityDescriptorOwner = "owner"
-	securityDescriptorGroup = "group"
-	securityDescriptorDACL  = "dacl"
-	securityDescriptorSACL  = "sacl"
-	securityDescriptorEnd   = "end"
-)
-
-func (self *SecurityDescriptor) MarshalBinary() (ret []byte, err error) {
+func (self *SecurityDescriptor) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 	ptrBuf := make([]byte, 0)
 	// Order: 1. SACL, 2. DACL, 3. Owner, 4. Group
 	bufOffset := uint32(20)
 
 	if self.Sacl != nil {
-		sBuf, err := self.Sacl.MarshalBinary()
+		sBuf, err := self.Sacl.MarshalBinary(meta)
 		if err != nil {
 			log.Errorln(err)
 			return nil, err
@@ -905,7 +913,7 @@ func (self *SecurityDescriptor) MarshalBinary() (ret []byte, err error) {
 		bufOffset += uint32(len(sBuf))
 	}
 	if self.Dacl != nil {
-		dBuf, err := self.Dacl.MarshalBinary()
+		dBuf, err := self.Dacl.MarshalBinary(meta)
 		if err != nil {
 			return nil, err
 		}
@@ -916,7 +924,7 @@ func (self *SecurityDescriptor) MarshalBinary() (ret []byte, err error) {
 	}
 
 	if self.OwnerSid != nil {
-		oBuf, err := self.OwnerSid.MarshalBinary()
+		oBuf, err := self.OwnerSid.MarshalBinary(meta)
 		if err != nil {
 			return nil, err
 		}
@@ -926,7 +934,7 @@ func (self *SecurityDescriptor) MarshalBinary() (ret []byte, err error) {
 	}
 
 	if self.OffsetGroup != 0 {
-		gBuf, err := self.GroupSid.MarshalBinary()
+		gBuf, err := self.GroupSid.MarshalBinary(meta)
 		if err != nil {
 			return nil, err
 		}
@@ -981,7 +989,7 @@ func (self *SecurityDescriptor) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SecurityDescriptor) UnmarshalBinary(buf []byte) (err error) {
+func (self *SecurityDescriptor) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
 
 	r := bytes.NewReader(buf)
 
@@ -1066,7 +1074,7 @@ func (self *SecurityDescriptor) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *SID) MarshalBinary() (ret []byte, err error) {
+func (self *SID) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 
 	// Encode ACE SID
@@ -1127,7 +1135,7 @@ func readSID(r *bytes.Reader) (s *SID, err error) {
 	return
 }
 
-func (self *SID) UnmarshalBinary(buf []byte) (err error) {
+func (self *SID) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
 	r := bytes.NewReader(buf)
 	sid, err := readSID(r)
 	if err != nil {
@@ -1139,7 +1147,7 @@ func (self *SID) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *ACE) MarshalBinary() (ret []byte, err error) {
+func (self *ACE) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 
 	err = binary.Write(w, binary.LittleEndian, self.Header.Type)
@@ -1165,7 +1173,7 @@ func (self *ACE) MarshalBinary() (ret []byte, err error) {
 	}
 
 	// Encode ACE SID
-	sidBuf, err := self.Sid.MarshalBinary()
+	sidBuf, err := self.Sid.MarshalBinary(meta)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -1214,7 +1222,7 @@ func readACE(r *bytes.Reader) (a *ACE, err error) {
 	return
 }
 
-func (self *ACE) UnmarshalBinary(buf []byte) (err error) {
+func (self *ACE) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
 	r := bytes.NewReader(buf)
 	ace, err := readACE(r)
 	if err != nil {
@@ -1226,7 +1234,7 @@ func (self *ACE) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *PACL) MarshalBinary() (ret []byte, err error) {
+func (self *PACL) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 
 	err = binary.Write(w, binary.LittleEndian, self.AclRevision)
@@ -1249,7 +1257,7 @@ func (self *PACL) MarshalBinary() (ret []byte, err error) {
 
 	for _, item := range self.ACLS {
 		var aceBuf []byte
-		aceBuf, err = item.MarshalBinary()
+		aceBuf, err = item.MarshalBinary(meta)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -1297,7 +1305,7 @@ func readPACL(r *bytes.Reader) (p *PACL, err error) {
 	return
 }
 
-func (self *PACL) UnmarshalBinary(buf []byte) (err error) {
+func (self *PACL) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
 	r := bytes.NewReader(buf)
 	pacl, err := readPACL(r)
 	if err != nil {
@@ -1308,22 +1316,6 @@ func (self *PACL) UnmarshalBinary(buf []byte) (err error) {
 
 	return nil
 }
-
-var (
-	accessMaskMap = map[uint32]string{
-		0x80000000: "GENERIC_READ",
-		0x4000000:  "GENERIC_WRITE",
-		0x20000000: "GENERIC_EXECUTE",
-		0x10000000: "GENERIC_ALL",
-		0x02000000: "MAXIMUM_ALLOWED",
-		0x01000000: "ACCESS_SYSTEM_SECURITY",
-		0x00100000: "SYNCHRONIZE",
-		0x00080000: "WRITE_OWNER",
-		0x00040000: "WRITE_DACL",
-		0x00020000: "READ_CONTROL",
-		0x00010000: "DELETE",
-	}
-)
 
 func ParseAccessMask(mask uint32) []string {
 	permissions := []string{}
@@ -1359,9 +1351,9 @@ type FileSecurityInformationACL struct {
 }
 
 type FileSecurityInformation struct {
-	OwnerSID      string
-	GroupSID      string
-	AccessAllowed []FileSecurityInformationACL
+	OwnerSID string
+	GroupSID string
+	Access   []FileSecurityInformationACL
 }
 
 type FileBothDirectoryInformationStruct struct {
@@ -2189,7 +2181,9 @@ func (s *Session) NewQueryInfoReq(
 	infoType byte,
 	fileInformationClass byte,
 	additionalInformation uint32,
+	flags uint32,
 	outputBufferLength uint32,
+	inputBuffer []byte,
 ) (QueryInfoReq, error) {
 	header := newHeader()
 	header.Command = CommandQueryInfo
@@ -2210,7 +2204,9 @@ func (s *Session) NewQueryInfoReq(
 		InfoType:              infoType,
 		FileInfoClass:         fileInformationClass,
 		AdditionalInformation: additionalInformation,
+		Flags:                 flags,
 		FileId:                fileId,
 		OutputBufferLength:    outputBufferLength,
+		Buffer:                inputBuffer,
 	}, nil
 }
