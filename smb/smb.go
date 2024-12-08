@@ -895,6 +895,70 @@ type SID struct {
 	SubAuthorities []uint32
 }
 
+func (self *QueryInfoReq) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
+	log.Debugln("In MarshalBinary for QueryInfoReq")
+	buf := make([]byte, 0, 40+len(self.Buffer))
+
+	hBuf, err := encoder.Marshal(self.Header)
+	if err != nil {
+		log.Debugln(err)
+		return nil, err
+	}
+	buf = append(buf, hBuf...)
+	// StructureSize
+	buf = binary.LittleEndian.AppendUint16(buf, self.StructureSize)
+	// Info Type
+	buf = append(buf, self.InfoType)
+	// FileInfoClass
+	buf = append(buf, self.FileInfoClass)
+	// OutputBufferLength
+	buf = binary.LittleEndian.AppendUint32(buf, self.OutputBufferLength)
+	// InputBufferOffset
+	buf = binary.LittleEndian.AppendUint16(buf, uint16(24+len(self.FileId)))
+	// Reserved
+	buf = binary.LittleEndian.AppendUint16(buf, 0)
+	// InputBufferLength
+	buf = binary.LittleEndian.AppendUint32(buf, self.InputBufferLength)
+	// AdditionalInformation
+	buf = binary.LittleEndian.AppendUint32(buf, self.AdditionalInformation)
+	// Flags
+	buf = binary.LittleEndian.AppendUint32(buf, self.Flags)
+	// FileID
+	buf = append(buf, self.FileId...)
+	// Buffer
+	buf = append(buf, self.Buffer...)
+
+	return buf, nil
+}
+
+func (self *QueryInfoReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of QueryInfoReq")
+}
+
+func (self *QueryInfoRes) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of QueryInfoRes")
+}
+
+func (self *QueryInfoRes) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	log.Debugln("In UnmarshalBinary for QueryInfoRes")
+	err := encoder.Unmarshal(buf[:64], &self.Header)
+	if err != nil {
+		log.Errorln(err)
+		return err
+	}
+	offset := 64
+	self.StructureSize = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	offset += 2
+	self.OutputBufferOffset = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	offset += 2
+	self.OutputBufferLength = binary.LittleEndian.Uint32(buf[offset : offset+4])
+
+	offset = int(self.OutputBufferOffset)
+	self.Buffer = buf[offset : offset+int(self.OutputBufferLength)]
+
+	return nil
+}
+
 func (self *SecurityDescriptor) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 	ptrBuf := make([]byte, 0)
