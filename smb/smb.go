@@ -914,11 +914,15 @@ func (self *QueryInfoReq) MarshalBinary(meta *encoder.Metadata) (ret []byte, err
 	// OutputBufferLength
 	buf = binary.LittleEndian.AppendUint32(buf, self.OutputBufferLength)
 	// InputBufferOffset
-	buf = binary.LittleEndian.AppendUint16(buf, uint16(24+len(self.FileId)))
+	inputBufferOffset := uint16(0)
+	if len(self.Buffer) > 0 {
+		inputBufferOffset = 104 // 40 bytes for QueryInfo, 64 for SMB2 Header
+	}
+	buf = binary.LittleEndian.AppendUint16(buf, inputBufferOffset)
 	// Reserved
 	buf = binary.LittleEndian.AppendUint16(buf, 0)
 	// InputBufferLength
-	buf = binary.LittleEndian.AppendUint32(buf, self.InputBufferLength)
+	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(self.Buffer)))
 	// AdditionalInformation
 	buf = binary.LittleEndian.AppendUint32(buf, self.AdditionalInformation)
 	// Flags

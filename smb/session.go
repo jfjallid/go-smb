@@ -1157,7 +1157,7 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 	return
 }
 
-func (f *File) QueryInfoSecurity(additionalInformation uint32, bufferSize uint32) (fs *FileSecurityInformation, err error) {
+func (f *File) QueryInfoSecurity(bufferSize uint32) (fs *FileSecurityInformation, err error) {
 	if f.fd == nil {
 		return nil, fmt.Errorf("Can't operate on a closed file")
 	}
@@ -1166,7 +1166,7 @@ func (f *File) QueryInfoSecurity(additionalInformation uint32, bufferSize uint32
 		f.fd,
 		OInfoSecurity,
 		0,
-		additionalInformation,
+		OwnerSecurityInformation|GroupSecurityInformation|DACLSecurityInformation,
 		0,
 		bufferSize,
 		nil,
