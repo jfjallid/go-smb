@@ -541,19 +541,33 @@ const (
 	DefaultAceFlag          byte = 0x02 // ContainerInheritAce
 )
 
+const (
+	AccessMaskGenericRead          = "GENERIC_READ"
+	AccessMaskGenericWrite         = "GENERIC_WRITE"
+	AccessMaskGenericExecute       = "GENERIC_EXECUTE"
+	AccessMaskGenericAll           = "GENERIC_ALL"
+	AccessMaskMaximumAllowed       = "MAXIMUM_ALLOWED"
+	AccessMaskAccessSystemSecurity = "ACCESS_SYSTEM_SECURITY"
+	AccessMaskSynchronize          = "SYNCHRONIZE"
+	AccessMaskWriteOwner           = "WRITE_OWNER"
+	AccessMaskWriteDACL            = "WRITE_DACL"
+	AccessMaskReadControl          = "READ_CONTROL"
+	AccessMaskDelete               = "DELETE"
+)
+
 var (
 	accessMaskMap = map[uint32]string{
-		0x80000000: "GENERIC_READ",
-		0x4000000:  "GENERIC_WRITE",
-		0x20000000: "GENERIC_EXECUTE",
-		0x10000000: "GENERIC_ALL",
-		0x02000000: "MAXIMUM_ALLOWED",
-		0x01000000: "ACCESS_SYSTEM_SECURITY",
-		0x00100000: "SYNCHRONIZE",
-		0x00080000: "WRITE_OWNER",
-		0x00040000: "WRITE_DACL",
-		0x00020000: "READ_CONTROL",
-		0x00010000: "DELETE",
+		0x80000000: AccessMaskGenericRead,
+		0x4000000:  AccessMaskGenericWrite,
+		0x20000000: AccessMaskGenericExecute,
+		0x10000000: AccessMaskGenericAll,
+		0x02000000: AccessMaskMaximumAllowed,
+		0x01000000: AccessMaskAccessSystemSecurity,
+		0x00100000: AccessMaskSynchronize,
+		0x00080000: AccessMaskWriteOwner,
+		0x00040000: AccessMaskWriteDACL,
+		0x00020000: AccessMaskReadControl,
+		0x00010000: AccessMaskDelete,
 	}
 )
 
