@@ -59,6 +59,7 @@ const (
 	StatusEndOfFile              = 0xc0000011
 	StatusMoreProcessingRequired = 0xc0000016
 	StatusAccessDenied           = 0xc0000022
+	StatusBufferTooSmall         = 0xc0000023
 	StatusObjectNameInvalid      = 0xc0000033
 	StatusObjectNameNotFound     = 0xc0000034
 	StatusObjectNameCollision    = 0xc0000035
@@ -85,6 +86,7 @@ var StatusMap = map[uint32]error{
 	StatusEndOfFile:              fmt.Errorf("The end-of-file marker has been reached"),
 	StatusMoreProcessingRequired: fmt.Errorf("More Processing Required"),
 	StatusAccessDenied:           fmt.Errorf("Access denied!"),
+	StatusBufferTooSmall:         fmt.Errorf("Buffer is too small to contain the entry"),
 	StatusObjectNameInvalid:      fmt.Errorf("The object name is invalid for the target filesystem"),
 	StatusObjectNameNotFound:     fmt.Errorf("Requested file does not exist"),
 	StatusObjectNameCollision:    fmt.Errorf("File or directory already exists"),
@@ -2269,7 +2271,7 @@ func (s *Session) NewQueryInfoReq(
 ) (QueryInfoReq, error) {
 	header := newHeader()
 	header.Command = CommandQueryInfo
-	header.CreditCharge = 1
+	header.CreditCharge = calcCreditCharge(outputBufferLength)
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
