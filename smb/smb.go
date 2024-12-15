@@ -23,10 +23,15 @@
 package smb
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
+	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/jfjallid/golog"
 
@@ -54,6 +59,7 @@ const (
 	StatusEndOfFile              = 0xc0000011
 	StatusMoreProcessingRequired = 0xc0000016
 	StatusAccessDenied           = 0xc0000022
+	StatusBufferTooSmall         = 0xc0000023
 	StatusObjectNameInvalid      = 0xc0000033
 	StatusObjectNameNotFound     = 0xc0000034
 	StatusObjectNameCollision    = 0xc0000035
@@ -81,6 +87,7 @@ var StatusMap = map[uint32]error{
 	StatusEndOfFile:              fmt.Errorf("The end-of-file marker has been reached"),
 	StatusMoreProcessingRequired: fmt.Errorf("More Processing Required"),
 	StatusAccessDenied:           fmt.Errorf("Access denied!"),
+	StatusBufferTooSmall:         fmt.Errorf("Buffer is too small to contain the entry"),
 	StatusObjectNameInvalid:      fmt.Errorf("The object name is invalid for the target filesystem"),
 	StatusObjectNameNotFound:     fmt.Errorf("Requested file does not exist"),
 	StatusObjectNameCollision:    fmt.Errorf("File or directory already exists"),
@@ -481,6 +488,93 @@ const (
 
 )
 
+// MS-DTYP Section 2.4.6 Security_Descriptor Control Flag
+const (
+	SecurityDescriptorFlagOD uint16 = 0x0001 // Owner Default
+	SecurityDescriptorFlagGD uint16 = 0x0002 // Group Default
+	SecurityDescriptorFlagDP uint16 = 0x0004 // DACL Present
+	SecurityDescriptorFlagDD uint16 = 0x0008 // DACL Defaulted
+	SecurityDescriptorFlagSP uint16 = 0x0010 // SACL Present
+	SecurityDescriptorFlagSD uint16 = 0x0020 // SACL Defaulted
+	SecurityDescriptorFlagDT uint16 = 0x0040 // DACL Trusted
+	SecurityDescriptorFlagSS uint16 = 0x0080 // Server Security
+	SecurityDescriptorFlagDC uint16 = 0x0100 // DACL Computed Inheritance Required
+	SecurityDescriptorFlagSC uint16 = 0x0200 // SACL Computed Inheritance Required
+	SecurityDescriptorFlagDI uint16 = 0x0400 // DACL Auto-Inherited
+	SecurityDescriptorFlagSI uint16 = 0x0800 // SACL Auto-Inherited
+	SecurityDescriptorFlagPD uint16 = 0x1000 // DACL Protected
+	SecurityDescriptorFlagPS uint16 = 0x2000 // SACL Protected
+	SecurityDescriptorFlagPM uint16 = 0x4000 // RM Control Valid
+	SecurityDescriptorFlagSR uint16 = 0x8000 // Self-Relative
+)
+
+// MS-DTYP Section 2.4.4.1 ACE_HEADER
+// AceType
+const (
+	AccessAllowedAceType               byte = 0x00
+	AccessDeniedAceType                byte = 0x01
+	SystemAuditAceType                 byte = 0x02
+	SystemAlarmAceType                 byte = 0x03
+	AccessAllowedCompoundAceType       byte = 0x04
+	AccessAllowedObjectAceType         byte = 0x05
+	AccessDeniedObjectAceType          byte = 0x06
+	SystemAuditObjectAceType           byte = 0x07
+	SystemAlarmObjectAceType           byte = 0x08
+	AccessAllowedCallbackAceType       byte = 0x09
+	AccessDeniedCallbackAceType        byte = 0x0a
+	AccessAllowedCallbackObjectAceType byte = 0x0b
+	AccessDeniedCallbackObjectAceType  byte = 0x0c
+	SystemAuditCallbackAceType         byte = 0x0d
+	SystemAlarmCallbackAceType         byte = 0x0e
+	SystemAuditCallbackObjectAceType   byte = 0x0f
+	SystemAlarmCallbackObjectAceType   byte = 0x10
+	SystemMandatoryLabelAceType        byte = 0x11
+	SystemResourceAttribyteAceType     byte = 0x12
+	SystemScopedPolicyIdAceType        byte = 0x13
+)
+
+// AceFlags
+const (
+	ObjectInheritAce        byte = 0x01
+	ContainerInheritAce     byte = 0x02
+	NoPropagateInheritAce   byte = 0x04
+	InheritOnlyAce          byte = 0x08
+	InheritedAce            byte = 0x10
+	SuccessfulAccessAceFlag byte = 0x40
+	FailedAccessAceFlag     byte = 0x80
+	DefaultAceFlag          byte = 0x02 // ContainerInheritAce
+)
+
+const (
+	AccessMaskGenericRead          = "GENERIC_READ"
+	AccessMaskGenericWrite         = "GENERIC_WRITE"
+	AccessMaskGenericExecute       = "GENERIC_EXECUTE"
+	AccessMaskGenericAll           = "GENERIC_ALL"
+	AccessMaskMaximumAllowed       = "MAXIMUM_ALLOWED"
+	AccessMaskAccessSystemSecurity = "ACCESS_SYSTEM_SECURITY"
+	AccessMaskSynchronize          = "SYNCHRONIZE"
+	AccessMaskWriteOwner           = "WRITE_OWNER"
+	AccessMaskWriteDACL            = "WRITE_DACL"
+	AccessMaskReadControl          = "READ_CONTROL"
+	AccessMaskDelete               = "DELETE"
+)
+
+var (
+	accessMaskMap = map[uint32]string{
+		0x80000000: AccessMaskGenericRead,
+		0x4000000:  AccessMaskGenericWrite,
+		0x20000000: AccessMaskGenericExecute,
+		0x10000000: AccessMaskGenericAll,
+		0x02000000: AccessMaskMaximumAllowed,
+		0x01000000: AccessMaskAccessSystemSecurity,
+		0x00100000: AccessMaskSynchronize,
+		0x00080000: AccessMaskWriteOwner,
+		0x00040000: AccessMaskWriteDACL,
+		0x00020000: AccessMaskReadControl,
+		0x00010000: AccessMaskDelete,
+	}
+)
+
 // Custom error not part of SMB
 var ErrorNotDir = fmt.Errorf("Not a directory")
 
@@ -754,6 +848,598 @@ type QueryDirectoryRes struct {
 	OutputBufferOffset uint16 `smb:"offset:Buffer"`
 	OutputBufferLength uint32 `smb:"len:Buffer"`
 	Buffer             []byte
+}
+
+type QueryInfoReq struct {
+	Header
+	StructureSize         uint16 // Must always be 41 regardless of Buffer size
+	InfoType              byte
+	FileInfoClass         byte
+	OutputBufferLength    uint32
+	InputBufferOffset     uint16
+	Reserved              uint16
+	InputBufferLength     uint32
+	AdditionalInformation uint32
+	Flags                 uint32
+	FileId                []byte
+	Buffer                []byte
+}
+
+type QueryInfoRes struct {
+	Header
+	StructureSize      uint16 // Must always be 9
+	OutputBufferOffset uint16
+	OutputBufferLength uint32
+	Buffer             []byte
+}
+
+type SecurityDescriptor struct {
+	Revision    uint16
+	Control     uint16
+	OffsetOwner uint32
+	OffsetGroup uint32
+	OffsetSacl  uint32 // From beginning of struct?
+	OffsetDacl  uint32 // From beginning of struct?
+	OwnerSid    *SID
+	GroupSid    *SID
+	Sacl        *PACL
+	Dacl        *PACL
+}
+
+type PACL struct {
+	AclRevision uint16
+	AclSize     uint16
+	AceCount    uint32
+	ACLS        []ACE
+}
+
+// MS-DTYP Section 2.4.4.1 ACE_HEADER
+type ACEHeader struct {
+	Type  byte
+	Flags byte
+	Size  uint16 //Includes header size?
+}
+
+type ACE struct {
+	Header ACEHeader
+	Mask   uint32
+	Sid    SID //Must be multiple of 4
+}
+
+type SID struct {
+	Revision       byte
+	NumAuth        byte
+	Authority      []byte
+	SubAuthorities []uint32
+}
+
+func (self *QueryInfoReq) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
+	log.Debugln("In MarshalBinary for QueryInfoReq")
+	buf := make([]byte, 0, 40+len(self.Buffer))
+
+	hBuf, err := encoder.Marshal(self.Header)
+	if err != nil {
+		log.Debugln(err)
+		return nil, err
+	}
+	buf = append(buf, hBuf...)
+	// StructureSize
+	buf = binary.LittleEndian.AppendUint16(buf, self.StructureSize)
+	// Info Type
+	buf = append(buf, self.InfoType)
+	// FileInfoClass
+	buf = append(buf, self.FileInfoClass)
+	// OutputBufferLength
+	buf = binary.LittleEndian.AppendUint32(buf, self.OutputBufferLength)
+	// InputBufferOffset
+	inputBufferOffset := uint16(0)
+	if len(self.Buffer) > 0 {
+		inputBufferOffset = 104 // 40 bytes for QueryInfo, 64 for SMB2 Header
+	}
+	buf = binary.LittleEndian.AppendUint16(buf, inputBufferOffset)
+	// Reserved
+	buf = binary.LittleEndian.AppendUint16(buf, 0)
+	// InputBufferLength
+	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(self.Buffer)))
+	// AdditionalInformation
+	buf = binary.LittleEndian.AppendUint32(buf, self.AdditionalInformation)
+	// Flags
+	buf = binary.LittleEndian.AppendUint32(buf, self.Flags)
+	// FileID
+	buf = append(buf, self.FileId...)
+	// Buffer
+	buf = append(buf, self.Buffer...)
+
+	return buf, nil
+}
+
+func (self *QueryInfoReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of QueryInfoReq")
+}
+
+func (self *QueryInfoRes) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of QueryInfoRes")
+}
+
+func (self *QueryInfoRes) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+	log.Debugln("In UnmarshalBinary for QueryInfoRes")
+	err := encoder.Unmarshal(buf[:64], &self.Header)
+	if err != nil {
+		log.Errorln(err)
+		return err
+	}
+	offset := 64
+	self.StructureSize = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	offset += 2
+	self.OutputBufferOffset = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	offset += 2
+	self.OutputBufferLength = binary.LittleEndian.Uint32(buf[offset : offset+4])
+
+	offset = int(self.OutputBufferOffset)
+	self.Buffer = buf[offset : offset+int(self.OutputBufferLength)]
+
+	return nil
+}
+
+func (self *SecurityDescriptor) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+	ptrBuf := make([]byte, 0)
+	// Order: 1. SACL, 2. DACL, 3. Owner, 4. Group
+	bufOffset := uint32(20)
+
+	if self.Sacl != nil {
+		sBuf, err := self.Sacl.MarshalBinary(meta)
+		if err != nil {
+			log.Errorln(err)
+			return nil, err
+		}
+		ptrBuf = append(ptrBuf, sBuf...)
+		self.Control |= SecurityDescriptorFlagSP
+		self.OffsetSacl = bufOffset
+		bufOffset += uint32(len(sBuf))
+	}
+	if self.Dacl != nil {
+		dBuf, err := self.Dacl.MarshalBinary(meta)
+		if err != nil {
+			return nil, err
+		}
+		ptrBuf = append(ptrBuf, dBuf...)
+		self.Control |= SecurityDescriptorFlagDP
+		self.OffsetDacl = bufOffset
+		bufOffset += uint32(len(dBuf))
+	}
+
+	if self.OwnerSid != nil {
+		oBuf, err := self.OwnerSid.MarshalBinary(meta)
+		if err != nil {
+			return nil, err
+		}
+		ptrBuf = append(ptrBuf, oBuf...)
+		self.OffsetOwner = bufOffset
+		bufOffset += uint32(len(oBuf))
+	}
+
+	if self.OffsetGroup != 0 {
+		gBuf, err := self.GroupSid.MarshalBinary(meta)
+		if err != nil {
+			return nil, err
+		}
+		ptrBuf = append(ptrBuf, gBuf...)
+		self.OffsetGroup = bufOffset
+	}
+
+	// Encode revision
+	err = binary.Write(w, binary.LittleEndian, self.Revision)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Encode control
+	err = binary.Write(w, binary.LittleEndian, self.Control)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Encode  OffsetOwner
+	err = binary.Write(w, binary.LittleEndian, self.OffsetOwner)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Encode  OffsetGroup
+	err = binary.Write(w, binary.LittleEndian, self.OffsetGroup)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Encode  OffsetSacl
+	err = binary.Write(w, binary.LittleEndian, self.OffsetSacl)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Encode  OffsetDacl
+	err = binary.Write(w, binary.LittleEndian, self.OffsetDacl)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// Encode serialized Owner, Group, Sacl and Dacl
+	_, err = w.Write(ptrBuf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *SecurityDescriptor) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
+
+	r := bytes.NewReader(buf)
+
+	err = binary.Read(r, binary.LittleEndian, &self.Revision)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &self.Control)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &self.OffsetOwner)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &self.OffsetGroup)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &self.OffsetSacl)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &self.OffsetDacl)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	if self.OffsetOwner != 0 {
+		_, err = r.Seek(int64(self.OffsetOwner), io.SeekStart)
+		self.OwnerSid, err = readSID(r)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+	if self.OffsetGroup != 0 {
+		_, err = r.Seek(int64(self.OffsetGroup), io.SeekStart)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		self.GroupSid, err = readSID(r)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	if (self.Control & SecurityDescriptorFlagSP) == SecurityDescriptorFlagSP {
+		_, err = r.Seek(int64(self.OffsetSacl), io.SeekStart)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		self.Sacl, err = readPACL(r)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	if (self.Control & SecurityDescriptorFlagDP) == SecurityDescriptorFlagDP {
+		_, err = r.Seek(int64(self.OffsetDacl), io.SeekStart)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		self.Dacl, err = readPACL(r)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	return nil
+}
+
+func (self *SID) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+
+	// Encode ACE SID
+	err = binary.Write(w, binary.LittleEndian, self.Revision)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, binary.LittleEndian, byte(len(self.SubAuthorities)))
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, binary.LittleEndian, self.Authority)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, binary.LittleEndian, self.SubAuthorities)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
+}
+
+func readSID(r *bytes.Reader) (s *SID, err error) {
+	s = &SID{}
+	// Decode ACE SID
+	err = binary.Read(r, binary.LittleEndian, &s.Revision)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &s.NumAuth)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	s.Authority = make([]byte, 6)
+	err = binary.Read(r, binary.LittleEndian, &s.Authority)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	s.SubAuthorities = make([]uint32, s.NumAuth)
+	for i := range s.SubAuthorities {
+		err = binary.Read(r, binary.LittleEndian, &s.SubAuthorities[i])
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	return
+}
+
+func (self *SID) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
+	r := bytes.NewReader(buf)
+	sid, err := readSID(r)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	*self = *sid
+	return nil
+}
+
+func (self *ACE) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+
+	err = binary.Write(w, binary.LittleEndian, self.Header.Type)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, binary.LittleEndian, self.Header.Flags)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, binary.LittleEndian, self.Header.Size)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, binary.LittleEndian, self.Mask)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// Encode ACE SID
+	sidBuf, err := self.Sid.MarshalBinary(meta)
+	if err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+	err = binary.Write(w, binary.LittleEndian, sidBuf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	return w.Bytes(), nil
+}
+
+func readACE(r *bytes.Reader) (a *ACE, err error) {
+	a = &ACE{}
+	err = binary.Read(r, binary.LittleEndian, &a.Header.Type)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &a.Header.Flags)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &a.Header.Size)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &a.Mask)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	sid, err := readSID(r)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	a.Sid = *sid
+
+	return
+}
+
+func (self *ACE) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
+	r := bytes.NewReader(buf)
+	ace, err := readACE(r)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	*self = *ace
+	return nil
+}
+
+func (self *PACL) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+
+	err = binary.Write(w, binary.LittleEndian, self.AclRevision)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, binary.LittleEndian, self.AclSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// Encode AceCount at 4 byte boundary
+	err = binary.Write(w, binary.LittleEndian, uint32(len(self.ACLS)))
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	for _, item := range self.ACLS {
+		var aceBuf []byte
+		aceBuf, err = item.MarshalBinary(meta)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		_, err = w.Write(aceBuf)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	return w.Bytes(), nil
+}
+
+func readPACL(r *bytes.Reader) (p *PACL, err error) {
+	p = &PACL{}
+	err = binary.Read(r, binary.LittleEndian, &p.AclRevision)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &p.AclSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, binary.LittleEndian, &p.AceCount)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	p.ACLS = make([]ACE, p.AceCount)
+	for i := range p.ACLS {
+		var ace *ACE
+		ace, err = readACE(r)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		p.ACLS[i] = *ace
+	}
+
+	return
+}
+
+func (self *PACL) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
+	r := bytes.NewReader(buf)
+	pacl, err := readPACL(r)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	*self = *pacl
+
+	return nil
+}
+
+func ParseAccessMask(mask uint32) []string {
+	permissions := []string{}
+	for v, s := range accessMaskMap {
+		if mask&v > 0 {
+			permissions = append(permissions, s)
+		}
+	}
+	slices.Sort(permissions)
+	return permissions
+}
+
+func (a ACE) Permissions() []string {
+	return ParseAccessMask(a.Mask)
+}
+
+func (s SID) String() string {
+	ia := "0"
+	l := len(s.Authority)
+	if l > 0 {
+		ia = strconv.FormatUint(uint64(s.Authority[l-1]), 10)
+	}
+	subAuthorities := make([]string, len(s.SubAuthorities))
+	for i, sub := range s.SubAuthorities {
+		subAuthorities[i] = strconv.FormatUint(uint64(sub), 10)
+	}
+	return fmt.Sprintf("S-1-%s-%s", ia, strings.Join(subAuthorities, "-"))
+}
+
+type FileSecurityInformationACL struct {
+	Permissions []string
+	SID         string
+}
+
+type FileSecurityInformation struct {
+	OwnerSID string
+	GroupSID string
+	Access   []FileSecurityInformationACL
 }
 
 type FileBothDirectoryInformationStruct struct {
@@ -1572,5 +2258,41 @@ func (s *Session) NewSetInfoReq(share string, fileId []byte) (SetInfoReq, error)
 		InfoType:      OInfoFile,
 		FileInfoClass: FileDispositionInformation,
 		FileId:        fileId,
+	}, nil
+}
+
+func (s *Session) NewQueryInfoReq(
+	share string,
+	fileId []byte,
+	infoType byte,
+	fileInformationClass byte,
+	additionalInformation uint32,
+	flags uint32,
+	outputBufferLength uint32,
+	inputBuffer []byte,
+) (QueryInfoReq, error) {
+	header := newHeader()
+	header.Command = CommandQueryInfo
+	header.CreditCharge = calcCreditCharge(outputBufferLength)
+	header.SessionID = s.sessionID
+	header.TreeID = s.trees[share]
+
+	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
+		header.Credits = 127
+		if header.CreditCharge > 127 {
+			header.Credits = header.CreditCharge
+		}
+	}
+
+	return QueryInfoReq{
+		Header:                header, //Size 64 bytes
+		StructureSize:         41,
+		InfoType:              infoType,
+		FileInfoClass:         fileInformationClass,
+		AdditionalInformation: additionalInformation,
+		Flags:                 flags,
+		FileId:                fileId,
+		OutputBufferLength:    outputBufferLength,
+		Buffer:                inputBuffer,
 	}, nil
 }
