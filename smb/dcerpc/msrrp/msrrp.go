@@ -250,6 +250,11 @@ const (
 	HKEYUsers
 )
 
+const (
+	RegOptionBackupRestore uint32 = 0x04
+	RegOptionOpenLink      uint32 = 0x08
+)
+
 type RPCCon struct {
 	*dcerpc.ServiceBind
 }
@@ -569,12 +574,16 @@ func NewSecurityDescriptor(control uint16, owner, group *SID, dacl, sacl *PACL) 
 	return
 }
 
-func (r *RPCCon) OpenSubKey(hKey []byte, subkey string) (handle []byte, err error) {
+func (r *RPCCon) OpenSubKey(hKey []byte, subkey string) ([]byte, error) {
+	return r.OpenSubKeyExt(hKey, subkey, 0, PermMaximumAllowed)
+}
+
+func (r *RPCCon) OpenSubKeyExt(hKey []byte, subkey string, opts, desiredAccess uint32) (handle []byte, err error) {
 	req := BaseRegOpenKeyReq{
 		HKey:          hKey,
 		SubKey:        RRPUnicodeStr{MaxLength: uint16(len(subkey)), S: subkey},
-		Options:       0, // Impacket sets this to 1. Can't find any reference to what that means
-		DesiredAccess: PermMaximumAllowed,
+		Options:       opts,
+		DesiredAccess: desiredAccess,
 		//DesiredAccess: KeyEnumerateSubKeys|KeyQueryValue, // These permissions result in AccessDenied for certain keys
 	}
 
@@ -891,8 +900,12 @@ func (r *RPCCon) SetKeySecurity(hKey []byte, sd *SecurityDescriptor) (err error)
 	return
 }
 
-func (r *RPCCon) GetSubKeyNames(hKey []byte, subkey string) (names []string, err error) {
-	hSubKey, err := r.OpenSubKey(hKey, subkey)
+func (r *RPCCon) GetSubKeyNames(hKey []byte, subkey string) ([]string, error) {
+	return r.GetSubKeyNamesExt(hKey, subkey, 0, PermMaximumAllowed)
+}
+
+func (r *RPCCon) GetSubKeyNamesExt(hKey []byte, subkey string, opts, desiredAccess uint32) (names []string, err error) {
+	hSubKey, err := r.OpenSubKeyExt(hKey, subkey, opts, desiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
