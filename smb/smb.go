@@ -70,6 +70,7 @@ const (
 	StatusAccountDisabled        = 0xc0000072
 	StatusNotSupported           = 0xc00000bb
 	StatusBadNetworkName         = 0xc00000cc
+	StatusDirectoryNotEmpty      = 0xc0000101
 	StatusUserSessionDeleted     = 0xc0000203
 	StatusPasswordMustChange     = 0xc0000224
 	StatusAccountLockedOut       = 0xc0000234
@@ -98,6 +99,7 @@ var StatusMap = map[uint32]error{
 	StatusAccountDisabled:        fmt.Errorf("Account disabled!"),
 	StatusNotSupported:           fmt.Errorf("Not Supported!"),
 	StatusBadNetworkName:         fmt.Errorf("Bad network name"),
+	StatusDirectoryNotEmpty:      fmt.Errorf("Directory is not empty"),
 	StatusUserSessionDeleted:     fmt.Errorf("User session deleted"),
 	StatusPasswordMustChange:     fmt.Errorf("User is required to change password at next logon"),
 	StatusAccountLockedOut:       fmt.Errorf("User account has been locked!"),
