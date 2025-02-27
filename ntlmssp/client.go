@@ -181,12 +181,20 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	timestampFound := false
 	timestamp := make([]byte, 8)
 
+	var nbComputerName string
+
 	// NOTE An alternative approach to this is to parse the AV Pairs into a map and then
 	// check if keys exist and to serialize that map when needed.
 	for _, av := range *chall.TargetInfo {
 		if av.AvID == MsvAvFlags {
 			flagsFound = true
 			le.PutUint32(av.Value, le.Uint32(av.Value)|0x02)
+		} else if av.AvID == MsvAvNbComputerName {
+			nbComputerName, err = encoder.FromUnicodeString(av.Value)
+			if err != nil {
+				log.Errorln(err)
+				// Can't use computer name for MsvAvTargetName but no reason to fail
+			}
 		} else if av.AvID == MsvAvChannelBindings {
 			channelBindingsFound = true
 		} else if av.AvID == MsvAvTimestamp {
@@ -195,6 +203,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 		} else if av.AvID == 0 {
 			continue
 		}
+		// Copy any AV Pair received in the Challenge to the Authenticate request
 		binary.Write(w, binary.LittleEndian, av.AvID)
 		binary.Write(w, binary.LittleEndian, av.AvLen)
 		binary.Write(w, binary.LittleEndian, av.Value)
@@ -223,19 +232,36 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 		binary.Write(w, binary.LittleEndian, temp)
 	}
 
+	var temp []byte
 	// MS-NLMP Section 3.1.5.1.2, If the ClientSuppliedTargetName (TargetSPN) is NULL
 	// Add an empty MsvAvTargetName, else if it is not null, set the value without
 	// terminating NULL character.
-	temp := make([]byte, 2)
-	le.PutUint16(temp, MsvAvTargetName)
-	if c.TargetSPN != "" {
-		spn := encoder.ToUnicode(c.TargetSPN)
-		le.AppendUint16(temp, uint16(len(spn)))
-		temp = append(temp, spn...)
-	} else {
-		temp = le.AppendUint32(temp, 0)
+	// This is made more complicated by the Security Policy
+	// "Microsoft network server: Server SPN target name validation level"
+	// If the policy is set to "Required from client", the client must send the MsvAvTargetName
+	// or else the authentication attempt is denied. If the policy is set to "Accept if provided by client",
+	// We must NOT send an empty value or the authentication will fail. A fairly safe default is to always
+	// send an SPN of "cifs/<NetBios Hostname>" unless a SPN is manually specifed.
+	// MsvAvTargetName is not supported by Windows Server 2008 and below.
+	serverBuild := (chall.Version >> 16) & 0xFFFF
+	if serverBuild > 6003 { // Will be false if the server does not populate the Version field in the challenge.
+		if c.TargetSPN != "" {
+			temp = make([]byte, 2)
+			le.PutUint16(temp, MsvAvTargetName)
+			spn := encoder.ToUnicode(c.TargetSPN)
+			temp = le.AppendUint16(temp, uint16(len(spn)))
+			temp = append(temp, spn...)
+			binary.Write(w, binary.LittleEndian, temp)
+		} else if nbComputerName != "" {
+			// Might cause a problem if the target server does not accept the NETBIOS computer name as a valid SPN
+			temp = make([]byte, 2)
+			le.PutUint16(temp, MsvAvTargetName)
+			spn := encoder.ToUnicode("cifs/" + nbComputerName)
+			temp = le.AppendUint16(temp, uint16(len(spn)))
+			temp = append(temp, spn...)
+			binary.Write(w, binary.LittleEndian, temp)
+		}
 	}
-	binary.Write(w, binary.LittleEndian, temp)
 
 	// Add MsAvEOL
 	temp = make([]byte, 4)
