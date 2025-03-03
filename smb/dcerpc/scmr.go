@@ -34,6 +34,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -51,6 +53,7 @@ const (
 	SvcCtlRQueryServiceStatus   uint16 = 6
 	SvcCtlRChangeServiceConfigW uint16 = 11
 	SvcCtlRCreateServiceW       uint16 = 12
+	SvcCtlREnumServicesStatusW  uint16 = 14
 	SvcCtlROpenSCManagerW       uint16 = 15
 	SvcCtlROpenServiceW         uint16 = 16
 	SvcCtlRQueryServiceConfigW  uint16 = 17
@@ -67,19 +70,23 @@ const (
 )
 
 var ServiceTypeStatusMap = map[uint32]string{
-	ServiceKernelDriver:       "SERVICE_KERNEL_DRIVER",
-	ServiceFileSystemDriver:   "SERVICE_FILE_SYSTEM_DRIVER",
-	ServiceWin32OwnProcess:    "SERVICE_WIN32_OWN_PROCESS",
-	ServiceWin32ShareProcess:  "SERVICE_WIN32_SHARE_PROCESS",
-	ServiceInteractiveProcess: "SERVICE_INTERACTIVE_PROCESS",
+	ServiceKernelDriver:                                  "SERVICE_KERNEL_DRIVER",
+	ServiceFileSystemDriver:                              "SERVICE_FILE_SYSTEM_DRIVER",
+	ServiceWin32OwnProcess:                               "SERVICE_WIN32_OWN_PROCESS",
+	ServiceWin32ShareProcess:                             "SERVICE_WIN32_SHARE_PROCESS",
+	ServiceInteractiveProcess:                            "SERVICE_INTERACTIVE_PROCESS",
+	ServiceWin32OwnProcess | ServiceInteractiveProcess:   "SERVICE_WIN32_OWN_INTERACTIVE",
+	ServiceWin32ShareProcess | ServiceInteractiveProcess: "SERVICE_WIN32_SHARE_INTERACTIVE",
 }
 
 var ServiceTypeMap = map[string]uint32{
-	"SERVICE_KERNEL_DRIVER":       ServiceKernelDriver,
-	"SERVICE_FILE_SYSTEM_DRIVER":  ServiceFileSystemDriver,
-	"SERVICE_WIN32_OWN_PROCESS":   ServiceWin32OwnProcess,
-	"SERVICE_WIN32_SHARE_PROCESS": ServiceWin32ShareProcess,
-	"SERVICE_INTERACTIVE_PROCESS": ServiceInteractiveProcess,
+	"SERVICE_KERNEL_DRIVER":           ServiceKernelDriver,
+	"SERVICE_FILE_SYSTEM_DRIVER":      ServiceFileSystemDriver,
+	"SERVICE_WIN32_OWN_PROCESS":       ServiceWin32OwnProcess,
+	"SERVICE_WIN32_SHARE_PROCESS":     ServiceWin32ShareProcess,
+	"SERVICE_INTERACTIVE_PROCESS":     ServiceInteractiveProcess,
+	"SERVICE_WIN32_OWN_INTERACTIVE":   ServiceWin32OwnProcess | ServiceInteractiveProcess,
+	"SERVICE_WIN32_SHARE_INTERACTIVE": ServiceWin32ShareProcess | ServiceInteractiveProcess,
 }
 
 // MS-SCMR (svcctl) Table 2.2.15 StartType
@@ -199,6 +206,7 @@ const (
 	ErrorInvalidHandle              uint32 = 6  // The handle is no longer valid.
 	ErrorInvalidParameter           uint32 = 87 // A parameter that was specified is invalid.
 	ErrorInsufficientBuffer         uint32 = 122
+	ErrorMoreData                   uint32 = 234
 	ErrorDependentServicesRunning   uint32 = 1051
 	ErrorInvalidServiceControl      uint32 = 1052
 	ErrorServiceRequestTimeout      uint32 = 1053 // The process for the service was started, but it did not respond within an implementation-specific time-out.
@@ -227,6 +235,7 @@ var ServiceResponseCodeMap = map[uint32]error{
 	ErrorInvalidHandle:              fmt.Errorf("The handle is no longer valid."),
 	ErrorInvalidParameter:           fmt.Errorf("A parameter that was specified is invalid."),
 	ErrorInsufficientBuffer:         fmt.Errorf("ERROR_INSUFFICIENT_BUFFER"),
+	ErrorMoreData:                   fmt.Errorf("More data is available"),
 	ErrorDependentServicesRunning:   fmt.Errorf("ERROR_DEPENDENT_SERVICES_RUNNING"),
 	ErrorInvalidServiceControl:      fmt.Errorf("ERROR_INVALID_SERVICE_CONTROL"),
 	ErrorServiceRequestTimeout:      fmt.Errorf("Error service request timeout"),
@@ -529,6 +538,28 @@ type RCreateServiceWRes struct {
 	TagId         uint32
 	ContextHandle []byte
 	ReturnCode    uint32
+}
+
+type EnumServiceStatusW struct {
+	ServiceName   string
+	DisplayName   string
+	ServiceStatus *ServiceStatus
+}
+
+type REnumServicesStatusWReq struct {
+	SCContextHandle []byte
+	ServiceType     uint32
+	ServiceState    uint32
+	BufSize         uint32
+	ResumeIndex     uint32
+}
+
+type REnumServicesStatusWRes struct {
+	Services         []EnumServiceStatusW
+	BytesNeeded      uint32
+	ServicesReturned uint32
+	ResumeIndex      uint32
+	ReturnCode       uint32
 }
 
 func (self *ROpenSCManagerWReq) MarshalBinary() (res []byte, err error) {
@@ -970,10 +1001,24 @@ func (self *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
 	}
 	refId++
 
-	err = binary.Write(w, le, self.TagId)
-	if err != nil {
-		log.Errorln(err)
-		return
+	if self.TagId != 0 {
+		err = binary.Write(w, le, refId)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		refId++
+		err = binary.Write(w, le, self.TagId)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	} else {
+		err = binary.Write(w, le, self.TagId)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
 	}
 
 	if self.Dependencies != "" {
@@ -1056,6 +1101,14 @@ func (self *RChangeServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 	if err != nil {
 		log.Errorln(err)
 		return
+	}
+	if self.TagId > 0 {
+		// First 4 bytes was Referent ID when tag is non-zero
+		err = binary.Read(r, le, &self.TagId)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
 	}
 	err = binary.Read(r, le, &self.ReturnCode)
 	if err != nil {
@@ -1208,7 +1261,7 @@ func (self *RCreateServiceWReq) MarshalBinary() (res []byte, err error) {
 	}
 
 	if self.ServiceName == "" {
-		return nil, fmt.Errorf("Invalid ServicName. Cannot be empty!")
+		return nil, fmt.Errorf("Invalid ServiceName. Cannot be empty!")
 	}
 
 	_, err = w.Write(self.SCContextHandle[:20])
@@ -1367,13 +1420,269 @@ func (self *RCreateServiceWRes) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
+func (self *REnumServicesStatusWReq) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for REnumServicesStatusWReq")
+
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+
+	if len(self.SCContextHandle) != 20 {
+		return nil, fmt.Errorf("Invalid size of SCContextHandle!")
+	}
+
+	if (self.ServiceType & 0x33) == 0 {
+		return nil, fmt.Errorf("Invalid ServiceType. Must be one or a combination of values from MS-SCMR dwServiceType")
+	}
+
+	if (self.ServiceState > 0x3) || (self.ServiceState == 0) {
+		return nil, fmt.Errorf("Invalid ServiceState value")
+	}
+
+	_, err = w.Write(self.SCContextHandle[:20])
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.ServiceType)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.ServiceState)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.BufSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.ResumeIndex)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *REnumServicesStatusWReq) UnmarshalBinary(buf []byte) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of REnumServicesStatusWReq")
+}
+
+func (self *REnumServicesStatusWRes) MarshalBinary() ([]byte, error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of REnumServicesStatusWRes")
+}
+
+func (self *REnumServicesStatusWRes) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for REnumServicesStatusWRes")
+	if len(buf) < 16 {
+		return fmt.Errorf("Buffer to small for REnumServicesStatusWRes")
+	}
+
+	r := bytes.NewReader(buf)
+	// First read last 16 bytes to get return code and the other fixed size fields
+	_, err = r.Seek(-16, io.SeekEnd)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, le, &self.BytesNeeded)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, le, &self.ServicesReturned)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, le, &self.ResumeIndex)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, le, &self.ReturnCode)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	if self.ReturnCode > 0 {
+		// Likely no more data we care about in this packet
+		return
+	}
+
+	_, err = r.Seek(0, io.SeekStart)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	var bufferSize uint32
+	err = binary.Read(r, le, &bufferSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	padd := bufferSize % 4                            // alignment
+	if len(buf) < int((bufferSize + padd + 4 + 16)) { // 4 bytes bufferSize field, 16 bytes for the other fields
+		err = fmt.Errorf("Invalid response! BufferSize indicated value larger that packet")
+		log.Errorln(err)
+		return
+	}
+
+	self.Services = make([]EnumServiceStatusW, 0, self.ServicesReturned)
+	for i := 0; i < int(self.ServicesReturned); i++ {
+		service := EnumServiceStatusW{ServiceStatus: &ServiceStatus{}}
+		var offsetServiceName uint32
+		var offsetDisplayName uint32
+		err = binary.Read(r, le, &offsetServiceName)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		err = binary.Read(r, le, &offsetDisplayName)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+
+		err = binary.Read(r, le, &service.ServiceStatus.ServiceType)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		err = binary.Read(r, le, &service.ServiceStatus.CurrentState)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		err = binary.Read(r, le, &service.ServiceStatus.ControlsAccepted)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		err = binary.Read(r, le, &service.ServiceStatus.Win32ExitCode)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		err = binary.Read(r, le, &service.ServiceStatus.ServiceSpecificExitCode)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		err = binary.Read(r, le, &service.ServiceStatus.CheckPoint)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		err = binary.Read(r, le, &service.ServiceStatus.WaitHint)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+
+		// Save current position
+		var lastOffset int64
+		lastOffset, err = r.Seek(0, io.SeekCurrent)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+
+		// Read DisplayName
+		_, err = r.Seek(int64(offsetDisplayName+4), io.SeekStart)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		var unicodeBuffer []byte
+		readBuff := make([]byte, 2)
+		var n int
+		for {
+			n, err = r.Read(readBuff)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			if n < 2 {
+				err = fmt.Errorf("Failed to read 2 bytes from packet buffer")
+				log.Errorln(err)
+				return
+			}
+			if bytes.Compare(readBuff, []byte{0, 0}) == 0 {
+				break
+			}
+			unicodeBuffer = append(unicodeBuffer, readBuff...)
+		}
+		service.DisplayName, err = FromUnicodeString(unicodeBuffer)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+
+		// Read ServiceName
+		_, err = r.Seek(int64(offsetServiceName+4), io.SeekStart)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		unicodeBuffer = nil
+		readBuff = make([]byte, 2)
+		for {
+			n, err = r.Read(readBuff)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			if n < 2 {
+				err = fmt.Errorf("Failed to read 2 bytes from packet buffer")
+				log.Errorln(err)
+				return
+			}
+			if bytes.Compare(readBuff, []byte{0, 0}) == 0 {
+				break
+			}
+			unicodeBuffer = append(unicodeBuffer, readBuff...)
+		}
+		service.ServiceName, err = FromUnicodeString(unicodeBuffer)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+
+		// Go back to previous position
+		_, err = r.Seek(lastOffset, io.SeekStart)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+
+		self.Services = append(self.Services, service)
+	}
+
+	return nil
+}
+
 func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err error) {
 	log.Debugln("In decodeServiceConfig")
 	if _, ok := ServiceTypeStatusMap[config.ServiceType]; !ok {
-		err = fmt.Errorf("Could not identify returned service type: %d\n", config.ServiceType)
-		log.Errorln(err)
+		log.Infof("Could not identify returned service type for (%s): %d\n", config.DisplayName, config.ServiceType)
+		res.ServiceType = fmt.Sprintf("Unknown type 0x%x (%d)", config.ServiceType, config.ServiceType)
+	} else {
+		res.ServiceType = ServiceTypeStatusMap[config.ServiceType]
 	}
-	res.ServiceType = ServiceTypeStatusMap[config.ServiceType]
 
 	if _, ok := StartTypeStatusMap[config.StartType]; !ok {
 		err = fmt.Errorf("Could not identify returned start type: %d\n", config.StartType)
@@ -1402,39 +1711,55 @@ func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err er
 	return
 }
 
-// NOTE That currently the config LoadOrderGroup, TagId and Dependencies cannot be modified
+// NOTE That currently the config Dependencies cannot be modified
 func (sb *ServiceBind) ChangeServiceConfig2(serviceName string, config *ServiceConfig) (err error) {
 	log.Debugln("In ChangeServiceConfig2")
 	var binaryPathName, serviceStartName, displayName string
 	var serviceType, startType, errorControl uint32
 
 	if _, ok := ServiceTypeMap[config.ServiceType]; !ok {
-		err = fmt.Errorf("Could not identify service type: %s\n", config.ServiceType)
-		log.Errorln(err)
+		if strings.HasPrefix(config.ServiceType, "Unknown type 0x") {
+			parts := strings.Split(config.ServiceType, " ")
+			val, err2 := strconv.ParseUint(parts[2][2:], 16, 32)
+			if err2 != nil {
+				log.Errorln(err2)
+				err = err2
+				return
+			}
+			serviceType = uint32(val)
+		} else {
+			err = fmt.Errorf("Could not identify service type: %s\n", config.ServiceType)
+			log.Errorln(err)
+			return
+		}
+	} else {
+		serviceType = ServiceTypeMap[config.ServiceType]
 	}
-	serviceType = ServiceTypeMap[config.ServiceType]
 
 	if _, ok := StartTypeMap[config.StartType]; !ok {
 		err = fmt.Errorf("Could not identify start type: %s\n", config.StartType)
 		log.Errorln(err)
+		return
 	}
 	startType = StartTypeMap[config.StartType]
 
 	if _, ok := ErrorControlMap[config.ErrorControl]; !ok {
 		err = fmt.Errorf("Could not identify start type: %s\n", config.ErrorControl)
 		log.Errorln(err)
+		return
 	}
 	errorControl = ErrorControlMap[config.ErrorControl]
 	if err != nil {
 		err = fmt.Errorf("Error decoding service config: %s\n", err)
 		log.Errorln(err)
+		return
 	}
 
 	binaryPathName = config.BinaryPathName
 	serviceStartName = config.ServiceStartName
 	displayName = config.DisplayName
 
-	return sb.ChangeServiceConfig(serviceName, serviceType, startType, errorControl, binaryPathName, serviceStartName, "", displayName)
+	return sb.ChangeServiceConfig(serviceName, serviceType, startType, errorControl, binaryPathName, serviceStartName, "", displayName, config.LoadOrderGroup, "", config.TagId)
 }
 
 func (sb *ServiceBind) openSCManager(desiredAccess uint32) (handle []byte, err error) {
@@ -1734,12 +2059,16 @@ func (sb *ServiceBind) GetServiceConfig(serviceName string) (config ServiceConfi
 	return decodeServiceConfig(res.ServiceConfig)
 }
 
+// NOTE that currently, dependencies cannot be modified
 func (sb *ServiceBind) ChangeServiceConfig(
 	serviceName string,
 	serviceType, startType, errorControl uint32,
-	binaryPathName, serviceStartName, password, displayName string) (err error) {
+	binaryPathName, serviceStartName, password, displayName, loadOrderGroup, dependencies string, tagId uint32) (err error) {
 
 	log.Debugln("In ChangeServiceConfig")
+	if dependencies != "" {
+		return fmt.Errorf("Specifying dependencies when changing a service config is currently unsupported.")
+	}
 
 	handle, err := sb.openSCManager(SCManagerEnumerateService)
 	if err != nil {
@@ -1752,17 +2081,17 @@ func (sb *ServiceBind) ChangeServiceConfig(
 	}
 	defer sb.CloseServiceHandle(serviceHandle)
 
-	//TODO Add support for modifying the LoadOrderGroup, TagId, and Dependencies
+	//TODO Add support for modifying Dependencies
+	// Figure out how to properly marshal the request with dependencies included
 	innerReq := RChangeServiceConfigWReq{
 		ServiceHandle:    serviceHandle,
 		ServiceType:      serviceType,
 		StartType:        startType,
 		ErrorControl:     errorControl,
 		BinaryPathName:   binaryPathName,
-		LoadOrderGroup:   "",
-		TagId:            0,
+		LoadOrderGroup:   loadOrderGroup,
+		TagId:            tagId, //NOTE that tag cannot be set. A value > 0 means: ask server for a tag id.
 		Dependencies:     "",
-		DependSize:       0,
 		ServiceStartName: serviceStartName,
 		DisplayName:      displayName,
 	}
@@ -1973,6 +2302,94 @@ func (sb *ServiceBind) DeleteService(serviceName string) (err error) {
 		}
 		return status
 	}
+
+	return
+}
+
+func (sb *ServiceBind) EnumServicesStatus(serviceType, serviceState uint32) (result []EnumServiceStatusW, err error) {
+	log.Debugln("In EnumServicesStatus")
+
+	scHandle, err := sb.openSCManager(SCManagerEnumerateService)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	defer sb.CloseServiceHandle(scHandle)
+
+	enumSSReq := REnumServicesStatusWReq{
+		SCContextHandle: scHandle,
+		ServiceType:     serviceType,
+		ServiceState:    serviceState,
+		BufSize:         0,
+		ResumeIndex:     0,
+	}
+
+	enumSSBuf, err := enumSSReq.MarshalBinary()
+	if err != nil {
+		log.Errorf("Failed to encode EnumServicesStatus request with error: %v\n", err)
+		return
+	}
+
+	buffer, err := sb.MakeIoCtlRequest(SvcCtlREnumServicesStatusW, enumSSBuf)
+	if err != nil {
+		log.Errorf("Failed to EnumServicesStatus with error: %v\n", err)
+		return
+	}
+
+	res := REnumServicesStatusWRes{}
+	err = res.UnmarshalBinary(buffer)
+	if err != nil {
+		log.Errorf("Failed to unmarshal response of enumerate services status with error: %v\n", err)
+		return
+	}
+
+	if res.ReturnCode != ErrorMoreData {
+		status, found := ServiceResponseCodeMap[res.ReturnCode]
+		if !found {
+			log.Errorf("Received unknown return code for REnumServicesStatus: 0x%x\n", res.ReturnCode)
+			return
+		}
+		log.Errorf("Failed to enumerate services status with error (return value: 0x%x): %v\n", res.ReturnCode, status)
+		return
+	}
+
+	log.Debugf("Bytes needed: %d\n", res.BytesNeeded)
+
+	enumSSReq.BufSize = res.BytesNeeded
+
+	enumSSBuf, err = enumSSReq.MarshalBinary()
+	if err != nil {
+		log.Errorf("Failed to encode EnumServicesStatus request with error: %v\n", err)
+		return
+	}
+
+	log.Debugln("Attempting to list all services")
+	buffer, err = sb.MakeIoCtlRequest(SvcCtlREnumServicesStatusW, enumSSBuf)
+	if err != nil {
+		log.Errorf("Failed to EnumServicesStatus with error: %v\n", err)
+		return
+	}
+
+	res = REnumServicesStatusWRes{}
+	err = res.UnmarshalBinary(buffer)
+	if err != nil {
+		log.Errorf("Failed to unmarshal response of enumerate services status with error: %v\n", err)
+		return
+	}
+
+	if res.ReturnCode != ErrorSuccess {
+		status, found := ServiceResponseCodeMap[res.ReturnCode]
+		if !found {
+			log.Errorf("Received unknown return code for REnumServicesStatus: 0x%x\n", res.ReturnCode)
+			return
+		}
+		log.Errorf("Failed to enumerate services status with error (return value: 0x%x): %v\n", res.ReturnCode, status)
+		return
+	}
+
+	log.Debugf("Bytes needed: %d\n", res.BytesNeeded)
+	log.Debugf("Services returned: %d\n", res.ServicesReturned)
+	result = res.Services
 
 	return
 }

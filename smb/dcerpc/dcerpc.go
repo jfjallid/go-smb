@@ -51,10 +51,14 @@ var (
 	log                           = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc")
 )
 
+// MSRPC Packet header common fields
+const PDUHeaderCommonSize int = 16
+
 // MSRPC Packet Types
 const (
 	PacketTypeRequest  uint8 = 0
 	PacketTypeResponse uint8 = 2
+	PacketTypeFault    uint8 = 3
 	PacketTypeBind     uint8 = 11
 	PacketTypeBindAck  uint8 = 12
 )
@@ -945,53 +949,114 @@ func Bind(f *smb.File, interface_uuid string, majorVersion, minorVersion uint16,
 
 func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result []byte, err error) {
 	callId := sb.callId.Add(1)
-	req, err := newRequestReq(callId, opcode)
-	if err != nil {
-		log.Errorln(err)
-		return
+	fragmentedResponse := false
+
+	for {
+		var resHeader Header
+		var responseBuffer []byte
+		if !fragmentedResponse {
+			var req *RequestReq
+			req, err = newRequestReq(callId, opcode)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+
+			req.Buffer = make([]byte, len(innerBuf))
+			copy(req.Buffer, innerBuf)
+			req.FragLength = uint16(len(innerBuf) + 24) // Includes header size
+
+			// Encode DCERPC Request
+			var buf []byte
+			buf, err = req.MarshalBinary()
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+
+			var ioCtlReq *smb.IoCtlReq
+			ioCtlReq, err = sb.f.NewIoCTLReq(smb.FsctlPipeTransceive, buf)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+
+			//NOTE Might be a problem with exceeding a max payload size of 65536 for
+			// servers that do not support multi-credit requests
+			var ioCtlRes smb.IoCtlRes
+			// Send DCERPC request inside SMB IoCTL Request
+			ioCtlRes, err = sb.f.WriteIoCtlReq(ioCtlReq)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			responseBuffer = ioCtlRes.Buffer
+		} else {
+			var n int
+			responseBuffer = make([]byte, sb.maxFragReceiveSize+16) // 16 bytes overhead of read request
+			n, err = sb.f.ReadFile(responseBuffer, 0)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			responseBuffer = responseBuffer[:n]
+		}
+
+		if len(responseBuffer) < PDUHeaderCommonSize {
+			err = fmt.Errorf("Read/IoCtl response on DCERPC fragment was smaller than the DCERPC header size")
+			log.Errorln(err)
+			return
+		}
+
+		// Unmarshal DCERPC Request response
+		err = resHeader.UnmarshalBinary(responseBuffer[:PDUHeaderCommonSize])
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+
+		if resHeader.CallId != callId {
+			err = fmt.Errorf("Incorrect CallId on response. Sent %d and received %d\n", callId, resHeader.CallId)
+			log.Errorln(err)
+			return
+		}
+
+		if resHeader.Type == PacketTypeFault {
+			if len(responseBuffer) >= (PDUHeaderCommonSize + 12) {
+				status := binary.LittleEndian.Uint32(responseBuffer[:PDUHeaderCommonSize+8])
+				err = fmt.Errorf("DCERPC Fault PDU received with status: %d", status)
+			} else {
+				err = fmt.Errorf("DCERPC Fault PDU received but incomplete: %+v, full buffer: %x", resHeader, responseBuffer)
+			}
+			log.Errorln(err)
+			return
+		} else if resHeader.Type != PacketTypeResponse {
+			err = fmt.Errorf("DCERPC Unexpected PDU received with type: %d", resHeader.Type)
+			log.Errorln(err)
+			return
+		}
+
+		if len(responseBuffer) < int(resHeader.FragLength) {
+			err = fmt.Errorf("DCERPC response fragment is less that specified fragment lengh. Received %d bytes from ReadRequest, but FragLength field specifies %d bytes!", len(responseBuffer), resHeader.FragLength)
+			log.Errorln(err)
+			return
+		}
+
+		// Time to unpack the Response PDU
+		var reqRes RequestRes
+		err = reqRes.UnmarshalBinary(responseBuffer)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		result = append(result, reqRes.Buffer...)
+		if (reqRes.Flags & PfcLastFrag) == PfcLastFrag {
+			break
+		}
+
+		fragmentedResponse = true
+		// Request the next fragment
 	}
 
-	req.Buffer = make([]byte, len(innerBuf))
-	copy(req.Buffer, innerBuf)
-	req.FragLength = uint16(len(innerBuf) + 24) // Includes header size
-
-	// Encode DCERPC Request
-	buf, err := req.MarshalBinary()
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	ioCtlReq, err := sb.f.NewIoCTLReq(smb.FsctlPipeTransceive, buf)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	//NOTE Might be a problem with exceeding a max payload size of 65536 for
-	// servers that do not support multi-credit requests
-
-	// Send DCERPC request inside SMB IoCTL Request
-	ioCtlRes, err := sb.f.WriteIoCtlReq(ioCtlReq)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	// Unmarshal DCERPC Request response
-	var reqRes RequestRes
-	err = reqRes.UnmarshalBinary(ioCtlRes.Buffer)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	if reqRes.CallId != callId {
-		err = fmt.Errorf("Incorrect CallId on response. Sent %d and received %d\n", callId, reqRes.CallId)
-		log.Errorln(err)
-		return
-	}
-
-	// Return response data
-	return reqRes.Buffer, err
+	return
 }

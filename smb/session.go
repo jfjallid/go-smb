@@ -1943,22 +1943,28 @@ func (s *Connection) DeleteDir(share string, dirpath string) (err error) {
 func (s *Connection) WriteIoCtlReq(req *IoCtlReq) (res IoCtlRes, err error) {
 	buf, err := s.sendrecv(req)
 	if err != nil {
-		log.Debugln(err)
+		log.Errorln(err)
 		return res, err
 	}
 	var h Header
 	if err = encoder.Unmarshal(buf[:64], &h); err != nil {
-		log.Debugln(err)
+		log.Errorln(err)
 		return res, err
+	}
+
+	if h.Status != StatusOk {
+		status, found := StatusMap[h.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown SMB Header status for IoCtlRequest: 0x%x\n", h.Status)
+			log.Errorln(err)
+			return
+		}
+		return res, fmt.Errorf("IoCtlRequest failed with status: %s\n", status)
 	}
 
 	if err = encoder.Unmarshal(buf, &res); err != nil {
-		log.Debugln(err)
+        log.Errorln(err)
 		return res, err
-	}
-
-	if res.Status != StatusOk {
-		return res, fmt.Errorf("IoCtlRequest failed with status: %v\n", res.Status)
 	}
 
 	return res, nil
