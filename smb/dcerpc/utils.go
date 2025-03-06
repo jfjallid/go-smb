@@ -105,7 +105,7 @@ func writeConformantVaryingString(w io.Writer, s string) (n int, err error) {
 }
 
 // Write a ptr to a conformant and varying string to the output stream
-func writeConformantVaryingStringPtr(w io.Writer, s string, refid uint32) (n int, err error) {
+func WriteConformantVaryingStringPtr(w io.Writer, s string, refid uint32) (n int, err error) {
 	var n2 int
 
 	if s == "" {
@@ -180,7 +180,7 @@ func writeConformantArrayPtr(w io.Writer, buf []byte, refid uint32) (n int, err 
 	return
 }
 
-func readConformantVaryingString(r *bytes.Reader) (s string, err error) {
+func ReadConformantVaryingString(r *bytes.Reader) (s string, err error) {
 	// Read the Max count
 	var maxCount uint32
 	err = binary.Read(r, le, &maxCount)

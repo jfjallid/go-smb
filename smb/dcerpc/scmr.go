@@ -616,7 +616,7 @@ func (self *ROpenSCManagerWReq) MarshalBinary() (res []byte, err error) {
 	refId := uint32(1)
 
 	// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-	_, err = writeConformantVaryingStringPtr(w, self.MachineName, refId)
+	_, err = WriteConformantVaryingStringPtr(w, self.MachineName, refId)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -626,7 +626,7 @@ func (self *ROpenSCManagerWReq) MarshalBinary() (res []byte, err error) {
 	}
 
 	// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-	_, err = writeConformantVaryingStringPtr(w, self.DatabaseName, refId)
+	_, err = WriteConformantVaryingStringPtr(w, self.DatabaseName, refId)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -953,31 +953,31 @@ func (self *RQueryServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	conf.BinaryPathName, err = readConformantVaryingString(r)
+	conf.BinaryPathName, err = ReadConformantVaryingString(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	conf.LoadOrderGroup, err = readConformantVaryingString(r)
+	conf.LoadOrderGroup, err = ReadConformantVaryingString(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	conf.Dependencies, err = readConformantVaryingString(r)
+	conf.Dependencies, err = ReadConformantVaryingString(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	conf.ServiceStartName, err = readConformantVaryingString(r)
+	conf.ServiceStartName, err = ReadConformantVaryingString(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	conf.DisplayName, err = readConformantVaryingString(r)
+	conf.DisplayName, err = ReadConformantVaryingString(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1168,14 +1168,14 @@ func (self *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	_, err = writeConformantVaryingStringPtr(w, self.BinaryPathName, refId)
+	_, err = WriteConformantVaryingStringPtr(w, self.BinaryPathName, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	refId++
 
-	_, err = writeConformantVaryingStringPtr(w, self.LoadOrderGroup, refId)
+	_, err = WriteConformantVaryingStringPtr(w, self.LoadOrderGroup, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1225,7 +1225,7 @@ func (self *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
 		}
 	}
 
-	_, err = writeConformantVaryingStringPtr(w, self.ServiceStartName, refId)
+	_, err = WriteConformantVaryingStringPtr(w, self.ServiceStartName, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1254,7 +1254,7 @@ func (self *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
 		}
 	}
 
-	_, err = writeConformantVaryingStringPtr(w, self.DisplayName, refId)
+	_, err = WriteConformantVaryingStringPtr(w, self.DisplayName, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1458,7 +1458,7 @@ func (self *RCreateServiceWReq) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	_, err = writeConformantVaryingStringPtr(w, self.DisplayName, refId)
+	_, err = WriteConformantVaryingStringPtr(w, self.DisplayName, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1496,7 +1496,7 @@ func (self *RCreateServiceWReq) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	_, err = writeConformantVaryingStringPtr(w, self.LoadOrderGroup, refId)
+	_, err = WriteConformantVaryingStringPtr(w, self.LoadOrderGroup, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1532,7 +1532,7 @@ func (self *RCreateServiceWReq) MarshalBinary() (res []byte, err error) {
 		}
 	}
 
-	_, err = writeConformantVaryingStringPtr(w, self.ServiceStartName, refId)
+	_, err = WriteConformantVaryingStringPtr(w, self.ServiceStartName, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2787,7 +2787,7 @@ func (self *ServiceDescription) MarshalBinary() (res []byte, err error) {
 
 	// finally, encode the actual struct that was selected
 	// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-	_, err = writeConformantVaryingStringPtr(w, self.Description, refId)
+	_, err = WriteConformantVaryingStringPtr(w, self.Description, refId)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err

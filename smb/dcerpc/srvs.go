@@ -315,7 +315,7 @@ func (self *NetServerGetInfoRequest) MarshalBinary() ([]byte, error) {
 		/*
 		   In each instance where a string should be encoded, check the IDL to see if it is a ptr so a referent ID is needed and if MaxLen should be encoded as well.
 		*/
-		_, err = writeConformantVaryingStringPtr(w, self.ServerName, 0x1)
+		_, err = WriteConformantVaryingStringPtr(w, self.ServerName, 0x1)
 		if err != nil {
 			log.Errorln(err)
 			return nil, err
@@ -378,7 +378,7 @@ func (self *NetServerGetInfoResponse) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		si.Name, err = readConformantVaryingString(r)
+		si.Name, err = ReadConformantVaryingString(r)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -427,14 +427,14 @@ func (self *NetServerGetInfoResponse) UnmarshalBinary(buf []byte) (err error) {
 		}
 
 		// Read and decode the Name
-		si.Name, err = readConformantVaryingString(r)
+		si.Name, err = ReadConformantVaryingString(r)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 
 		// Read and decode the Comment
-		si.Comment, err = readConformantVaryingString(r)
+		si.Comment, err = ReadConformantVaryingString(r)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -534,19 +534,19 @@ func (self *NetServerGetInfoResponse) UnmarshalBinary(buf []byte) (err error) {
 		}
 
 		// Read and decode the Name
-		si.Name, err = readConformantVaryingString(r)
+		si.Name, err = ReadConformantVaryingString(r)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 		// Read and decode the Comment
-		si.Comment, err = readConformantVaryingString(r)
+		si.Comment, err = ReadConformantVaryingString(r)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 		// Read and decode the UserPath
-		si.Userpath, err = readConformantVaryingString(r)
+		si.Userpath, err = ReadConformantVaryingString(r)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -570,7 +570,7 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 	w := bytes.NewBuffer(ret)
 	refid := uint32(1)
 	if self.ServerName != "" {
-		_, err = writeConformantVaryingStringPtr(w, self.ServerName, refid)
+		_, err = WriteConformantVaryingStringPtr(w, self.ServerName, refid)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -584,7 +584,7 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 		}
 	}
 	if self.ClientName != "" {
-		_, err = writeConformantVaryingStringPtr(w, self.ClientName, refid)
+		_, err = WriteConformantVaryingStringPtr(w, self.ClientName, refid)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -599,7 +599,7 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 	}
 
 	if self.UserName != "" {
-		_, err = writeConformantVaryingStringPtr(w, self.UserName, refid)
+		_, err = WriteConformantVaryingStringPtr(w, self.UserName, refid)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -864,7 +864,7 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 			}
 			for i := 0; i < int(container.EntriesRead); i++ {
 				// Decode the Cname
-				container.Buffer[i].Cname, err = readConformantVaryingString(r)
+				container.Buffer[i].Cname, err = ReadConformantVaryingString(r)
 				if err != nil {
 					log.Errorln(err)
 					return
@@ -914,14 +914,14 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 			}
 			for i := 0; i < int(container.EntriesRead); i++ {
 				// Decode the Cname
-				container.Buffer[i].Cname, err = readConformantVaryingString(r)
+				container.Buffer[i].Cname, err = ReadConformantVaryingString(r)
 				if err != nil {
 					log.Errorln(err)
 					return
 				}
 
 				// Decode the Username
-				container.Buffer[i].Username, err = readConformantVaryingString(r)
+				container.Buffer[i].Username, err = ReadConformantVaryingString(r)
 				if err != nil {
 					log.Errorln(err)
 					return
@@ -991,28 +991,28 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 			}
 			for i := 0; i < int(container.EntriesRead); i++ {
 				// Decode the Cname
-				container.Buffer[i].Cname, err = readConformantVaryingString(r)
+				container.Buffer[i].Cname, err = ReadConformantVaryingString(r)
 				if err != nil {
 					log.Errorln(err)
 					return
 				}
 
 				// Decode the Username
-				container.Buffer[i].Username, err = readConformantVaryingString(r)
+				container.Buffer[i].Username, err = ReadConformantVaryingString(r)
 				if err != nil {
 					log.Errorln(err)
 					return
 				}
 
 				// Decode the ClientType
-				container.Buffer[i].ClType, err = readConformantVaryingString(r)
+				container.Buffer[i].ClType, err = ReadConformantVaryingString(r)
 				if err != nil {
 					log.Errorln(err)
 					return
 				}
 
 				// Decode the Transport
-				container.Buffer[i].Transport, err = readConformantVaryingString(r)
+				container.Buffer[i].Transport, err = ReadConformantVaryingString(r)
 				if err != nil {
 					log.Errorln(err)
 					return
@@ -1290,7 +1290,7 @@ func (self *NetShareEnumAllRequest) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 	if self.ServerName != "" {
 		// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-		_, err = writeConformantVaryingStringPtr(w, self.ServerName, refId)
+		_, err = WriteConformantVaryingStringPtr(w, self.ServerName, refId)
 		if err != nil {
 			log.Errorln(err)
 			return nil, err
@@ -1451,13 +1451,13 @@ func (self *NetShareEnumAllResponse) UnmarshalBinary(buf []byte) (err error) {
 			}
 			for i := 0; i < int(ptr.EntriesRead); i++ {
 				// Decode the Name
-				ptr.Buffer[i].Name, err = readConformantVaryingString(r)
+				ptr.Buffer[i].Name, err = ReadConformantVaryingString(r)
 				if err != nil {
 					log.Errorln(err)
 					return
 				}
 				// Decode the Comment
-				ptr.Buffer[i].Comment, err = readConformantVaryingString(r)
+				ptr.Buffer[i].Comment, err = ReadConformantVaryingString(r)
 				if err != nil {
 					log.Errorln(err)
 					return
