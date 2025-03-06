@@ -47,17 +47,19 @@ const (
 
 // MS-SCMR Operations OP Codes
 const (
-	SvcCtlRCloseServiceHandle   uint16 = 0
-	SvcCtlRControlService       uint16 = 1
-	SvcCtlRDeleteService        uint16 = 2
-	SvcCtlRQueryServiceStatus   uint16 = 6
-	SvcCtlRChangeServiceConfigW uint16 = 11
-	SvcCtlRCreateServiceW       uint16 = 12
-	SvcCtlREnumServicesStatusW  uint16 = 14
-	SvcCtlROpenSCManagerW       uint16 = 15
-	SvcCtlROpenServiceW         uint16 = 16
-	SvcCtlRQueryServiceConfigW  uint16 = 17
-	SvcCtlRStartServiceW        uint16 = 19
+	SvcCtlRCloseServiceHandle    uint16 = 0
+	SvcCtlRControlService        uint16 = 1
+	SvcCtlRDeleteService         uint16 = 2
+	SvcCtlRQueryServiceStatus    uint16 = 6
+	SvcCtlRChangeServiceConfigW  uint16 = 11
+	SvcCtlRCreateServiceW        uint16 = 12
+	SvcCtlREnumServicesStatusW   uint16 = 14
+	SvcCtlROpenSCManagerW        uint16 = 15
+	SvcCtlROpenServiceW          uint16 = 16
+	SvcCtlRQueryServiceConfigW   uint16 = 17
+	SvcCtlRStartServiceW         uint16 = 19
+	SvcCtlRChangeServiceConfig2W uint16 = 37
+	SvcCtlRQueryServiceConfig2W  uint16 = 39
 )
 
 // MS-SCMR (svcctl) Section 2.2.15 ServiceType merged with Section 2.2.47 dwServiceType
@@ -256,6 +258,18 @@ var ServiceResponseCodeMap = map[uint32]error{
 	ErrorShutdownInProgress:         fmt.Errorf("The system is shutting down."),
 }
 
+// MS-SCMR Section 3.1.4.37 RQueryServiceConfig2W (Opnum 39) dwInfoLevel
+const (
+	ServiceConfigDescription              uint32 = 0x1
+	ServiceConfigFailure_actions          uint32 = 0x2
+	ServiceConfigDelayed_auto_start_info  uint32 = 0x3
+	ServiceConfigFailure_actions_flag     uint32 = 0x4
+	ServiceConfigService_sid_info         uint32 = 0x5
+	ServiceConfigRequired_privileges_info uint32 = 0x6
+	ServiceConfigPreshutdown_info         uint32 = 0x7
+	ServiceConfigPreferred_node           uint32 = 0x9
+)
+
 type ServiceConfig struct {
 	ServiceType      string
 	StartType        string
@@ -413,6 +427,38 @@ type RQueryServiceConfigWRes struct {
 	ServiceConfig *QueryServiceConfigW
 	BytesNeeded   uint32
 	ErrorCode     uint32
+}
+
+// MS-SCMR Section 2.2.22 SC_RPC_CONFIG_INFOW
+type ConfigInfoW struct {
+	InfoLevel uint32
+	Data      ConfigInfoWUnion
+}
+
+type ConfigInfoWUnion interface {
+	MarshalBinary() ([]byte, error)
+}
+
+// MS-SCMR Section 2.2.35 SERVICE_DESCRIPTIONW
+type ServiceDescription struct {
+	Description string
+}
+
+type RChangeServiceConfig2WReq struct {
+	ServiceHandle []byte
+	Info          ConfigInfoW
+}
+
+type RQueryServiceConfig2WReq struct {
+	ServiceHandle []byte
+	InfoLevel     uint32
+	BufSize       uint32
+}
+
+type RQueryServiceConfig2WRes struct {
+	Buffer      []byte
+	BytesNeeded uint32
+	ErrorCode   uint32
 }
 
 /*
@@ -950,6 +996,141 @@ func (self *RQueryServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 	}
 
 	return nil
+}
+
+func (self *RChangeServiceConfig2WReq) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for RChangeServiceConfig2WReq")
+
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+
+	if len(self.ServiceHandle) != 20 {
+		return nil, fmt.Errorf("Invalid size of ServiceHandle!")
+	}
+
+	_, err = w.Write(self.ServiceHandle[:20])
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	buf, err := self.Info.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	n, err := w.Write(buf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	if n != len(buf) {
+		err = fmt.Errorf("Failed to marshal all %d bytes to byte buffer. Only wrote %d bytes", len(buf), n)
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *RChangeServiceConfig2WReq) UnmarshalBinary(buf []byte) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RChangeServiceConfig2WReq")
+}
+
+func (self *RQueryServiceConfig2WReq) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for RQueryServiceConfig2WReq")
+
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+
+	if len(self.ServiceHandle) != 20 {
+		return nil, fmt.Errorf("Invalid size of ServiceHandle!")
+	}
+
+	_, err = w.Write(self.ServiceHandle[:20])
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.InfoLevel)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.BufSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *RQueryServiceConfig2WReq) UnmarshalBinary(buf []byte) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RQueryServiceConfig2WReq")
+}
+
+func (self *RQueryServiceConfig2WRes) MarshalBinary() ([]byte, error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of RQueryServiceConfig2WRes")
+}
+
+func (self *RQueryServiceConfig2WRes) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for RQueryServiceConfig2WRes")
+	if len(buf) < 12 {
+		return fmt.Errorf("Buffer to small for RQueryServiceConfig2WRes")
+	}
+	r := bytes.NewReader(buf)
+
+	// Begin by reading the fixed size fields
+	_, err = r.Seek(-8, io.SeekEnd)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, le, &self.BytesNeeded)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, le, &self.ErrorCode)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	_, err = r.Seek(0, io.SeekStart)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	var maxCount uint32
+	err = binary.Read(r, le, &maxCount)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	if uint32(len(buf)) < (maxCount + 12) {
+		err = fmt.Errorf("RQueryServiceConfig2W response buffer is smaller than indicated size of payload")
+	}
+
+	self.Buffer = make([]byte, maxCount)
+	n, err := r.Read(self.Buffer)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	if uint32(n) != maxCount {
+		err = fmt.Errorf("Expected to read %d bytes buffer from response, but only read %d bytes", maxCount, n)
+		return
+	}
+
+	return
 }
 
 func (self *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
@@ -1712,8 +1893,8 @@ func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err er
 }
 
 // NOTE That currently the config Dependencies cannot be modified
-func (sb *ServiceBind) ChangeServiceConfig2(serviceName string, config *ServiceConfig) (err error) {
-	log.Debugln("In ChangeServiceConfig2")
+func (sb *ServiceBind) ChangeServiceConfigExt(serviceName string, config *ServiceConfig) (err error) {
+	log.Debugln("In ChangeServiceConfigExt")
 	var binaryPathName, serviceStartName, displayName string
 	var serviceType, startType, errorControl uint32
 
@@ -2059,6 +2240,85 @@ func (sb *ServiceBind) GetServiceConfig(serviceName string) (config ServiceConfi
 	return decodeServiceConfig(res.ServiceConfig)
 }
 
+func (sb *ServiceBind) GetServiceConfig2(serviceName string, infoLevel uint32) (result []byte, err error) {
+	log.Debugln("In GetServiceConfig2")
+	handle, err := sb.openSCManager(ServiceQueryConfig)
+	if err != nil {
+		return
+	}
+	defer sb.CloseServiceHandle(handle)
+	serviceHandle, err := sb.openService(handle, serviceName, ServiceQueryConfig)
+	if err != nil {
+		return
+	}
+	defer sb.CloseServiceHandle(serviceHandle)
+
+	innerReq := RQueryServiceConfig2WReq{
+		ServiceHandle: serviceHandle,
+		InfoLevel:     infoLevel,
+		BufSize:       0,
+	}
+	innerBuf, err := innerReq.MarshalBinary()
+	if err != nil {
+		return
+	}
+
+	// Make request to figure out buffer size
+	buffer, err := sb.MakeIoCtlRequest(SvcCtlRQueryServiceConfig2W, innerBuf)
+	if err != nil {
+		return
+	}
+
+	// Parse response
+	res := RQueryServiceConfig2WRes{}
+	err = res.UnmarshalBinary(buffer)
+	if err != nil {
+		return
+	}
+
+	if res.ErrorCode != ErrorInsufficientBuffer {
+		status, found := ServiceResponseCodeMap[res.ErrorCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RQueryServiceConfig2W: 0x%x\n", res.ErrorCode)
+			log.Errorln(err)
+			return
+		}
+		return nil, status
+	}
+
+	// Repeat request with allocated buffer size
+	innerReq.BufSize = res.BytesNeeded
+	innerBuf2, err := innerReq.MarshalBinary()
+	if err != nil {
+		return
+	}
+
+	buffer, err = sb.MakeIoCtlRequest(SvcCtlRQueryServiceConfig2W, innerBuf2)
+	if err != nil {
+		return
+	}
+
+	// Parse ServiceConfig
+	res = RQueryServiceConfig2WRes{}
+	err = res.UnmarshalBinary(buffer)
+	if err != nil {
+		return
+	}
+
+	if res.ErrorCode != ErrorSuccess {
+		status, found := ServiceResponseCodeMap[res.ErrorCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RQueryServiceConfig2W: 0x%x\n", res.ErrorCode)
+			log.Errorln(err)
+			return
+		}
+		return nil, status
+	}
+
+	result = res.Buffer
+	return
+}
+
 // NOTE that currently, dependencies cannot be modified
 func (sb *ServiceBind) ChangeServiceConfig(
 	serviceName string,
@@ -2135,6 +2395,54 @@ func (sb *ServiceBind) ChangeServiceConfig(
 			err = fmt.Errorf("Received unknown return code for RChangeServiceConfigW: 0x%x\n", res.ReturnCode)
 			log.Errorln(err)
 			return err
+		}
+		return status
+	}
+
+	return
+}
+
+func (sb *ServiceBind) ChangeServiceConfig2(serviceName string, info *ConfigInfoW) (err error) {
+	log.Debugln("In ChangeServiceConfig2")
+	handle, err := sb.openSCManager(ServiceChangeConfig)
+	if err != nil {
+		return
+	}
+	defer sb.CloseServiceHandle(handle)
+	serviceHandle, err := sb.openService(handle, serviceName, ServiceChangeConfig)
+	if err != nil {
+		return
+	}
+	defer sb.CloseServiceHandle(serviceHandle)
+
+	innerReq := RChangeServiceConfig2WReq{
+		ServiceHandle: serviceHandle,
+		Info:          *info,
+	}
+	innerBuf, err := innerReq.MarshalBinary()
+	if err != nil {
+		return
+	}
+
+	// Make request to figure out buffer size
+	buffer, err := sb.MakeIoCtlRequest(SvcCtlRChangeServiceConfig2W, innerBuf)
+	if err != nil {
+		return
+	}
+
+	// Parse response
+	if len(buffer) < 4 {
+		err = fmt.Errorf("Response too small for RChangeServiceConfig2W")
+		return
+	}
+	errorCode := binary.LittleEndian.Uint32(buffer[:4])
+
+	if errorCode != ErrorSuccess {
+		status, found := ServiceResponseCodeMap[errorCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RChangeServiceConfig2W: 0x%x\n", errorCode)
+			log.Errorln(err)
+			return
 		}
 		return status
 	}
@@ -2428,4 +2736,62 @@ func (sb *ServiceBind) CloseServiceHandle(serviceHandle []byte) {
 	}
 
 	return
+}
+
+func (self *ConfigInfoW) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for ConfigInfoW")
+
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+
+	// MS-SCMR Section 2.2.22 SC_RPC_CONFIG_INFOW
+	// Encode dwInfoLevel value
+	err = binary.Write(w, le, self.InfoLevel)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	buf, err := self.Data.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	n, err := w.Write(buf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	if n != len(buf) {
+		err = fmt.Errorf("Failed to marshal all %d bytes to byte buffer. Only wrote %d bytes", len(buf), n)
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *ServiceDescription) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for ServiceDescription")
+
+	// MS-SCMR Section 2.2.22 SC_RPC_CONFIG_INFOW
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+	refId := uint32(1)
+
+	// When encoding a union type that is switched by a uint32 variable
+	// first encode the union switch (level)
+	err = binary.Write(w, le, ServiceConfigDescription)
+	// then encode the Level once more
+	err = binary.Write(w, le, ServiceConfigDescription)
+
+	// finally, encode the actual struct that was selected
+	// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
+	_, err = writeConformantVaryingStringPtr(w, self.Description, refId)
+	if err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+
+	return w.Bytes(), nil
 }
