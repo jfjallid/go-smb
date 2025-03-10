@@ -222,13 +222,17 @@ func ReadConformantVaryingString(r *bytes.Reader) (s string, err error) {
 			log.Errorln(err)
 			return
 		}
-
+		// Check for terminating null byte
+		lastIndex := len(unc) - 2
+		if bytes.Compare(unc[lastIndex:], []byte{0, 0}) == 0 {
+			unc = unc[:lastIndex]
+		}
 		s, err = FromUnicodeString(unc)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
-		s = s[:len(s)-1] // Skip terminating null character
+		//s = s[:len(s)-1] // Skip terminating null character (already handled above)
 	}
 
 	paddLen := 4 - ((offset + actualCount*2) % 4)

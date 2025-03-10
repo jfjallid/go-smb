@@ -947,6 +947,10 @@ func Bind(f *smb.File, interface_uuid string, majorVersion, minorVersion uint16,
 	}, nil
 }
 
+func (sb *ServiceBind) GetSessionKey() (sessionKey []byte) {
+	return sb.f.GetSessionKey()
+}
+
 func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result []byte, err error) {
 	callId := sb.callId.Add(1)
 	fragmentedResponse := false
