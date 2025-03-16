@@ -371,7 +371,7 @@ func (self *SamrConnect5Req) MarshalBinary() (res []byte, err error) {
 	refId := uint32(1)
 
 	// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-	_, err = dcerpc.WriteConformantVaryingStringPtr(w, self.ServerName, refId)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.ServerName, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1510,7 +1510,7 @@ func (self *SamprEnumerationBuffer) UnmarshalBinary(buf []byte) (err error) {
 	}
 
 	for i := 0; i < int(self.EntriesRead); i++ {
-		self.Buffer[i].Name, err = dcerpc.ReadConformantVaryingString(r)
+		self.Buffer[i].Name, err = msdtyp.ReadConformantVaryingString(r, true)
 		if err != nil {
 			log.Errorln(err)
 			return
