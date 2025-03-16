@@ -439,6 +439,10 @@ func (c *Connection) SessionSetup() error {
 		log.Debugln(err)
 		return err
 	}
+	// Since I'm not currently handling credits I try to request more than I need
+	// Turns out that with Kerberos auth I sometimes lack credits due to shorter
+	// SessionSetup flow
+	ssreq.Header.Credits = 127
 	ssres, err := NewSessionSetup1Res()
 	if err != nil {
 		log.Debugln(err)
@@ -1963,7 +1967,7 @@ func (s *Connection) WriteIoCtlReq(req *IoCtlReq) (res IoCtlRes, err error) {
 	}
 
 	if err = encoder.Unmarshal(buf, &res); err != nil {
-        log.Errorln(err)
+		log.Errorln(err)
 		return res, err
 	}
 

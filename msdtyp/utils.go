@@ -59,7 +59,7 @@ func ToUnicode(input string) []byte {
 }
 
 // Return the values needed to encode a unicode string according to NDR (except for the Ptrs and MaxCount which has to be added manually)
-func newUnicodeStr(s string, addNullByte bool) (offset uint32, actualCount uint32, paddlen int, buffer []byte) {
+func NewUnicodeStr(s string, addNullByte bool) (offset uint32, actualCount uint32, paddlen int, buffer []byte) {
 	if addNullByte {
 		s = nullTerminate(s)
 	}
@@ -179,8 +179,14 @@ func ReadConformantVaryingStringPtr(r *bytes.Reader, nullTerminated bool) (s str
 // with a null byte
 // Write a conformant and varying string to the output stream
 func WriteConformantVaryingString(w io.Writer, s string, addNullByte bool) (n int, err error) {
-	offset, count, paddlen, buffer := newUnicodeStr(s, addNullByte)
-	err = binary.Write(w, le, count) // MaxCount
+	offset, count, paddlen, buffer := NewUnicodeStr(s, addNullByte)
+	maxCount := count
+	if !addNullByte {
+		// Seems like NDR parsers does not like it if MaxCount is same as ActualCount
+		// for strings that are not null terminated
+		maxCount += 1
+	}
+	err = binary.Write(w, le, maxCount) // MaxCount
 	if err != nil {
 		return
 	}
@@ -368,6 +374,59 @@ func ReadConformantVaryingArrayPtr(r *bytes.Reader) (data []byte, maxLength uint
 		return
 	}
 	return ReadConformantVaryingArray(r)
+}
+
+func WriteConformantArray(w io.Writer, buf []byte) (n int, err error) {
+	err = binary.Write(w, le, uint32(len(buf))) // MaxCount
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	n += 4
+	_, err = w.Write(buf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	n += len(buf)
+	paddlen := (len(buf) % 4) //Got to be 4 byte aligned?
+	if paddlen != 0 {
+		paddlen = 4 - paddlen
+	}
+
+	padd := make([]byte, paddlen)
+	_, err = w.Write(padd)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	n += paddlen
+	return
+}
+
+func WriteConformantArrayPtr(w io.Writer, buf []byte, refid *uint32) (n int, err error) {
+	var n2 int
+
+	if len(buf) == 0 {
+		// Empty buffers are represented with a NULL Ptr
+		n, err = w.Write([]byte{0, 0, 0, 0})
+		if err != nil {
+			log.Errorln(err)
+		}
+		return
+	}
+	if *refid != 0 {
+		err = binary.Write(w, le, refid)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		n = 4
+		*refid++
+	}
+	n2, err = WriteConformantArray(w, buf)
+	n += n2
+	return
 }
 
 func ConvertSIDtoStr(sid *SID) (s string) {

@@ -212,6 +212,72 @@ func ReadRPCUnicodeStrArray(r *bytes.Reader, nullTerminated bool) (items []strin
 	return
 }
 
+func WriteRPCUnicodeStrArray(w io.Writer, items []string, refId *uint32, nullTerminate bool) (n int, err error) {
+	// Write ref id
+	err = binary.Write(w, le, refId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	*refId++
+	n += 4
+
+	// Write MaxCount
+	err = binary.Write(w, le, uint32(len(items)))
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	n += 4
+
+	for i := 0; i < len(items); i++ {
+		strLen := uint16(0)
+		maxLen := uint16(0)
+		s := items[i]
+		if nullTerminate {
+			strLen = uint16(len(s)+2) * 2
+			maxLen = strLen
+		} else {
+			strLen = uint16(len(s)) * 2
+			maxLen = strLen + 2
+		}
+		// Write string len
+		err = binary.Write(w, le, strLen)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		n += 4
+		// Write string max size
+		err = binary.Write(w, le, maxLen)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		n += 4
+		// Write refId ptr
+		err = binary.Write(w, le, refId)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		n += 4
+		*refId++
+	}
+
+	n2 := 0
+	for i := 0; i < len(items); i++ {
+		n2, err = WriteConformantVaryingString(w, items[i], nullTerminate)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		n += n2
+	}
+
+	return
+}
+
 func ReadRPCUnicodeStr(r *bytes.Reader, nullTerminated bool) (s string, maxLength uint16, err error) {
 	l := uint16(0)
 	err = binary.Read(r, le, &l)
@@ -258,20 +324,25 @@ func ReadRPCUnicodeStrPtr(r *bytes.Reader, nullTerminated bool) (s string, maxLe
 func WriteRPCUnicodeStrPtr(w io.Writer, s string, refId *uint32) (n int, err error) {
 	unc := ToUnicode(s)
 
-	buflen := uint16(len(unc))
-	err = binary.Write(w, le, buflen) // Len
+	var length, maxLength uint16
+	length = uint16(len(unc))
+	err = binary.Write(w, le, length) // Len
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, buflen) // Max Size
+	// RPCUnicode strings should never be null terminated, but NDR parsers seems to complain
+	// if the Conformant Varying String structure specifies a max count with the same value as
+	// the actual count. So for non-null-terminated Conformant Varying strings I increase the
+	// value of max count by 1 and maxLength should thus be increased by 2.
+	maxLength = length + 2
+	err = binary.Write(w, le, maxLength) // max length
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	//n, err = WriteConformantVaryingArrayPtr(w, unc, uint32(bufMaxSize), refId)
 	n, err = WriteConformantVaryingStringPtr(w, s, refId, false)
 	if err != nil {
 		log.Errorln(err)
