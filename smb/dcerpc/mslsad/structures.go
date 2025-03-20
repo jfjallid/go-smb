@@ -82,8 +82,9 @@ type LsarEnumerateAccountsReq struct {
 
 // MS-LSAD Opnum 11
 type LsarEnumerateAccountsRes struct {
-	EnumerationBuffer *LsaprAccountEnumBuffer
-	ReturnCode        uint32
+	EnumerationContext uint32
+	EnumerationBuffer  *LsaprAccountEnumBuffer
+	ReturnCode         uint32
 }
 
 // MS-LSAD Opnum 17
@@ -765,7 +766,13 @@ func (self *LsarEnumerateAccountsRes) UnmarshalBinary(buf []byte) (err error) {
 		return fmt.Errorf("Buffer to small for LsarEnumerateAccountsRes")
 	}
 	r := bytes.NewReader(buf)
-	// Begin by reading the return code
+	err = binary.Read(r, le, &self.EnumerationContext)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// Read the return code
 	_, err = r.Seek(-4, io.SeekEnd)
 	if err != nil {
 		log.Errorln(err)
@@ -792,7 +799,7 @@ func (self *LsarEnumerateAccountsRes) UnmarshalBinary(buf []byte) (err error) {
 
 	buflen := len(buf)
 	var res LsaprAccountEnumBuffer
-	err = res.UnmarshalBinary(buf[:buflen-4])
+	err = res.UnmarshalBinary(buf[4 : buflen-4])
 	if err != nil {
 		log.Errorln(err)
 		return
