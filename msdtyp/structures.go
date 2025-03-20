@@ -336,7 +336,9 @@ func WriteRPCUnicodeStrPtr(w io.Writer, s string, refId *uint32) (n int, err err
 	// if the Conformant Varying String structure specifies a max count with the same value as
 	// the actual count. So for non-null-terminated Conformant Varying strings I increase the
 	// value of max count by 1 and maxLength should thus be increased by 2.
-	maxLength = length + 2
+	if length > 0 {
+		maxLength = length + 2
+	}
 	err = binary.Write(w, le, maxLength) // max length
 	if err != nil {
 		log.Errorln(err)

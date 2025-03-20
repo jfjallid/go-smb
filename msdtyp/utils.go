@@ -102,10 +102,7 @@ func ReadConformantVaryingString(r *bytes.Reader, nullTerminated bool) (s string
 		log.Errorln(err)
 		return
 	}
-	if maxCount == 0 {
-		// If maxCount is zero, we've likely encountered a null ptr
-		return
-	}
+
 	// Read the offset
 	var offset uint32
 	err = binary.Read(r, le, &offset)

@@ -49,6 +49,16 @@ var (
 	log                           = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc")
 )
 
+const (
+	ErrorSuccess         uint32 = 0x00000000
+	ErrorContextMismatch uint32 = 0x1c00001a
+)
+
+var responseCodeMap = map[uint32]error{
+	ErrorSuccess:         fmt.Errorf("The operation completed successfully"),
+	ErrorContextMismatch: fmt.Errorf("Context Mismatch"),
+}
+
 // MSRPC Packet header common fields
 const PDUHeaderCommonSize int = 16
 
@@ -371,8 +381,16 @@ func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result 
 
 		if resHeader.Type == PacketTypeFault {
 			if len(responseBuffer) >= (PDUHeaderCommonSize + 12) {
-				status := binary.LittleEndian.Uint32(responseBuffer[:PDUHeaderCommonSize+8])
-				err = fmt.Errorf("DCERPC Fault PDU received with status: %d", status)
+				returnCode := binary.LittleEndian.Uint32(responseBuffer[PDUHeaderCommonSize+8:])
+				status, found := responseCodeMap[returnCode]
+				if !found {
+					err = fmt.Errorf("DCERPC Fault PDU received with status: 0x%x", returnCode)
+					log.Errorln(err)
+					return
+				}
+				err = fmt.Errorf("DCERPC Fault PDU received with status: %s", status)
+				log.Errorln(err)
+				return
 			} else {
 				err = fmt.Errorf("DCERPC Fault PDU received but incomplete: %+v, full buffer: %x", resHeader, responseBuffer)
 			}

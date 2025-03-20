@@ -756,7 +756,7 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 	case 0:
 		container := SessionInfoContainer0{}
 		self.Info.SessionInfo = &container
-		err = binary.Read(r, le, container.EntriesRead)
+		err = binary.Read(r, le, &container.EntriesRead)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -853,7 +853,7 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 	case 502:
 		container := SessionInfoContainer502{}
 		self.Info.SessionInfo = &container
-		err = binary.Read(r, le, container.EntriesRead)
+		err = binary.Read(r, le, &container.EntriesRead)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -880,25 +880,25 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 					log.Errorln(err)
 					return
 				}
-				err = binary.Read(r, le, container.Buffer[i].NumOpens)
+				err = binary.Read(r, le, &container.Buffer[i].NumOpens)
 				if err != nil {
 					log.Errorln(err)
 					return
 				}
 
-				err = binary.Read(r, le, container.Buffer[i].Time)
+				err = binary.Read(r, le, &container.Buffer[i].Time)
 				if err != nil {
 					log.Errorln(err)
 					return
 				}
 
-				err = binary.Read(r, le, container.Buffer[i].IdleTime)
+				err = binary.Read(r, le, &container.Buffer[i].IdleTime)
 				if err != nil {
 					log.Errorln(err)
 					return
 				}
 
-				err = binary.Read(r, le, container.Buffer[i].UserFlags)
+				err = binary.Read(r, le, &container.Buffer[i].UserFlags)
 				if err != nil {
 					log.Errorln(err)
 					return
