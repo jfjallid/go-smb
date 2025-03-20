@@ -68,6 +68,8 @@ const (
 	StatusAccountRestriction     = 0xc000006e
 	StatusPasswordExpired        = 0xc0000071
 	StatusAccountDisabled        = 0xc0000072
+	StatusPipeNotAvailable       = 0xc00000ac
+	StatusPipeBusy               = 0xc00000ae
 	StatusNotSupported           = 0xc00000bb
 	StatusBadNetworkName         = 0xc00000cc
 	StatusDirectoryNotEmpty      = 0xc0000101
@@ -97,6 +99,8 @@ var StatusMap = map[uint32]error{
 	StatusAccountRestriction:     fmt.Errorf("Account restriction"),
 	StatusPasswordExpired:        fmt.Errorf("Password expired!"),
 	StatusAccountDisabled:        fmt.Errorf("Account disabled!"),
+	StatusPipeNotAvailable:       fmt.Errorf("Pipe not available!"),
+	StatusPipeBusy:               fmt.Errorf("Pipe busy!"),
 	StatusNotSupported:           fmt.Errorf("Not Supported!"),
 	StatusBadNetworkName:         fmt.Errorf("Bad network name"),
 	StatusDirectoryNotEmpty:      fmt.Errorf("Directory is not empty"),
