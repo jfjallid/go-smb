@@ -33,60 +33,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/jfjallid/go-smb/smb/dcerpc"
-	"github.com/jfjallid/golog"
 	"io"
+
+	"github.com/jfjallid/go-smb/msdtyp"
+	"github.com/jfjallid/go-smb/smb/dcerpc"
 )
-
-var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc/mswkst")
-	le  binary.ByteOrder = binary.LittleEndian
-)
-
-const (
-	MSRPCUuidWksSvc                = "6BFFD098-A112-3610-9833-46C3F87E345A"
-	MSRPCWksSvcPipe                = "wkssvc"
-	MSRPCWksSvcMajorVersion uint16 = 1
-	MSRPCWksSvcMinorVersion uint16 = 0
-)
-
-// MSRPC Workstation Service Remote (wkssvc) Operations
-const (
-	WksSvcWkstaUserEnum uint16 = 2
-)
-
-// MS-WKST Section 2.2.5.14
-const (
-	WkstaUserEnumInfoLevel0 uint32 = 0
-	WkstaUserEnumInfoLevel1 uint32 = 1
-)
-
-const WkstaMaxPreferredLength uint32 = 0xFFFFFFFF
-
-const (
-	ErrorSuccess          uint32 = 0x0   // The operation completed successfully
-	ErrorAccessDenied     uint32 = 0x5   // Access is denied
-	ErrorInvalidParameter uint32 = 0x57  // One of the function parameters is not valid.
-	ErrorInvalidLevel     uint32 = 0x7c  // The information level is invalid.
-	ErrorMoreData         uint32 = 0xea  // More entries are available. The UserInfo buffer was not large enough to contain all the entries.
-	ErrorBufTooSmall      uint32 = 0x84b // More entries are available. The TransportInfo buffer was not large enough to contain all the entries.
-)
-
-var ResponseCodeMap = map[uint32]error{
-	ErrorSuccess:          fmt.Errorf("The operation completed successfully"),
-	ErrorAccessDenied:     fmt.Errorf("Access is denied"),
-	ErrorInvalidParameter: fmt.Errorf("One of the function parameters is not valid."),
-	ErrorInvalidLevel:     fmt.Errorf("The information level is invalid."),
-	ErrorMoreData:         fmt.Errorf("More entries are available. The UserInfo buffer was not large enough to contain all the entries."),
-	ErrorBufTooSmall:      fmt.Errorf("More entries are available. The TransportInfo buffer was not large enough to contain all the entries."),
-}
 
 type RPCCon struct {
 	*dcerpc.ServiceBind
-}
-
-func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
-	return &RPCCon{sb}
 }
 
 type WkstaUserInfo0 struct {
@@ -166,7 +120,7 @@ func (self *NetWkstaUserEnumReq) MarshalBinary() (res []byte, err error) {
 	refId := uint32(1)
 
 	// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-	_, err = dcerpc.WriteConformantVaryingStringPtr(w, self.ServerName, refId)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.ServerName, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -422,7 +376,7 @@ func (self *WkstaUserInfo0Container) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		s, err = dcerpc.ReadConformantVaryingString(r)
+		s, err = msdtyp.ReadConformantVaryingString(r, true)
 		if err != nil {
 			log.Errorf("Error trying to read string for entry %d: %v\n", i, err)
 			return
@@ -503,25 +457,25 @@ func (self *WkstaUserInfo1Container) UnmarshalBinary(buf []byte) (err error) {
 	}
 	for i := 0; i < int(self.EntriesRead); i++ {
 		s0 := ""
-		s0, err = dcerpc.ReadConformantVaryingString(r)
+		s0, err = msdtyp.ReadConformantVaryingString(r, true)
 		if err != nil {
 			log.Errorf("Error trying to read string for entry %d: %v\n", i, err)
 			return
 		}
 		s1 := ""
-		s1, err = dcerpc.ReadConformantVaryingString(r)
+		s1, err = msdtyp.ReadConformantVaryingString(r, true)
 		if err != nil {
 			log.Errorf("Error trying to read string for entry %d: %v\n", i, err)
 			return
 		}
 		s2 := ""
-		s2, err = dcerpc.ReadConformantVaryingString(r)
+		s2, err = msdtyp.ReadConformantVaryingString(r, true)
 		if err != nil {
 			log.Errorf("Error trying to read string for entry %d: %v\n", i, err)
 			return
 		}
 		s3 := ""
-		s3, err = dcerpc.ReadConformantVaryingString(r)
+		s3, err = msdtyp.ReadConformantVaryingString(r, true)
 		if err != nil {
 			log.Errorf("Error trying to read string for entry %d: %v\n", i, err)
 			return
@@ -530,45 +484,4 @@ func (self *WkstaUserInfo1Container) UnmarshalBinary(buf []byte) (err error) {
 	}
 
 	return nil
-}
-
-func (sb *RPCCon) EnumWkstLoggedOnUsers(level int) (res WkstaUserEnumUnion, err error) {
-	log.Debugln("In EnumWkstLoggedOnUsers")
-	if level < 0 || level > 1 {
-		return nil, fmt.Errorf("Only levels 0 and 1 are valid")
-	}
-
-	innerReq := NetWkstaUserEnumReq{
-		ServerName:             "",
-		UserInfo:               WkstaUserEnum{Level: uint32(level)},
-		PreferredMaximumLength: WkstaMaxPreferredLength,
-	}
-	if level == 0 {
-		innerReq.UserInfo.Data = &WkstaUserInfo0Container{}
-	} else {
-		innerReq.UserInfo.Data = &WkstaUserInfo1Container{}
-	}
-	innerBuf, err := innerReq.MarshalBinary()
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	buffer, err := sb.MakeIoCtlRequest(WksSvcWkstaUserEnum, innerBuf)
-	if err != nil {
-		return
-	}
-
-	if len(buffer) < 24 {
-		return nil, fmt.Errorf("Server response to WkstaUserEnum was too small. Expected at atleast 24 bytes")
-	}
-
-	var resp NetWkstaUserEnumRes
-	err = resp.UnmarshalBinary(buffer)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	return resp.UserInfo.Data, err
 }
