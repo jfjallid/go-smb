@@ -74,6 +74,7 @@ const (
 	StatusAccessDenied        uint32 = 0xC0000022 // Access is denied
 	StatusObjectNameNotFound  uint32 = 0xC0000034
 	StatusObjectNameCollision uint32 = 0xC0000035
+	StatusNoSuchPrivilege     uint32 = 0xC0000060
 	StatusInvalidSID          uint32 = 0xC0000078
 	StatusNotSupported        uint32 = 0xC00000BB
 )
@@ -83,6 +84,7 @@ var ResponseCodeMap = map[uint32]error{
 	StatusAccessDenied:        fmt.Errorf("Access is denied"),
 	StatusInvalidParameter:    fmt.Errorf("One of the function parameters is not valid."),
 	StatusObjectNameCollision: fmt.Errorf("Another TDO already exists that matches some of the identifying information of the supplied information"),
+	StatusNoSuchPrivilege:     fmt.Errorf("No such privilege"),
 	StatusInvalidSID:          fmt.Errorf("The security identifier of the trusted domain is not valid"),
 	StatusInvalidHandle:       fmt.Errorf("PolicyHandle is not a valid handle."),
 	StatusObjectNameNotFound:  fmt.Errorf("No value has been set for this policy."),

@@ -51,11 +51,13 @@ var (
 
 const (
 	ErrorSuccess         uint32 = 0x00000000
+	ErrorAccessDenied    uint32 = 0x00000005
 	ErrorContextMismatch uint32 = 0x1c00001a
 )
 
 var responseCodeMap = map[uint32]error{
 	ErrorSuccess:         fmt.Errorf("The operation completed successfully"),
+	ErrorAccessDenied:    fmt.Errorf("Access denied!"),
 	ErrorContextMismatch: fmt.Errorf("Context Mismatch"),
 }
 

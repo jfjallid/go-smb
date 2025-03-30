@@ -91,56 +91,63 @@ var SamrHandleTypeMap = map[uint8]string{
 }
 
 const (
-	ErrorSuccess          uint32 = 0x00000000 // The operation completed successfully
-	ErrorAccessDenied     uint32 = 0x00000005 // Access is denied
-	ErrorInvalidParameter uint32 = 0x00000057 // One of the function parameters is not valid.
-
-	ErrorInvalidLevel         uint32 = 0x0000007c // The information level is invalid.
-	ErrorMoreData             uint32 = 0x000000ea // More entries are available. The UserInfo buffer was not large enough to contain all the entries.
-	StatusSomeNotMapped       uint32 = 0x00000107
-	ErrorBufTooSmall          uint32 = 0x0000084b // More entries are available. The TransportInfo buffer was not large enough to contain all the entries.
-	StatusInvalidParameter    uint32 = 0xc000000d
-	StatusObjectTypeMismatch  uint32 = 0xc0000024
-	StatusInvalidAccountName  uint32 = 0xc0000062
-	StatusUserExists          uint32 = 0xc0000063
-	StatusNoSuchUser          uint32 = 0xc0000064
-	StatusNoSuchGroup         uint32 = 0xc0000066
-	StatusMemberInGroup       uint32 = 0xc0000067
-	StatusMemberNotInGroup    uint32 = 0xc0000068
-	StatusPasswordRestriction uint32 = 0xc000006c
-	StatusNoneMapped          uint32 = 0xc0000073
-	StatusNoSuchDomain        uint32 = 0xc00000df
-	StatusMembersPrimaryGroup uint32 = 0xc0000127
-	StatusNoSuchAlias         uint32 = 0xc0000151
-	StatusMemberNotInAlias    uint32 = 0xc0000152
-	StatusMemberInAlias       uint32 = 0xc0000153
-	StatusNoSuchMember        uint32 = 0xc000017a
+	ErrorSuccess                uint32 = 0x00000000 // The operation completed successfully
+	ErrorAccessDenied           uint32 = 0x00000005 // Access is denied
+	ErrorInvalidParameter       uint32 = 0x00000057 // One of the function parameters is not valid.
+	StatusMoreEntries           uint32 = 0x00000105
+	StatusSomeNotMapped         uint32 = 0x00000107
+	StatusNoMoreEntries         uint32 = 0x8000001a
+	StatusInvalidParameter      uint32 = 0xc000000d
+	StatusAccessDenied          uint32 = 0xc0000022
+	StatusObjectTypeMismatch    uint32 = 0xc0000024
+	StatusInvalidAccountName    uint32 = 0xc0000062
+	StatusUserExists            uint32 = 0xc0000063
+	StatusNoSuchUser            uint32 = 0xc0000064
+	StatusGroupExists           uint32 = 0xc0000065
+	StatusNoSuchGroup           uint32 = 0xc0000066
+	StatusMemberInGroup         uint32 = 0xc0000067
+	StatusMemberNotInGroup      uint32 = 0xc0000068
+	StatusWrongPassword         uint32 = 0xc000006a
+	StatusPasswordRestriction   uint32 = 0xc000006c
+	StatusNoneMapped            uint32 = 0xc0000073
+	StatusNoSuchDomain          uint32 = 0xc00000df
+	StatusInsufficientResources uint32 = 0xc000009A
+	StatusMembersPrimaryGroup   uint32 = 0xc0000127
+	StatusNoSuchAlias           uint32 = 0xc0000151
+	StatusMemberNotInAlias      uint32 = 0xc0000152
+	StatusMemberInAlias         uint32 = 0xc0000153
+	StatusNoSuchMember          uint32 = 0xc000017a
+	StatusAccountLockedOut      uint32 = 0xc0000234
 )
 
 var ResponseCodeMap = map[uint32]error{
-	ErrorSuccess:              fmt.Errorf("The operation completed successfully"),
-	ErrorAccessDenied:         fmt.Errorf("Access is denied"),
-	ErrorInvalidParameter:     fmt.Errorf("One of the function parameters is not valid"),
-	ErrorInvalidLevel:         fmt.Errorf("The information level is invalid"),
-	ErrorMoreData:             fmt.Errorf("More entries are available. The UserInfo buffer was not large enough to contain all the entries."),
-	StatusSomeNotMapped:       fmt.Errorf("Some of the information to be translated has not been translated"),
-	ErrorBufTooSmall:          fmt.Errorf("More entries are available. The TransportInfo buffer was not large enough to contain all the entries."),
-	StatusInvalidParameter:    fmt.Errorf("Status Invalid Parameter"),
-	StatusObjectTypeMismatch:  fmt.Errorf("Object type mismatch. Wrong type of handle used?"),
-	StatusInvalidAccountName:  fmt.Errorf("Invalid account name"),
-	StatusUserExists:          fmt.Errorf("User already exists"),
-	StatusNoSuchUser:          fmt.Errorf("User does not exist"),
-	StatusNoSuchGroup:         fmt.Errorf("Group does not exist"),
-	StatusMemberInGroup:       fmt.Errorf("User is already in group"),
-	StatusMemberNotInGroup:    fmt.Errorf("User not in group"),
-	StatusPasswordRestriction: fmt.Errorf("Password Restrictions"),
-	StatusNoneMapped:          fmt.Errorf("None of the information to be translated has been translated."),
-	StatusNoSuchDomain:        fmt.Errorf("No such domain"),
-	StatusMembersPrimaryGroup: fmt.Errorf("Member's primary group"),
-	StatusNoSuchAlias:         fmt.Errorf("No such alias"),
-	StatusMemberNotInAlias:    fmt.Errorf("Member is NOT in alias"),
-	StatusMemberInAlias:       fmt.Errorf("Member is already in alias"),
-	StatusNoSuchMember:        fmt.Errorf("No such member"),
+	ErrorSuccess:                fmt.Errorf("The operation completed successfully"),
+	ErrorAccessDenied:           fmt.Errorf("Access is denied"),
+	ErrorInvalidParameter:       fmt.Errorf("One of the function parameters is not valid"),
+	StatusMoreEntries:           fmt.Errorf("More information is available"),
+	StatusSomeNotMapped:         fmt.Errorf("Some of the information to be translated has not been translated"),
+	StatusNoMoreEntries:         fmt.Errorf("No more information is available"),
+	StatusInvalidParameter:      fmt.Errorf("Status Invalid Parameter"),
+	StatusAccessDenied:          fmt.Errorf("Client has requested access to an object but has not been granted those access rights."),
+	StatusObjectTypeMismatch:    fmt.Errorf("Object type mismatch. Wrong type of handle used?"),
+	StatusInvalidAccountName:    fmt.Errorf("Invalid account name"),
+	StatusUserExists:            fmt.Errorf("User already exists"),
+	StatusNoSuchUser:            fmt.Errorf("User does not exist"),
+	StatusGroupExists:           fmt.Errorf("Group already exists"),
+	StatusNoSuchGroup:           fmt.Errorf("Group does not exist"),
+	StatusMemberInGroup:         fmt.Errorf("User is already in group"),
+	StatusMemberNotInGroup:      fmt.Errorf("User not in group"),
+	StatusWrongPassword:         fmt.Errorf("Provided password is not correct"),
+	StatusPasswordRestriction:   fmt.Errorf("Password Restrictions"),
+	StatusNoneMapped:            fmt.Errorf("None of the information to be translated has been translated."),
+	StatusNoSuchDomain:          fmt.Errorf("No such domain"),
+	StatusInsufficientResources: fmt.Errorf("Insufficient resources to complete the request"),
+	StatusMembersPrimaryGroup:   fmt.Errorf("Member's primary group"),
+	StatusNoSuchAlias:           fmt.Errorf("No such alias"),
+	StatusMemberNotInAlias:      fmt.Errorf("Member is NOT in alias"),
+	StatusMemberInAlias:         fmt.Errorf("Member is already in alias"),
+	StatusNoSuchMember:          fmt.Errorf("No such member"),
+	StatusAccountLockedOut:      fmt.Errorf("Account locked out!"),
 }
 
 // MS-SAMR Section 2.2.1.1 Common ACCESS_MASK Values
@@ -756,10 +763,26 @@ func (sb *RPCCon) SamrLookupIdsInDomain(domainHandle *SamrHandle, ids []uint32) 
 		log.Errorln(err)
 		return
 	}
+	if (resp.ReturnCode > 0) && (resp.ReturnCode != StatusSomeNotMapped) {
+		status, found := ResponseCodeMap[resp.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown Samr return code for SamrLookupIdsInDomain response: 0x%x\n", resp.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		log.Errorln(err)
+		return
+	}
 
+	// Either it was a complete or a partial success.
 	names = make([]SamrRidMapping, resp.Names.Count)
 	for i := 0; i < len(names); i++ {
-		names[i].Name = resp.Names.Elements[i]
+		if resp.Names.Elements[i] != "" {
+			names[i].Name = resp.Names.Elements[i]
+		} else {
+			names[i].Name = "<EMPTY>"
+		}
 		names[i].Use = resp.Use[i]
 		names[i].RID = ids[i]
 	}
@@ -1023,87 +1046,158 @@ func (sb *RPCCon) SamrCreateUserInDomain(domainHandle *SamrHandle, name string, 
 	return &SamrHandle{Handle: resp.UserHandle, Type: SamrHandleTypeUser, Name: fmt.Sprintf("User: %s", name)}, resp.RelativeId, nil
 }
 
-func (sb *RPCCon) SamrEnumDomainUsers(domainHandle *SamrHandle, accountFlags uint32) (users []SamprRidEnumeration, err error) {
+func (sb *RPCCon) SamrEnumDomainUsers(domainHandle *SamrHandle, accountFlags uint32, maxLength uint32) (users []SamprRidEnumeration, err error) {
 	log.Debugln("In SamrEnumDomainUsers")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
+	}
+	// maxLength is mostly used to avoid requesting too much data
+	if maxLength == 0 {
+		maxLength = 0xFFFFFFFF
 	}
 
 	innerReq := SamrEnumDomainUsersReq{
 		DomainHandle:       domainHandle.Handle,
 		ResumeHandle:       0,
 		AccountFlags:       accountFlags,
-		PreferredMaxLength: 0xFFFF,
+		PreferredMaxLength: maxLength,
 	}
 
-	innerBuf, err := innerReq.MarshalBinary()
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
+	for {
+		var innerBuf []byte
+		innerBuf, err = innerReq.MarshalBinary()
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrEnumDomainUsers, innerBuf)
-	if err != nil {
-		return
-	}
+		var buffer []byte
+		buffer, err = sb.MakeIoCtlRequest(SamrEnumDomainUsers, innerBuf)
+		if err != nil {
+			return
+		}
 
-	if len(buffer) < 12 {
-		return nil, fmt.Errorf("Server response to SamrEnumDomainUsers was too small. Expected at atleast 12 bytes")
-	}
+		if len(buffer) < 12 {
+			return nil, fmt.Errorf("Server response to SamrEnumDomainUsers was too small. Expected at atleast 12 bytes")
+		}
 
-	var resp SamrEnumDomainUsersRes
-	err = resp.UnmarshalBinary(buffer)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	for _, item := range resp.Buffer.Buffer {
-		log.Infof("Enumerated samr domain user (%d): %s\n", item.RelativeId, item.Name)
-	}
-	users = resp.Buffer.Buffer
+		var resp SamrEnumDomainUsersRes
+		err = resp.UnmarshalBinary(buffer)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
 
-	return
+		if resp.ReturnCode == 0 {
+			// We're done
+			for _, item := range resp.Buffer.Buffer {
+				log.Infof("Enumerated samr domain user (%d): %s\n", item.RelativeId, item.Name)
+			}
+			users = append(users, resp.Buffer.Buffer...)
+			return
+		} else if resp.ReturnCode == StatusMoreEntries {
+			// Need to send more requests
+			users = append(users, resp.Buffer.Buffer...)
+			responseLen := uint32(len(buffer))
+			if responseLen >= maxLength {
+				// We've received as much data as we wanted
+				return
+			}
+			maxLength -= responseLen
+			innerReq.ResumeHandle = resp.ResumeHandle
+			innerReq.PreferredMaxLength = maxLength
+		} else if resp.ReturnCode == StatusInsufficientResources {
+			users = append(users, resp.Buffer.Buffer...)
+			log.Errorln(ResponseCodeMap[resp.ReturnCode])
+			return
+		} else {
+			status, found := ResponseCodeMap[resp.ReturnCode]
+			if !found {
+				err = fmt.Errorf("Received unknown Samr return code for SamrEnumDomainUsers response: 0x%x\n", resp.ReturnCode)
+				log.Errorln(err)
+				return
+			}
+			err = status
+			log.Errorln(err)
+			return
+		}
+	}
 }
 
-func (sb *RPCCon) SamrEnumerateGroupsInDomain(domainHandle *SamrHandle) (groups []SamprRidEnumeration, err error) {
+func (sb *RPCCon) SamrEnumerateGroupsInDomain(domainHandle *SamrHandle, maxLength uint32) (groups []SamprRidEnumeration, err error) {
 	log.Debugln("In SamrEnumerateGroupsInDomain")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
 
+	// maxLength is mostly used to avoid requesting too much data
+	if maxLength == 0 {
+		maxLength = 0xFFFFFFFF
+	}
 	innerReq := SamrEnumerateGroupsInDomainReq{
 		DomainHandle:       domainHandle.Handle,
 		EnumerationContext: 0,
-		PreferredMaxLength: 0xFFFF,
+		PreferredMaxLength: maxLength,
 	}
 
-	innerBuf, err := innerReq.MarshalBinary()
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
+	for {
+		var innerBuf []byte
+		innerBuf, err = innerReq.MarshalBinary()
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrEnumerateGroupsInDomain, innerBuf)
-	if err != nil {
-		return
-	}
+		var buffer []byte
+		buffer, err = sb.MakeIoCtlRequest(SamrEnumerateGroupsInDomain, innerBuf)
+		if err != nil {
+			return
+		}
 
-	if len(buffer) < 24 {
-		return nil, fmt.Errorf("Server response to SamrEnumerateGroupsInDomain was too small. Expected at atleast 24 bytes")
-	}
+		if len(buffer) < 24 {
+			return nil, fmt.Errorf("Server response to SamrEnumerateGroupsInDomain was too small. Expected at atleast 24 bytes")
+		}
 
-	var resp SamrEnumerateGroupsInDomainRes
-	err = resp.UnmarshalBinary(buffer)
-	if err != nil {
-		log.Errorln(err)
-		return
+		var resp SamrEnumerateGroupsInDomainRes
+		err = resp.UnmarshalBinary(buffer)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		if resp.ReturnCode == 0 {
+			// We're done
+			for _, item := range resp.Buffer.Buffer {
+				log.Infof("Enumerated samr domain group (%d): %s\n", item.RelativeId, item.Name)
+			}
+			groups = append(groups, resp.Buffer.Buffer...)
+			return
+		} else if resp.ReturnCode == StatusMoreEntries {
+			// Need to send more requests
+			groups = append(groups, resp.Buffer.Buffer...)
+			responseLen := uint32(len(buffer))
+			if responseLen >= maxLength {
+				// We've received as much data as we wanted
+				return
+			}
+			maxLength -= responseLen
+			innerReq.EnumerationContext = resp.EnumerationContext
+			innerReq.PreferredMaxLength = maxLength
+		} else if resp.ReturnCode == StatusInsufficientResources {
+			groups = append(groups, resp.Buffer.Buffer...)
+			log.Errorln(ResponseCodeMap[resp.ReturnCode])
+			return
+		} else {
+			status, found := ResponseCodeMap[resp.ReturnCode]
+			if !found {
+				err = fmt.Errorf("Received unknown Samr return code for SamrEnumDomaingroups response: 0x%x\n", resp.ReturnCode)
+				log.Errorln(err)
+				return
+			}
+			err = status
+			log.Errorln(err)
+			return
+		}
 	}
-	for _, item := range resp.Buffer.Buffer {
-		log.Infof("Enumerated samr domain group (%d): %s\n", item.RelativeId, item.Name)
-	}
-
-	groups = resp.Buffer.Buffer
-	return
 }
 
 func (sb *RPCCon) SamrGetUserInfo2(userHandle *SamrHandle, informationClass uint16) (info SamprUserInfoBufferUnion, err error) {
@@ -1247,45 +1341,80 @@ func (sb *RPCCon) SamrSetUserInfo2(userHandle *SamrHandle, input *SamrUserInfoIn
 	return
 }
 
-func (sb *RPCCon) SamrEnumAliasesInDomain(domainHandle *SamrHandle) (groups []SamprRidEnumeration, err error) {
+func (sb *RPCCon) SamrEnumAliasesInDomain(domainHandle *SamrHandle, maxLength uint32) (aliases []SamprRidEnumeration, err error) {
 	log.Debugln("In SamrEnumAliasesInDomain")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
 
+	// maxLength is mostly used to avoid requesting too much data
+	if maxLength == 0 {
+		maxLength = 0xFFFFFFFF
+	}
 	innerReq := SamrEnumAliasesInDomainReq{
 		DomainHandle:       domainHandle.Handle,
 		EnumerationContext: 0,
-		PreferredMaxLength: 0xFFFF,
+		PreferredMaxLength: maxLength,
 	}
 
-	innerBuf, err := innerReq.MarshalBinary()
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
+	for {
+		var innerBuf []byte
+		innerBuf, err = innerReq.MarshalBinary()
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrEnumAliasesInDomain, innerBuf)
-	if err != nil {
-		return
-	}
+		var buffer []byte
+		buffer, err = sb.MakeIoCtlRequest(SamrEnumAliasesInDomain, innerBuf)
+		if err != nil {
+			return
+		}
 
-	if len(buffer) < 24 {
-		return nil, fmt.Errorf("Server response to SamrEnumAliasesInDomain was too small. Expected at atleast 24 bytes")
-	}
+		if len(buffer) < 24 {
+			return nil, fmt.Errorf("Server response to SamrEnumAliasesInDomain was too small. Expected at atleast 24 bytes")
+		}
 
-	var resp SamrEnumAliasesInDomainRes
-	err = resp.UnmarshalBinary(buffer)
-	if err != nil {
-		log.Errorln(err)
-		return
+		var resp SamrEnumAliasesInDomainRes
+		err = resp.UnmarshalBinary(buffer)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		if resp.ReturnCode == 0 {
+			// We're done
+			for _, item := range resp.Buffer.Buffer {
+				log.Infof("Enumerated samr domain alias (%d): %s\n", item.RelativeId, item.Name)
+			}
+			aliases = append(aliases, resp.Buffer.Buffer...)
+			return
+		} else if resp.ReturnCode == StatusMoreEntries {
+			// Need to send more requests
+			aliases = append(aliases, resp.Buffer.Buffer...)
+			responseLen := uint32(len(buffer))
+			if responseLen >= maxLength {
+				// We've received as much data as we wanted
+				return
+			}
+			maxLength -= responseLen
+			innerReq.EnumerationContext = resp.EnumerationContext
+			innerReq.PreferredMaxLength = maxLength
+		} else if resp.ReturnCode == StatusInsufficientResources {
+			aliases = append(aliases, resp.Buffer.Buffer...)
+			log.Errorln(ResponseCodeMap[resp.ReturnCode])
+			return
+		} else {
+			status, found := ResponseCodeMap[resp.ReturnCode]
+			if !found {
+				err = fmt.Errorf("Received unknown Samr return code for SamrEnumAliasesInDomain response: 0x%x\n", resp.ReturnCode)
+				log.Errorln(err)
+				return
+			}
+			err = status
+			log.Errorln(err)
+			return
+		}
 	}
-	for _, item := range resp.Buffer.Buffer {
-		log.Infof("Enumerated samr domain alias (%d): %s\n", item.RelativeId, item.Name)
-	}
-
-	groups = resp.Buffer.Buffer
-	return
 }
 
 func (sb *RPCCon) SamrOpenUser(domainHandle *SamrHandle, desiredAccess, rid uint32) (userHandle *SamrHandle, err error) {
@@ -1483,7 +1612,9 @@ func (sb *RPCCon) AddLocalAdmin(userSID string) (err error) {
 	return
 }
 
-func (sb *RPCCon) ListLocalUsers(netbiosComputerName string) (users []SamprRidEnumeration, err error) {
+func (sb *RPCCon) ListLocalUsers(netbiosComputerName string, limit uint32) (users []SamprRidEnumeration, err error) {
+	var maxLength uint32
+	maxLength = limit * 39 // based on a rough estimate for the mean size of a user entry being 39 bytes
 	handle, err := sb.SamrConnect5("")
 	if err != nil {
 		log.Errorln(err)
@@ -1523,10 +1654,10 @@ func (sb *RPCCon) ListLocalUsers(netbiosComputerName string) (users []SamprRidEn
 	}
 	defer sb.SamrCloseHandle(handleLocalDomain)
 
-	return sb.SamrEnumDomainUsers(handleLocalDomain, UserNormalAccount)
+	return sb.SamrEnumDomainUsers(handleLocalDomain, UserNormalAccount, maxLength)
 }
 
-func (sb *RPCCon) ListLocalGroups(netbiosComputerName string) (users []SamprRidEnumeration, err error) {
+func (sb *RPCCon) ListLocalGroups(netbiosComputerName string) (groups []SamprRidEnumeration, err error) {
 	handle, err := sb.SamrConnect5("")
 	if err != nil {
 		log.Errorln(err)
@@ -1566,7 +1697,7 @@ func (sb *RPCCon) ListLocalGroups(netbiosComputerName string) (users []SamprRidE
 	}
 	defer sb.SamrCloseHandle(handleLocalDomain)
 
-	return sb.SamrEnumerateGroupsInDomain(handleLocalDomain)
+	return sb.SamrEnumerateGroupsInDomain(handleLocalDomain, 0)
 }
 
 func (sb *RPCCon) ListDomainAliases(netbiosComputerName string) (aliases []SamprRidEnumeration, err error) {
@@ -1609,7 +1740,7 @@ func (sb *RPCCon) ListDomainAliases(netbiosComputerName string) (aliases []Sampr
 	}
 	defer sb.SamrCloseHandle(handleLocalDomain)
 
-	return sb.SamrEnumAliasesInDomain(handleLocalDomain)
+	return sb.SamrEnumAliasesInDomain(handleLocalDomain, 0)
 }
 
 func (sb *RPCCon) DeleteLocalUser(userRid uint32, netbiosComputerName string) (err error) {

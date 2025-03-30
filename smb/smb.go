@@ -71,6 +71,7 @@ const (
 	StatusPipeNotAvailable       = 0xc00000ac
 	StatusPipeBusy               = 0xc00000ae
 	StatusNotSupported           = 0xc00000bb
+	StatusNetworkNameDeleted     = 0xc00000c9
 	StatusBadNetworkName         = 0xc00000cc
 	StatusDirectoryNotEmpty      = 0xc0000101
 	StatusUserSessionDeleted     = 0xc0000203
@@ -102,6 +103,7 @@ var StatusMap = map[uint32]error{
 	StatusPipeNotAvailable:       fmt.Errorf("Pipe not available!"),
 	StatusPipeBusy:               fmt.Errorf("Pipe busy!"),
 	StatusNotSupported:           fmt.Errorf("Not Supported!"),
+	StatusNetworkNameDeleted:     fmt.Errorf("Network name deleted"),
 	StatusBadNetworkName:         fmt.Errorf("Bad network name"),
 	StatusDirectoryNotEmpty:      fmt.Errorf("Directory is not empty"),
 	StatusUserSessionDeleted:     fmt.Errorf("User session deleted"),

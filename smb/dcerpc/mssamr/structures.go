@@ -1035,7 +1035,13 @@ func (self *SamrEnumerateGroupsInDomainRes) UnmarshalBinary(buf []byte) (err err
 	}
 	r := bytes.NewReader(buf)
 
-	// Start with ReturnCode
+	err = binary.Read(r, le, &self.EnumerationContext)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// Continue with other fixed size fields
 	_, err = r.Seek(-8, io.SeekEnd)
 	if err != nil {
 		log.Errorln(err)
@@ -1054,31 +1060,7 @@ func (self *SamrEnumerateGroupsInDomainRes) UnmarshalBinary(buf []byte) (err err
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrEnumerateGroupsInDomain response: 0x%x\n", self.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
-		return
-	}
-
 	if self.CountReturned == 0 {
-		return
-	}
-
-	_, err = r.Seek(0, io.SeekStart)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Read(r, le, &self.EnumerationContext)
-	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1228,7 +1210,12 @@ func (self *SamrEnumDomainUsersRes) UnmarshalBinary(buf []byte) (err error) {
 	}
 	r := bytes.NewReader(buf)
 
-	// Start with fixed size fields
+	err = binary.Read(r, le, &self.ResumeHandle)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Continue with fixed size fields
 	_, err = r.Seek(-8, io.SeekEnd)
 	if err != nil {
 		log.Errorln(err)
@@ -1247,22 +1234,11 @@ func (self *SamrEnumDomainUsersRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrEnumDomainUsers response: 0x%x\n", self.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
-		return
-	}
-
 	if self.CountReturned == 0 {
 		return
 	}
 
+	// Since we do not return directly for some errors, we need to keep track of the previous error
 	err = self.Buffer.UnmarshalBinary(buf[4 : len(buf)-8])
 	if err != nil {
 		log.Errorln(err)
@@ -1314,7 +1290,13 @@ func (self *SamrEnumAliasesInDomainRes) UnmarshalBinary(buf []byte) (err error) 
 	}
 	r := bytes.NewReader(buf)
 
-	// Start with ReturnCode
+	err = binary.Read(r, le, &self.EnumerationContext)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// Continue with other fixed size fields
 	_, err = r.Seek(-8, io.SeekEnd)
 	if err != nil {
 		log.Errorln(err)
@@ -1333,31 +1315,7 @@ func (self *SamrEnumAliasesInDomainRes) UnmarshalBinary(buf []byte) (err error) 
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrEnumAliasesInDomain response: 0x%x\n", self.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
-		return
-	}
-
 	if self.CountReturned == 0 {
-		return
-	}
-
-	_, err = r.Seek(0, io.SeekStart)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Read(r, le, &self.EnumerationContext)
-	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1523,15 +1481,7 @@ func (self *SamrLookupIdsInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrLookupIdsInDomain response: 0x%x\n", self.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if (self.ReturnCode > 0) && (self.ReturnCode != StatusSomeNotMapped) {
 		return
 	}
 
