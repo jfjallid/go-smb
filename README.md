@@ -2,16 +2,18 @@
 
 ## Description
 Package go-smb is a work in progress to create a go library that implements
-an SMB2/3 client with support for DCERPC and MSRRP.
+an SMB2/3 client with support for interacting with various RPC endpoints using
+DCERPC over named pipes.
 This project was created as a way to learn how to interact remotely with Windows
-services and the remote registry.
+services and the remote registry, but has evolved to include support for more
+RPC services.
 
 It is based upon the work of https://github.com/stacktitan/smb but has seen a
-lot of changes to add support for SMB3, DCERPC and MSRRP where parts of the
-code are taken from or inspired by another go-smb project located at
-https://github.com/hirochachacha/go-smb2.
-Kerberos support is implemented with the help of a forked and modified version
-of the gokrb5 library from https://github.com/jcmturner/gokrb5
+lot of changes to add support for SMB3, DCERPC, MSRRP and other RPC services
+where parts of the code are taken from or inspired by another go-smb project
+located at https://github.com/hirochachacha/go-smb2. Kerberos support is
+implemented with the help of a forked and modified version of the gokrb5
+library from https://github.com/jcmturner/gokrb5
 
 For inspiration on how to use the library, look at some of the other projects
 that implement it:
@@ -114,6 +116,7 @@ import (
 	"github.com/jfjallid/go-smb/smb"
 	"github.com/jfjallid/go-smb/spnego"
 	"github.com/jfjallid/go-smb/smb/dcerpc"
+	"github.com/jfjallid/go-smb/smb/dcerpc/mssrvs"
 )
 
 func main() {
@@ -154,20 +157,21 @@ func main() {
         return
     }
     defer session.TreeDisconnect(share)
-    f, err := session.OpenFile(share, "srvsvc")
+    f, err := session.OpenFile(share, mssrvs.MSRPCSrvSvcPipe)
     if err != nil {
         fmt.Println(err)
         return
     }
     defer f.CloseFile()
 
-    bind, err := dcerpc.Bind(f, dcerpc.MSRPCUuidSrvSvc, 3, 0, dcerpc.MSRPCUuidNdr)
+    bind, err := dcerpc.Bind(f, mssrvs.MSRPCUuidSrvSvc, mssrvs.MSRPCSrvSvcMajorVersion, mssrvs.MSRPCSrvSvcMinorVersion, dcerpc.MSRPCUuidNdr)
     if err != nil {
         fmt.Println(err)
         return
     }
+    rpccon := mssrvs.NewRPCCon(bind)
 
-    shares, err := bind.NetShareEnumAll(hostname)
+    shares, err := rpccon.NetShareEnumAll(hostname)
     if err != nil {
         fmt.Println(err)
         return
