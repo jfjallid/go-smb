@@ -192,19 +192,35 @@ func ReadRPCUnicodeStrArray(r *bytes.Reader, nullTerminated bool) (items []strin
 		return
 	}
 
-	// Skip Array item len, max size and ref id ptr
-	_, err = r.Seek(int64(8*count), io.SeekCurrent)
-	if err != nil {
-		log.Errorln(err)
-		return
+	// Need to keep track of strings that are empty and should be skipped
+	readStrAtPos := make([]bool, count)
+	for i := 0; i < int(count); i++ {
+		var len uint16
+		err = binary.Read(r, le, &len)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		if len > 0 {
+			readStrAtPos[i] = true
+		}
+		// Skip maxSize and ref id ptr
+		_, err = r.Seek(6, io.SeekCurrent)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
 	}
 
 	for i := 0; i < int(count); i++ {
 		s := ""
-		s, err = ReadConformantVaryingString(r, nullTerminated)
-		if err != nil {
-			log.Errorln(err)
-			return
+		if readStrAtPos[i] {
+			// String structure is not empty
+			s, err = ReadConformantVaryingString(r, nullTerminated)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
 		}
 		items = append(items, s)
 	}
@@ -780,4 +796,8 @@ func (self *PACL) UnmarshalBinary(buf []byte) (err error) {
 
 func (self *SID) ToString() (s string) {
 	return ConvertSIDtoStr(self)
+}
+
+func (self *SID) GetAuthority() uint32 {
+	return binary.BigEndian.Uint32(self.Authority[2:])
 }
