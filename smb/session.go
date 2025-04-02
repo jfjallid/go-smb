@@ -2138,3 +2138,11 @@ func (s *Connection) MkdirAll(share string, path string) (err error) {
 
 	return
 }
+
+func (c *Session) IsNullSession() bool {
+	return c.sessionFlags&SessionFlagIsNull == SessionFlagIsNull
+}
+
+func (c *Session) IsGuestSession() bool {
+	return c.sessionFlags&SessionFlagIsGuest == SessionFlagIsGuest
+}

@@ -270,6 +270,18 @@ type SamrQueryInformationUser2Res struct {
 	ReturnCode uint32
 }
 
+// Opnum 55
+type SamrUnicodeChangePasswordUser2Req struct {
+	//BindingHandle           []byte
+	ServerName        string
+	UserName          string
+	NewPwEncWithOldNt []byte
+	OldNtEncWithNewNt [16]byte
+	LmPresent         uint32 // Actually uint8, but easier for alignment
+	NewPwEncWithOldLm []byte
+	OldLmEncWithNewLm [16]byte
+}
+
 // Opnum 58
 type SamrSetInformationUser2Req struct {
 	UserHandle           []byte
@@ -318,6 +330,11 @@ type SamprRidEnumeration struct {
 type SamprRevisionInfoUnion interface {
 	MarshalBinary() ([]byte, error)
 	UnmarshalBinary([]byte) error
+}
+
+// MS-SAMR Section 2.2.7.3
+type EncryptedNtOWFPassword struct {
+	data [16]byte
 }
 
 // MS-SAMR Section 2.2.7.6
@@ -698,6 +715,113 @@ func (self *SamrQueryInformationUser2Res) UnmarshalBinary(buf []byte) (err error
 	}
 
 	return
+}
+
+func (self *SamrUnicodeChangePasswordUser2Req) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for SamrUnicodeChangePasswordUser2Req")
+
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+	refId := uint32(1)
+
+	if self.ServerName == "" {
+		err = binary.Write(w, le, uint32(0))
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	} else {
+		_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.ServerName, &refId)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.UserName, &refId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	if self.UserName != "" {
+		refId++
+	}
+
+	// Write refId ptr
+	err = binary.Write(w, le, refId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	refId++
+
+	if self.NewPwEncWithOldNt == nil {
+		// Empty password
+		self.NewPwEncWithOldNt = make([]byte, 516)
+	}
+	err = binary.Write(w, le, self.NewPwEncWithOldNt)
+	if err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+
+	// Write refId ptr
+	err = binary.Write(w, le, refId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	refId++
+	err = binary.Write(w, le, self.OldNtEncWithNewNt)
+	if err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+
+	if self.NewPwEncWithOldLm != nil {
+		self.LmPresent = 1
+	}
+	err = binary.Write(w, le, self.LmPresent)
+	if err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+
+	// Write refId ptr
+	err = binary.Write(w, le, refId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	refId++
+	if self.NewPwEncWithOldLm == nil {
+		// Empty password
+		self.NewPwEncWithOldLm = make([]byte, 516)
+	}
+	err = binary.Write(w, le, self.NewPwEncWithOldLm)
+	if err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+
+	// Write refId ptr
+	err = binary.Write(w, le, refId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	refId++
+	err = binary.Write(w, le, self.OldLmEncWithNewLm)
+	if err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *SamrUnicodeChangePasswordUser2Req) UnmarshalBinary(buf []byte) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrUnicodeChangePasswordUser2Req")
 }
 
 func (self *SamrSetInformationUser2Req) MarshalBinary() (res []byte, err error) {

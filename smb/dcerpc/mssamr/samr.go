@@ -31,6 +31,7 @@ import (
 	"strings"
 
 	"github.com/jfjallid/go-smb/msdtyp"
+	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb/dcerpc"
 	"github.com/jfjallid/golog"
 )
@@ -49,29 +50,30 @@ const (
 
 // MSRPC Security Account Manager (SAM) Remote Protocol Operations
 const (
-	SamrCloseHandle             uint16 = 1
-	SamrLookupDomain            uint16 = 5
-	SamrEnumDomains             uint16 = 6
-	SamrOpenDomain              uint16 = 7
-	SamrEnumerateGroupsInDomain uint16 = 11
-	SamrCreateUserInDomain      uint16 = 12
-	SamrEnumDomainUsers         uint16 = 13
-	SamrEnumAliasesInDomain     uint16 = 15
-	SamrLookupIdsInDomain       uint16 = 18
-	SamrOpenGroup               uint16 = 19
-	SamrAddMemberToGroup        uint16 = 22
-	SamrRemoveMemberFromGroup   uint16 = 24
-	SamrGetMembersInGroup       uint16 = 25
-	SamrOpenAlias               uint16 = 27
-	SamrAddMemberToAlias        uint16 = 31
-	SamrRemoveMemberFromAlias   uint16 = 32
-	SamrGetMembersInAlias       uint16 = 33
-	SamrOpenUser                uint16 = 34
-	SamrDeleteUser              uint16 = 35
-	SamrQueryInformationUser2   uint16 = 47
-	SamrSetInformationUser2     uint16 = 58
-	SamrConnect5                uint16 = 64
-	SamrRidToSid                uint16 = 65
+	SamrCloseHandle                uint16 = 1
+	SamrLookupDomain               uint16 = 5
+	SamrEnumDomains                uint16 = 6
+	SamrOpenDomain                 uint16 = 7
+	SamrEnumerateGroupsInDomain    uint16 = 11
+	SamrCreateUserInDomain         uint16 = 12
+	SamrEnumDomainUsers            uint16 = 13
+	SamrEnumAliasesInDomain        uint16 = 15
+	SamrLookupIdsInDomain          uint16 = 18
+	SamrOpenGroup                  uint16 = 19
+	SamrAddMemberToGroup           uint16 = 22
+	SamrRemoveMemberFromGroup      uint16 = 24
+	SamrGetMembersInGroup          uint16 = 25
+	SamrOpenAlias                  uint16 = 27
+	SamrAddMemberToAlias           uint16 = 31
+	SamrRemoveMemberFromAlias      uint16 = 32
+	SamrGetMembersInAlias          uint16 = 33
+	SamrOpenUser                   uint16 = 34
+	SamrDeleteUser                 uint16 = 35
+	SamrQueryInformationUser2      uint16 = 47
+	SamrUnicodeChangePasswordUser2 uint16 = 55
+	SamrSetInformationUser2        uint16 = 58
+	SamrConnect5                   uint16 = 64
+	SamrRidToSid                   uint16 = 65
 )
 
 const (
@@ -1232,6 +1234,70 @@ func (sb *RPCCon) SamrGetUserInfo2(userHandle *SamrHandle, informationClass uint
 		return
 	}
 	info = res.Buffer
+	return
+}
+
+// Change password of user with knowledge of current PW or NT Hash of current PW
+func (sb *RPCCon) SamrChangePassword2(username, currPw, newPw string, currNTHash []byte) (err error) {
+	log.Debugln("In SamrChangePassword2")
+	if (currPw == "") && (currNTHash != nil) {
+		err = fmt.Errorf("Have to supply current password or NT hash to change password")
+		return
+	}
+	if currNTHash == nil {
+		currNTHash = ntlmssp.Ntowfv1(currPw)
+	}
+	newNTHash := ntlmssp.Ntowfv1(newPw)
+
+	// encrypt old NT hash using the new hash
+	encNTHash, err := encryptHashWithHash(newNTHash, currNTHash)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	var pass *SamprUserPassword
+	pass, err = newUserPassword(newPw)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	var encPassword []byte
+	encPassword, err = pass.EncryptRC4(currNTHash)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	innerReq := SamrUnicodeChangePasswordUser2Req{
+		ServerName:        "",
+		UserName:          username,
+		NewPwEncWithOldNt: encPassword,
+		LmPresent:         0,
+	}
+	copy(innerReq.OldNtEncWithNewNt[:], encNTHash[:16])
+	innerBuf, err := innerReq.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	buffer, err := sb.MakeIoCtlRequest(SamrUnicodeChangePasswordUser2, innerBuf)
+	if err != nil {
+		return
+	}
+	returnCode := le.Uint32(buffer[:4])
+	if returnCode > 0 {
+		status, found := ResponseCodeMap[returnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown Samr return code for SamrUnicodeChangePasswordUser2 response: 0x%x\n", returnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		log.Errorln(err)
+		return
+	}
+
 	return
 }
 
