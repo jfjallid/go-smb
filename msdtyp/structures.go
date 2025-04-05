@@ -348,13 +348,7 @@ func WriteRPCUnicodeStrPtr(w io.Writer, s string, refId *uint32) (n int, err err
 		return
 	}
 
-	// RPCUnicode strings should never be null terminated, but NDR parsers seems to complain
-	// if the Conformant Varying String structure specifies a max count with the same value as
-	// the actual count. So for non-null-terminated Conformant Varying strings I increase the
-	// value of max count by 1 and maxLength should thus be increased by 2.
-	if length > 0 {
-		maxLength = length + 2
-	}
+	maxLength = length
 	err = binary.Write(w, le, maxLength) // max length
 	if err != nil {
 		log.Errorln(err)
@@ -800,4 +794,105 @@ func (self *SID) ToString() (s string) {
 
 func (self *SID) GetAuthority() uint32 {
 	return binary.BigEndian.Uint32(self.Authority[2:])
+}
+
+// Write Uni-dimensional Conformant-varying Array of RPCUnicodeStrings
+func WriteUniDimensionalConformanVaryingArray(w io.Writer, items []RPCUnicodeStr, maxCount uint32, refId *uint32) (n int, err error) {
+	// Write MaxCount
+	err = binary.Write(w, le, maxCount)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	n += 4
+	// Write Offset
+	err = binary.Write(w, le, uint32(0))
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	n += 4
+	// Write ActualCount
+	err = binary.Write(w, le, uint32(len(items)))
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	n += 4
+
+	// Write length, maxLength and refId for each array item lifted out of the RPCUnicodeString structures
+	for i := 0; i < len(items); i++ {
+		buff := ToUnicode(items[i].S)
+		actualLen := uint16(len(buff))
+		maxLen := actualLen
+		// Write actualLen
+		err = binary.Write(w, le, actualLen)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		n += 2
+		// Write string max size
+		err = binary.Write(w, le, maxLen)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		n += 2
+		// Write refId ptr
+		err = binary.Write(w, le, refId)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		n += 4
+		*refId++
+	}
+
+	n2 := 0
+	for i := 0; i < len(items); i++ {
+		n2, err = WriteConformantVaryingString(w, items[i].S, false)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		n += n2
+	}
+
+	return
+}
+
+func (self *Filetime) ToWriter(w io.Writer) (n int, err error) {
+	err = binary.Write(w, le, self.LowDateTime)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	n += 2
+	err = binary.Write(w, le, self.HighDateTime)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	n += 2
+	return
+}
+
+func (self *Filetime) FromReader(r *bytes.Reader) (err error) {
+	err = binary.Read(r, le, &self.LowDateTime)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &self.HighDateTime)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	return
+}
+
+func (self *Filetime) ToString() string {
+	t := ConvertFromFiletime(self)
+	return t.String()
 }

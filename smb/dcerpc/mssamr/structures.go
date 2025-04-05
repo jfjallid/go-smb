@@ -153,6 +153,20 @@ type SamrEnumAliasesInDomainRes struct {
 	ReturnCode         uint32
 }
 
+// Opnum 17
+type SamrLookupNamesInDomainReq struct {
+	DomainHandle []byte
+	Count        uint32
+	Names        []msdtyp.RPCUnicodeStr
+}
+
+// Opnum 17
+type SamrLookupNamesInDomainRes struct {
+	RelativeIds SamprULongArray
+	Use         SamprULongArray
+	ReturnCode  uint32
+}
+
 // Opnum 18
 type SamrLookupIdsInDomainReq struct {
 	DomainHandle []byte
@@ -337,6 +351,12 @@ type EncryptedNtOWFPassword struct {
 	data [16]byte
 }
 
+// MS-SAMR Section 2.2.7.4
+type SamprULongArray struct {
+	Count    uint32
+	Elements []uint32 // Actually a pointer to the array
+}
+
 // MS-SAMR Section 2.2.7.6
 type SamprSidInformation struct {
 	SidPointer *msdtyp.SID
@@ -379,12 +399,6 @@ type SamprUserInfoBufferUnion interface {
 	//UnmarshalBinary([]byte) (error)
 }
 
-// MS-SAMR Section 2.2.2.2
-type OldLargeInteger struct {
-	LowPart  uint32
-	HighPart uint32
-}
-
 // MS-SAMR Section 2.2.6.5
 // unsigned short UnitsPerWeek;
 // [size_is(1260), length_is((UnitsPerWeek+7)/8)]
@@ -408,12 +422,12 @@ type SamprUserInternal4Information struct {
 
 // MS-SAMR Section 2.2.6.6
 type SamprUserAllInformation struct {
-	LastLogon            OldLargeInteger
-	LastLogoff           OldLargeInteger
-	PasswordLastSet      OldLargeInteger
-	AccountExpires       OldLargeInteger
-	PasswordCanChange    OldLargeInteger
-	PasswordMustChange   OldLargeInteger
+	LastLogon            msdtyp.Filetime
+	LastLogoff           msdtyp.Filetime
+	PasswordLastSet      msdtyp.Filetime
+	AccountExpires       msdtyp.Filetime
+	PasswordCanChange    msdtyp.Filetime
+	PasswordMustChange   msdtyp.Filetime
 	Username             string
 	Fullname             string
 	HomeDirectory        string
@@ -445,9 +459,9 @@ type SamprUserAllInformation struct {
 
 // Input arguments for SamrSetUserInfo method
 type SamrUserInfoInput struct {
-	AccountExpires     *OldLargeInteger
-	PasswordCanChange  *OldLargeInteger
-	PasswordMustChange *OldLargeInteger
+	AccountExpires     *msdtyp.Filetime
+	PasswordCanChange  *msdtyp.Filetime
+	PasswordMustChange *msdtyp.Filetime
 	Username           string
 	Fullname           string
 	HomeDirectory      string
@@ -1530,6 +1544,88 @@ func (self *SamrRemoveMemberFromAliasReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrRemoveMemberFromAliasReq")
 }
 
+func (self *SamrLookupNamesInDomainReq) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for SamrLookupNamesInDomainReq")
+
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+	refId := uint32(1)
+
+	err = binary.Write(w, le, self.DomainHandle)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.Count)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// DCERPC (NDR) 14.3.3.4 Uni-dimensional Conformant-varying Arrays
+	_, err = msdtyp.WriteUniDimensionalConformanVaryingArray(w, self.Names, 1000, &refId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *SamrLookupNamesInDomainReq) UnmarshalBinary(buf []byte) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrLookupNamesInDomainReq")
+}
+
+func (self *SamrLookupNamesInDomainRes) MarshalBinary() ([]byte, error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrLookupNamesInDomainRes")
+}
+
+func (self *SamrLookupNamesInDomainRes) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for SamrLookupNamesInDomainRes")
+	if len(buf) < 20 {
+		return fmt.Errorf("Buffer to small for SamrLookupNamesInDomainRes")
+	}
+	r := bytes.NewReader(buf)
+
+	// Start with ReturnCode
+	_, err = r.Seek(-4, io.SeekEnd)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, le, &self.ReturnCode)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	if (self.ReturnCode > 0) && (self.ReturnCode != StatusSomeNotMapped) {
+		return
+	}
+
+	_, err = r.Seek(0, io.SeekStart)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = self.RelativeIds.fromReader(r)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = self.Use.fromReader(r)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return
+}
+
 func (self *SamrLookupIdsInDomainReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrLookupIdsInDomainReq")
 
@@ -2370,36 +2466,6 @@ func (self *SamrGetMembersInGroupRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *OldLargeInteger) WriteOldLargeInteger(w io.Writer) (n int, err error) {
-	err = binary.Write(w, le, self.LowPart)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	n += 2
-	err = binary.Write(w, le, self.HighPart)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	n += 2
-	return
-}
-
-func (self *OldLargeInteger) ReadOldLargeInteger(r *bytes.Reader) (err error) {
-	err = binary.Read(r, le, &self.LowPart)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Read(r, le, &self.HighPart)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	return
-}
-
 func (self *SamprUserInternal4Information) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamprUserInternal4Information")
 
@@ -2459,36 +2525,36 @@ func (self *SamprUserAllInformation) MarshalBinary() (res []byte, err error) {
 func (self *SamprUserAllInformation) WriteSamprUserAllInformation(w io.Writer, refId *uint32) (err error) {
 	log.Debugln("In WriteSamprUserAllInformation")
 
-	_, err = self.LastLogon.WriteOldLargeInteger(w)
+	_, err = self.LastLogon.ToWriter(w)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = self.LastLogoff.WriteOldLargeInteger(w)
+	_, err = self.LastLogoff.ToWriter(w)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	_, err = self.PasswordLastSet.WriteOldLargeInteger(w)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	_, err = self.AccountExpires.WriteOldLargeInteger(w)
+	_, err = self.PasswordLastSet.ToWriter(w)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = self.PasswordCanChange.WriteOldLargeInteger(w)
+	_, err = self.AccountExpires.ToWriter(w)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = self.PasswordMustChange.WriteOldLargeInteger(w)
+	_, err = self.PasswordCanChange.ToWriter(w)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	_, err = self.PasswordMustChange.ToWriter(w)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2680,36 +2746,36 @@ func (self *SamprUserAllInformation) WriteSamprUserAllInformation(w io.Writer, r
 func (self *SamprUserAllInformation) ReadSamprUserAllInformation(r *bytes.Reader) (err error) {
 	log.Debugln("In ReadSamprUserAllInformation")
 
-	err = self.LastLogon.ReadOldLargeInteger(r)
+	err = self.LastLogon.FromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = self.LastLogoff.ReadOldLargeInteger(r)
+	err = self.LastLogoff.FromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = self.PasswordLastSet.ReadOldLargeInteger(r)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = self.AccountExpires.ReadOldLargeInteger(r)
+	err = self.PasswordLastSet.FromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = self.PasswordCanChange.ReadOldLargeInteger(r)
+	err = self.AccountExpires.FromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = self.PasswordMustChange.ReadOldLargeInteger(r)
+	err = self.PasswordCanChange.FromReader(r)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = self.PasswordMustChange.FromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2960,6 +3026,30 @@ func (self *SamprGetMembersBuffer) fromReader(r *bytes.Reader) (err error) {
 			return
 		}
 		self.Attributes = append(self.Attributes, attribute)
+	}
+
+	return
+}
+
+func (self *SamprULongArray) fromReader(r *bytes.Reader) (err error) {
+	err = binary.Read(r, le, &self.Count)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	// Skip refId and maxCount
+	_, err = r.Seek(8, io.SeekCurrent)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	self.Elements = make([]uint32, self.Count)
+	for i := 0; i < int(self.Count); i++ {
+		err = binary.Read(r, le, &self.Elements[i])
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
 	}
 
 	return

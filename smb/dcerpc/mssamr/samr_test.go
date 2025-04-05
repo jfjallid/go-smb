@@ -128,7 +128,7 @@ func TestSamrEnumDomainsRes(t *testing.T) {
 
 func TestSamrLookupDomainReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, _ := hex.DecodeString("00000000f25d62c2f570cd4cba8f5909bc7eebd60e001000010000000800000000000000070000004200750069006c00740069006e00")
+	pkt, _ := hex.DecodeString("00000000f25d62c2f570cd4cba8f5909bc7eebd60e000e00010000000700000000000000070000004200750069006c00740069006e00")
 	handle, _ := hex.DecodeString("00000000f25d62c2f570cd4cba8f5909bc7eebd6")
 
 	req := SamrLookupDomainReq{
@@ -141,7 +141,6 @@ func TestSamrLookupDomainReq(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-
 	if !bytes.Equal(pkt, buf) {
 		t.Fatal("Fail")
 	}
@@ -485,7 +484,7 @@ func TestSamrRidToSidRes(t *testing.T) {
 
 func TestSamrCreateUserInDomainReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, _ := hex.DecodeString("00000000c30967e83fe5a042b91c5b7030fbeea50a000c000100000006000000000000000500000074006500730074003300000000000002")
+	pkt, _ := hex.DecodeString("00000000c30967e83fe5a042b91c5b7030fbeea50a000a000100000005000000000000000500000074006500730074003300000000000002")
 	handle, _ := hex.DecodeString("00000000c30967e83fe5a042b91c5b7030fbeea5")
 
 	req := SamrCreateUserInDomainReq{

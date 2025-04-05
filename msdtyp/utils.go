@@ -28,6 +28,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf16"
 )
 
@@ -178,11 +179,6 @@ func ReadConformantVaryingStringPtr(r *bytes.Reader, nullTerminated bool) (s str
 func WriteConformantVaryingString(w io.Writer, s string, addNullByte bool) (n int, err error) {
 	offset, count, paddlen, buffer := NewUnicodeStr(s, addNullByte)
 	maxCount := count
-	if !addNullByte {
-		// Seems like NDR parsers does not like it if MaxCount is same as ActualCount
-		// for strings that are not null terminated
-		maxCount += 1
-	}
 	err = binary.Write(w, le, maxCount) // MaxCount
 	if err != nil {
 		return
@@ -474,4 +470,19 @@ func ConvertStrToSID(s string) (sid *SID, err error) {
 	sid.SubAuthorities = subAuths
 	sid.NumAuth = subCount
 	return
+}
+
+func ConvertToFiletime(t time.Time) uint64 {
+	// Credit to https://github.com/Azure/go-ntlmssp/blob/master/unicode.go for logic
+	ft := uint64(t.UnixNano()) / 100
+	ft += 116444736000000000 // add time between unix & windows offset
+	return ft
+}
+
+func ConvertFromFiletime(t *Filetime) time.Time {
+	var ft uint64
+	ft = (uint64(t.HighDateTime) << 32) | (uint64(t.LowDateTime))
+	ft -= 116444736000000000 // remove time between unix & windows offset
+	ft *= 100
+	return time.Unix(0, int64(ft))
 }

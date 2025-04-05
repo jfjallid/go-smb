@@ -58,6 +58,7 @@ const (
 	SamrCreateUserInDomain         uint16 = 12
 	SamrEnumDomainUsers            uint16 = 13
 	SamrEnumAliasesInDomain        uint16 = 15
+	SamrLookupNamesInDomain        uint16 = 17
 	SamrLookupIdsInDomain          uint16 = 18
 	SamrOpenGroup                  uint16 = 19
 	SamrAddMemberToGroup           uint16 = 22
@@ -732,6 +733,71 @@ func (sb *RPCCon) SamrRemoveMemberFromAlias(aliasHandle *SamrHandle, sid *msdtyp
 	return
 }
 
+func (sb *RPCCon) SamrLookupNamesInDomain(domainHandle *SamrHandle, names []string) (result []SamrRidMapping, err error) {
+	log.Debugln("In SamrLookupNamesInDomain")
+	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
+		return
+	}
+	if len(names) == 0 {
+		err = fmt.Errorf("Must specify atleast one name to lookup in domain")
+		log.Errorln(err)
+		return
+	}
+	var items []msdtyp.RPCUnicodeStr
+	for _, s := range names {
+		items = append(items, msdtyp.RPCUnicodeStr{S: s})
+	}
+
+	innerReq := SamrLookupNamesInDomainReq{
+		DomainHandle: domainHandle.Handle,
+		Count:        uint32(len(names)),
+		Names:        items,
+	}
+
+	innerBuf, err := innerReq.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	buffer, err := sb.MakeIoCtlRequest(SamrLookupNamesInDomain, innerBuf)
+	if err != nil {
+		return
+	}
+
+	if len(buffer) < 20 {
+		return nil, fmt.Errorf("Server response to SamrLookupNamesInDomain was too small. Expected at atleast 20 bytes")
+	}
+
+	var resp SamrLookupNamesInDomainRes
+	err = resp.UnmarshalBinary(buffer)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	if (resp.ReturnCode > 0) && (resp.ReturnCode != StatusSomeNotMapped) {
+		status, found := ResponseCodeMap[resp.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown Samr return code for SamrLookupNamesInDomain response: 0x%x\n", resp.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		log.Errorln(err)
+		return
+	}
+
+	// Either it was a complete or a partial success.
+	result = make([]SamrRidMapping, resp.RelativeIds.Count)
+	for i := 0; i < len(result); i++ {
+		result[i].RID = resp.RelativeIds.Elements[i]
+		result[i].Use = resp.Use.Elements[i]
+		result[i].Name = names[i]
+	}
+
+	return
+}
+
 func (sb *RPCCon) SamrLookupIdsInDomain(domainHandle *SamrHandle, ids []uint32) (names []SamrRidMapping, err error) {
 	log.Debugln("In SamrLookupIdsInDomain")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
@@ -1240,7 +1306,7 @@ func (sb *RPCCon) SamrGetUserInfo2(userHandle *SamrHandle, informationClass uint
 // Change password of user with knowledge of current PW or NT Hash of current PW
 func (sb *RPCCon) SamrChangePassword2(username, currPw, newPw string, currNTHash []byte) (err error) {
 	log.Debugln("In SamrChangePassword2")
-	if (currPw == "") && (currNTHash != nil) {
+	if (currPw == "") && (currNTHash == nil) {
 		err = fmt.Errorf("Have to supply current password or NT hash to change password")
 		return
 	}
@@ -1565,6 +1631,25 @@ func (sb *RPCCon) SamrDeleteUser(userHandle *SamrHandle) (err error) {
 		log.Errorln(err)
 		return
 	}
+
+	return
+}
+
+func (sb *RPCCon) QueryUserAllInfo(domainHandle *SamrHandle, userRid uint32) (info *SamprUserAllInformation, err error) {
+	log.Debugln("In SamrQueryUserAllInfo")
+	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
+		return
+	}
+
+	userHandle, err := sb.SamrOpenUser(domainHandle, MaximumAllowed, userRid)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	defer sb.SamrCloseHandle(userHandle)
+
+	result, err := sb.SamrGetUserInfo2(userHandle, UserAllInformation)
+	info = result.(*SamprUserAllInformation)
 
 	return
 }
@@ -1897,15 +1982,7 @@ func (sb *RPCCon) QueryLocalUserAllInfo(userRid uint32, netbiosComputerName stri
 		return
 	}
 	defer sb.SamrCloseHandle(handleLocalDomain)
-	userHandle, err := sb.SamrOpenUser(handleLocalDomain, MaximumAllowed, userRid)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	defer sb.SamrCloseHandle(userHandle)
-
-	result, err := sb.SamrGetUserInfo2(userHandle, UserAllInformation)
-	info = result.(*SamprUserAllInformation)
+	info, err = sb.QueryUserAllInfo(handleLocalDomain, userRid)
 
 	return
 }
