@@ -25,8 +25,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/jfjallid/golog"
 	"io"
+
+	"github.com/jfjallid/golog"
 )
 
 var (
@@ -76,21 +77,82 @@ const (
 	SystemAuditCallbackObjectAceType   byte = 0x0f
 	SystemAlarmCallbackObjectAceType   byte = 0x10
 	SystemMandatoryLabelAceType        byte = 0x11
-	SystemResourceAttribyteAceType     byte = 0x12
+	SystemResourceAttributeAceType     byte = 0x12
 	SystemScopedPolicyIdAceType        byte = 0x13
 )
 
+var AceTypeMap = map[byte]string{
+	AccessAllowedAceType:               "AccessAllowed",
+	AccessDeniedAceType:                "AccessDenied",
+	SystemAuditAceType:                 "SystemAudit",
+	SystemAlarmAceType:                 "SystemAlarm",
+	AccessAllowedCompoundAceType:       "AccessAllowedCompound",
+	AccessAllowedObjectAceType:         "AccessAllowedObject",
+	AccessDeniedObjectAceType:          "AccessDeniedObject",
+	SystemAuditObjectAceType:           "SystemAuditObject",
+	SystemAlarmObjectAceType:           "SystemAlarmObject",
+	AccessAllowedCallbackAceType:       "AccessAllowedCallback",
+	AccessDeniedCallbackAceType:        "AccessDeniedCallback",
+	AccessAllowedCallbackObjectAceType: "AccessAllowedCallbackObject",
+	AccessDeniedCallbackObjectAceType:  "AccessDeniedCallbackObject",
+	SystemAuditCallbackAceType:         "SystemAuditCallback",
+	SystemAlarmCallbackAceType:         "SystemAlarmCallback",
+	SystemAuditCallbackObjectAceType:   "SystemAuditCallbackObject",
+	SystemAlarmCallbackObjectAceType:   "SystemAlarmCallbackObject",
+	SystemMandatoryLabelAceType:        "SystemMandatoryLabel",
+	SystemResourceAttributeAceType:     "SystemResourceAttribute",
+	SystemScopedPolicyIdAceType:        "SystemScopedPolicyId",
+}
+
 // AceFlags
 const (
-	ObjectInheritAce        byte = 0x01
-	ContainerInheritAce     byte = 0x02
-	NoPropagateInheritAce   byte = 0x04
-	InheritOnlyAce          byte = 0x08
-	InheritedAce            byte = 0x10
-	SuccessfulAccessAceFlag byte = 0x40
-	FailedAccessAceFlag     byte = 0x80
+	ObjectInheritAce        byte = 0x01 // Noncontainer child objects inherit the ACE as an effective ACE
+	ContainerInheritAce     byte = 0x02 // Child objects that are containers, such as directories, inherit the ACE as an effective ACE. The inherited ACE is inheritable unless the NO_PROPAGATE_INHERIT_ACE bit flag is also set.
+	NoPropagateInheritAce   byte = 0x04 // Ace is only inherited to direct child objects
+	InheritOnlyAce          byte = 0x08 // Ace does not control access to the object to which it is attached
+	InheritedAce            byte = 0x10 // The ACE was inherited
+	SuccessfulAccessAceFlag byte = 0x40 // Generate audit messages for successful access attempts in SACL
+	FailedAccessAceFlag     byte = 0x80 // Generate audit messages for failed access attempts in SACL
 	DefaultAceFlag          byte = 0x02 // ContainerInheritAce
 )
+
+var aceFlagsMap = map[byte]string{
+	ObjectInheritAce:        "ObjectInheritAce",
+	ContainerInheritAce:     "ContainerInheritAce",
+	NoPropagateInheritAce:   "NoPropagateInheritAce",
+	InheritOnlyAce:          "InheritOnlyAce",
+	InheritedAce:            "InheritedAce",
+	SuccessfulAccessAceFlag: "SuccessfulAccessAce",
+	FailedAccessAceFlag:     "FailedAccessAce",
+}
+
+const (
+	AccessMaskGenericRead          = "GENERIC_READ"
+	AccessMaskGenericWrite         = "GENERIC_WRITE"
+	AccessMaskGenericExecute       = "GENERIC_EXECUTE"
+	AccessMaskGenericAll           = "GENERIC_ALL"
+	AccessMaskMaximumAllowed       = "MAXIMUM_ALLOWED"
+	AccessMaskAccessSystemSecurity = "ACCESS_SYSTEM_SECURITY"
+	AccessMaskSynchronize          = "SYNCHRONIZE"
+	AccessMaskWriteOwner           = "WRITE_OWNER"
+	AccessMaskWriteDACL            = "WRITE_DACL"
+	AccessMaskReadControl          = "READ_CONTROL"
+	AccessMaskDelete               = "DELETE"
+)
+
+var accessMaskMap = map[uint32]string{
+	0x80000000: AccessMaskGenericRead,
+	0x4000000:  AccessMaskGenericWrite,
+	0x20000000: AccessMaskGenericExecute,
+	0x10000000: AccessMaskGenericAll,
+	0x02000000: AccessMaskMaximumAllowed,
+	0x01000000: AccessMaskAccessSystemSecurity,
+	0x00100000: AccessMaskSynchronize,
+	0x00080000: AccessMaskWriteOwner,
+	0x00040000: AccessMaskWriteDACL,
+	0x00020000: AccessMaskReadControl,
+	0x00010000: AccessMaskDelete,
+}
 
 type ReturnCode struct {
 	uint32
@@ -165,6 +227,19 @@ type SecurityDescriptor struct {
 	GroupSid    *SID
 	Sacl        *PACL
 	Dacl        *PACL
+}
+
+type AcePermissions struct {
+	AceType        string
+	AceFlags       byte
+	AceFlagStrings string
+	Permissions    []string
+	Sid            string
+}
+
+type PaclPermissions struct {
+	NumAce  uint32
+	Entries []AcePermissions
 }
 
 func (self *ReturnCode) MarshalBinary() ([]byte, error) {
@@ -786,6 +861,29 @@ func (self *PACL) UnmarshalBinary(buf []byte) (err error) {
 	*self = *pacl
 
 	return nil
+}
+
+func (a ACE) Permissions() AcePermissions {
+	perms := ParseAccessMask(a.Mask)
+	sidStr := a.Sid.ToString()
+	return AcePermissions{
+		Sid:            sidStr,
+		Permissions:    perms,
+		AceType:        AceTypeMap[a.Header.Type],
+		AceFlags:       a.Header.Flags,
+		AceFlagStrings: ParseAceFlags(a.Header.Flags),
+	}
+}
+
+func (self *PACL) Permissions() PaclPermissions {
+	var acePerms []AcePermissions
+	for _, item := range self.ACLS {
+		acePerms = append(acePerms, item.Permissions())
+	}
+	return PaclPermissions{
+		NumAce:  self.AceCount,
+		Entries: acePerms,
+	}
 }
 
 func (self *SID) ToString() (s string) {

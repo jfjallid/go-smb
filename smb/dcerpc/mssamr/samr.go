@@ -71,6 +71,7 @@ const (
 	SamrOpenUser                   uint16 = 34
 	SamrDeleteUser                 uint16 = 35
 	SamrQueryInformationUser2      uint16 = 47
+	SamrCreateUser2InDomain        uint16 = 50
 	SamrUnicodeChangePasswordUser2 uint16 = 55
 	SamrSetInformationUser2        uint16 = 58
 	SamrConnect5                   uint16 = 64
@@ -78,19 +79,19 @@ const (
 )
 
 const (
-	SamrHandleTypeServer uint8 = 0
-	SamrHandleTypeDomain uint8 = 1
-	SamrHandleTypeUser   uint8 = 2
-	SamrHandleTypeGroup  uint8 = 3
-	SamrHandleTypeAlias  uint8 = 4
+	SamrHandleTypeServer  uint8 = 0
+	SamrHandleTypeDomain  uint8 = 1
+	SamrHandleTypeAccount uint8 = 2
+	SamrHandleTypeGroup   uint8 = 3
+	SamrHandleTypeAlias   uint8 = 4
 )
 
 var SamrHandleTypeMap = map[uint8]string{
-	SamrHandleTypeServer: "SamrHandleTypeServer",
-	SamrHandleTypeDomain: "SamrHandleTypeDomain",
-	SamrHandleTypeUser:   "SamrHandleTypeUser",
-	SamrHandleTypeGroup:  "SamrHandleTypeGroup",
-	SamrHandleTypeAlias:  "SamrHandleTypeAlias",
+	SamrHandleTypeServer:  "SamrHandleTypeServer",
+	SamrHandleTypeDomain:  "SamrHandleTypeDomain",
+	SamrHandleTypeAccount: "SamrHandleTypeAccount",
+	SamrHandleTypeGroup:   "SamrHandleTypeGroup",
+	SamrHandleTypeAlias:   "SamrHandleTypeAlias",
 }
 
 const (
@@ -1111,7 +1112,7 @@ func (sb *RPCCon) SamrCreateUserInDomain(domainHandle *SamrHandle, name string, 
 		return
 	}
 
-	return &SamrHandle{Handle: resp.UserHandle, Type: SamrHandleTypeUser, Name: fmt.Sprintf("User: %s", name)}, resp.RelativeId, nil
+	return &SamrHandle{Handle: resp.UserHandle, Type: SamrHandleTypeAccount, Name: fmt.Sprintf("User: %s", name)}, resp.RelativeId, nil
 }
 
 func (sb *RPCCon) SamrEnumDomainUsers(domainHandle *SamrHandle, accountFlags uint32, maxLength uint32) (users []SamprRidEnumeration, err error) {
@@ -1270,7 +1271,7 @@ func (sb *RPCCon) SamrEnumerateGroupsInDomain(domainHandle *SamrHandle, maxLengt
 
 func (sb *RPCCon) SamrGetUserInfo2(userHandle *SamrHandle, informationClass uint16) (info SamprUserInfoBufferUnion, err error) {
 	log.Debugln("In SamrGetUserInfo2")
-	if err = validateHandle(userHandle, SamrHandleTypeUser); err != nil {
+	if err = validateHandle(userHandle, SamrHandleTypeAccount); err != nil {
 		return
 	}
 	if informationClass != UserAllInformation {
@@ -1301,6 +1302,58 @@ func (sb *RPCCon) SamrGetUserInfo2(userHandle *SamrHandle, informationClass uint
 	}
 	info = res.Buffer
 	return
+}
+
+func (sb *RPCCon) SamrCreateUser2InDomain(domainHandle *SamrHandle, name string, accountType, desiredAccess uint32) (accountHandle *SamrHandle, rid uint32, err error) {
+	log.Debugln("In SamrCreateUser2InDomain")
+	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
+		return
+	}
+	if (accountType != UserNormalAccount) && (accountType != UserWorkstationTrustAccount) && (accountType != UserServerTrustAccount) {
+		err = fmt.Errorf("Invalid account type. Supported types are: 0x10, 0x80, and 0x100")
+		log.Errorln(err)
+		return
+	}
+	if (accountType == UserWorkstationTrustAccount) || (accountType == UserServerTrustAccount) {
+		if !strings.HasSuffix(name, "$") {
+			name += "$"
+		}
+	}
+
+	if desiredAccess == 0 {
+		desiredAccess = MaximumAllowed
+	}
+	innerReq := SamrCreateUser2InDomainReq{
+		DomainHandle:  domainHandle.Handle,
+		Name:          name,
+		AccountType:   accountType,
+		DesiredAccess: desiredAccess,
+	}
+
+	innerBuf, err := innerReq.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	buffer, err := sb.MakeIoCtlRequest(SamrCreateUser2InDomain, innerBuf)
+	if err != nil {
+		return
+	}
+
+	if len(buffer) < 8 {
+		return nil, 0, fmt.Errorf("Server response to SamrCreateUser2InDomain was too small. Expected at atleast 8 bytes")
+	}
+
+	var resp SamrCreateUser2InDomainRes
+	err = resp.UnmarshalBinary(buffer)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// TODO Extend SamrHandle with GrantedAccess?
+	return &SamrHandle{Handle: resp.UserHandle, Type: SamrHandleTypeAccount, Name: fmt.Sprintf("User: %s", name)}, resp.RelativeId, nil
 }
 
 // Change password of user with knowledge of current PW or NT Hash of current PW
@@ -1369,7 +1422,7 @@ func (sb *RPCCon) SamrChangePassword2(username, currPw, newPw string, currNTHash
 
 func (sb *RPCCon) SamrSetUserInfo2(userHandle *SamrHandle, input *SamrUserInfoInput) (err error) {
 	log.Debugln("In SamrSetUserInfo2")
-	if err = validateHandle(userHandle, SamrHandleTypeUser); err != nil {
+	if err = validateHandle(userHandle, SamrHandleTypeAccount); err != nil {
 		return
 	}
 
@@ -1590,14 +1643,14 @@ func (sb *RPCCon) SamrOpenUser(domainHandle *SamrHandle, desiredAccess, rid uint
 		log.Errorln(err)
 		return
 	}
-	userHandle = &SamrHandle{Handle: resp.UserHandle, Type: SamrHandleTypeUser, Name: fmt.Sprintf("RID: %d", rid)}
+	userHandle = &SamrHandle{Handle: resp.UserHandle, Type: SamrHandleTypeAccount, Name: fmt.Sprintf("RID: %d", rid)}
 
 	return
 }
 
 func (sb *RPCCon) SamrDeleteUser(userHandle *SamrHandle) (err error) {
 	log.Debugln("In SamrDeleteUser")
-	if err = validateHandle(userHandle, SamrHandleTypeUser); err != nil {
+	if err = validateHandle(userHandle, SamrHandleTypeAccount); err != nil {
 		return
 	}
 

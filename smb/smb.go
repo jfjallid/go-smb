@@ -49,67 +49,80 @@ const ProtocolTransformHdr = "\xFDSMB"
 const SHA512 = 0x001
 
 const (
-	StatusOk                     = 0x00000000
-	StatusPending                = 0x00000103
-	StatusBufferOverflow         = 0x80000005
-	StatusNoMoreFiles            = 0x80000006
-	StatusInfoLengthMismatch     = 0xc0000004
-	StatusInvalidParameter       = 0xc000000d
-	StatusNoSuchFile             = 0xc000000f
-	StatusEndOfFile              = 0xc0000011
-	StatusMoreProcessingRequired = 0xc0000016
-	StatusAccessDenied           = 0xc0000022
-	StatusBufferTooSmall         = 0xc0000023
-	StatusObjectNameInvalid      = 0xc0000033
-	StatusObjectNameNotFound     = 0xc0000034
-	StatusObjectNameCollision    = 0xc0000035
-	StatusObjectPathNotFound     = 0xc000003A
-	StatusLogonFailure           = 0xc000006d
-	StatusAccountRestriction     = 0xc000006e
-	StatusPasswordExpired        = 0xc0000071
-	StatusAccountDisabled        = 0xc0000072
-	StatusPipeNotAvailable       = 0xc00000ac
-	StatusPipeBusy               = 0xc00000ae
-	StatusNotSupported           = 0xc00000bb
-	StatusNetworkNameDeleted     = 0xc00000c9
-	StatusBadNetworkName         = 0xc00000cc
-	StatusDirectoryNotEmpty      = 0xc0000101
-	StatusUserSessionDeleted     = 0xc0000203
-	StatusPasswordMustChange     = 0xc0000224
-	StatusAccountLockedOut       = 0xc0000234
-	StatusVirusInfected          = 0xc0000906
+	StatusOk                         uint32 = 0x00000000
+	StatusPending                    uint32 = 0x00000103
+	StatusBufferOverflow             uint32 = 0x80000005
+	StatusNoMoreFiles                uint32 = 0x80000006
+	StatusInfoLengthMismatch         uint32 = 0xc0000004
+	StatusInvalidParameter           uint32 = 0xc000000d
+	StatusNoSuchFile                 uint32 = 0xc000000f
+	FsctlStatusInvalidDeviceRequest  uint32 = 0xc0000010 //The type of the handle is not a pipe.
+	StatusEndOfFile                  uint32 = 0xc0000011
+	StatusMoreProcessingRequired     uint32 = 0xc0000016
+	StatusAccessDenied               uint32 = 0xc0000022
+	StatusBufferTooSmall             uint32 = 0xc0000023
+	StatusObjectNameInvalid          uint32 = 0xc0000033
+	StatusObjectNameNotFound         uint32 = 0xc0000034
+	StatusObjectNameCollision        uint32 = 0xc0000035
+	StatusObjectPathNotFound         uint32 = 0xc000003a
+	StatusLogonFailure               uint32 = 0xc000006d
+	StatusAccountRestriction         uint32 = 0xc000006e
+	StatusPasswordExpired            uint32 = 0xc0000071
+	StatusAccountDisabled            uint32 = 0xc0000072
+	FsctlStatusInsufficientResources uint32 = 0xc000009a //There were insufficient resources to complete the operation.
+	StatusPipeNotAvailable           uint32 = 0xc00000ac
+	FsctlStatusInvalidPipeState      uint32 = 0xc00000ad //The named pipe is not in the connected state or not in the full-duplex message mode.
+	StatusPipeBusy                   uint32 = 0xc00000ae
+	FsctlStatusPipeDisconnected      uint32 = 0xc00000b0 //The specified named pipe is in the disconnected state.
+	StatusNotSupported               uint32 = 0xc00000bb
+	StatusNetworkNameDeleted         uint32 = 0xc00000c9
+	StatusBadNetworkName             uint32 = 0xc00000cc
+	FsctlStatusInvalidUserBuffer     uint32 = 0xc00000e8 //An exception was raised while accessing a user buffer.
+	StatusDirectoryNotEmpty          uint32 = 0xc0000101
+	StatusCannotDelete               uint32 = 0xc0000121
+	FsctlStatusPipeBroken            uint32 = 0xc000014b // The pipe operation has failed because the other end of the pipe has been closed
+	StatusUserSessionDeleted         uint32 = 0xc0000203
+	StatusPasswordMustChange         uint32 = 0xc0000224
+	StatusAccountLockedOut           uint32 = 0xc0000234
+	StatusVirusInfected              uint32 = 0xc0000906
 )
 
 var StatusMap = map[uint32]error{
-	StatusOk:                     fmt.Errorf("OK"),
-	StatusPending:                fmt.Errorf("Status Pending"),
-	StatusBufferOverflow:         fmt.Errorf("Response buffer overflow"),
-	StatusNoMoreFiles:            fmt.Errorf("No more files"),
-	StatusInfoLengthMismatch:     fmt.Errorf("Insuffient size of response buffer"),
-	StatusInvalidParameter:       fmt.Errorf("Invalid Parameter"),
-	StatusNoSuchFile:             fmt.Errorf("No such file"),
-	StatusEndOfFile:              fmt.Errorf("The end-of-file marker has been reached"),
-	StatusMoreProcessingRequired: fmt.Errorf("More Processing Required"),
-	StatusAccessDenied:           fmt.Errorf("Access denied!"),
-	StatusBufferTooSmall:         fmt.Errorf("Buffer is too small to contain the entry"),
-	StatusObjectNameInvalid:      fmt.Errorf("The object name is invalid for the target filesystem"),
-	StatusObjectNameNotFound:     fmt.Errorf("Requested file does not exist"),
-	StatusObjectNameCollision:    fmt.Errorf("File or directory already exists"),
-	StatusObjectPathNotFound:     fmt.Errorf("The path to the specified directory was not found"),
-	StatusLogonFailure:           fmt.Errorf("Logon failed"),
-	StatusAccountRestriction:     fmt.Errorf("Account restriction"),
-	StatusPasswordExpired:        fmt.Errorf("Password expired!"),
-	StatusAccountDisabled:        fmt.Errorf("Account disabled!"),
-	StatusPipeNotAvailable:       fmt.Errorf("Pipe not available!"),
-	StatusPipeBusy:               fmt.Errorf("Pipe busy!"),
-	StatusNotSupported:           fmt.Errorf("Not Supported!"),
-	StatusNetworkNameDeleted:     fmt.Errorf("Network name deleted"),
-	StatusBadNetworkName:         fmt.Errorf("Bad network name"),
-	StatusDirectoryNotEmpty:      fmt.Errorf("Directory is not empty"),
-	StatusUserSessionDeleted:     fmt.Errorf("User session deleted"),
-	StatusPasswordMustChange:     fmt.Errorf("User is required to change password at next logon"),
-	StatusAccountLockedOut:       fmt.Errorf("User account has been locked!"),
-	StatusVirusInfected:          fmt.Errorf("The file contains a virus"),
+	StatusOk:                         fmt.Errorf("OK"),
+	StatusPending:                    fmt.Errorf("Status Pending"),
+	StatusBufferOverflow:             fmt.Errorf("Response buffer overflow"),
+	StatusNoMoreFiles:                fmt.Errorf("No more files"),
+	StatusInfoLengthMismatch:         fmt.Errorf("Insuffient size of response buffer"),
+	StatusInvalidParameter:           fmt.Errorf("Invalid Parameter"),
+	StatusNoSuchFile:                 fmt.Errorf("No such file"),
+	StatusEndOfFile:                  fmt.Errorf("The end-of-file marker has been reached"),
+	StatusMoreProcessingRequired:     fmt.Errorf("More Processing Required"),
+	StatusAccessDenied:               fmt.Errorf("Access denied!"),
+	StatusBufferTooSmall:             fmt.Errorf("Buffer is too small to contain the entry"),
+	StatusObjectNameInvalid:          fmt.Errorf("The object name is invalid for the target filesystem"),
+	StatusObjectNameNotFound:         fmt.Errorf("Requested file does not exist"),
+	StatusObjectNameCollision:        fmt.Errorf("File or directory already exists"),
+	StatusObjectPathNotFound:         fmt.Errorf("The path to the specified directory was not found"),
+	StatusLogonFailure:               fmt.Errorf("Logon failed"),
+	StatusAccountRestriction:         fmt.Errorf("Account restriction"),
+	StatusPasswordExpired:            fmt.Errorf("Password expired!"),
+	StatusAccountDisabled:            fmt.Errorf("Account disabled!"),
+	StatusPipeNotAvailable:           fmt.Errorf("Pipe not available!"),
+	StatusPipeBusy:                   fmt.Errorf("Pipe busy!"),
+	StatusNotSupported:               fmt.Errorf("Not Supported!"),
+	StatusNetworkNameDeleted:         fmt.Errorf("Network name deleted"),
+	StatusBadNetworkName:             fmt.Errorf("Bad network name"),
+	StatusDirectoryNotEmpty:          fmt.Errorf("Directory is not empty"),
+	StatusUserSessionDeleted:         fmt.Errorf("User session deleted"),
+	StatusPasswordMustChange:         fmt.Errorf("User is required to change password at next logon"),
+	StatusAccountLockedOut:           fmt.Errorf("User account has been locked!"),
+	StatusVirusInfected:              fmt.Errorf("The file contains a virus"),
+	FsctlStatusPipeDisconnected:      fmt.Errorf("FSCTL_STATUS_PIPE_DISCONNECTED"),
+	FsctlStatusInvalidPipeState:      fmt.Errorf("FSCTL_STATUS_INVALID_PIPE_STATE"),
+	FsctlStatusInvalidUserBuffer:     fmt.Errorf("FSCTL_STATUS_INVALID_USER_BUFFER"),
+	FsctlStatusInsufficientResources: fmt.Errorf("FSCTL_STATUS_INSUFFICIENT_RESOURCES"),
+	FsctlStatusInvalidDeviceRequest:  fmt.Errorf("FSCTL_STATUS_INVALID_DEVICE_REQUEST"),
+	FsctlStatusPipeBroken:            fmt.Errorf("FSCTL_STATUS_PIPE_BROKEN"),
 }
 
 const DialectSmb_2_0_2 uint16 = 0x0202
@@ -397,27 +410,6 @@ const (
 	FsctlPipeTransceive uint32 = 0x0011C017
 	// ...
 )
-
-// MS-FSCC Status codes
-const (
-	FsctlStatusPipeDisconnected      uint32 = 0xC00000B0 //The specified named pipe is in the disconnected state.
-	FsctlStatusInvalidPipeState      uint32 = 0xC00000AD //The named pipe is not in the connected state or not in the full-duplex message mode.
-	FsctlStatusPipeBusy              uint32 = 0xC00000AE //The named pipe contains unread data.
-	FsctlStatusInvalidUserBuffer     uint32 = 0xC00000E8 //An exception was raised while accessing a user buffer.
-	FsctlStatusInsufficientResources uint32 = 0xC000009A //There were insufficient resources to complete the operation.
-	FsctlStatusInvalidDeviceRequest  uint32 = 0xC0000010 //The type of the handle is not a pipe.
-	FsctlStatusBufferOverflow        uint32 = 0x80000005 //The data was too large to fit into
-)
-
-var FsctlStatusMap = map[uint32]error{
-	FsctlStatusPipeDisconnected:      fmt.Errorf("FSCTL_STATUS_PIPE_DISCONNECTED"),
-	FsctlStatusInvalidPipeState:      fmt.Errorf("FSCTL_STATUS_INVALID_PIPE_STATE"),
-	FsctlStatusPipeBusy:              fmt.Errorf("FSCTL_STATUS_PIPE_BUSY"),
-	FsctlStatusInvalidUserBuffer:     fmt.Errorf("FSCTL_STATUS_INVALID_USER_BUFFER"),
-	FsctlStatusInsufficientResources: fmt.Errorf("FSCTL_STATUS_INSUFFICIENT_RESOURCES"),
-	FsctlStatusInvalidDeviceRequest:  fmt.Errorf("FSCTL_STATUS_INVALID_DEVICE_REQUEST"),
-	FsctlStatusBufferOverflow:        fmt.Errorf("FSCTL_STATUS_BUFFER_OVERFLOW"),
-}
 
 // IOCTL Flags
 const (

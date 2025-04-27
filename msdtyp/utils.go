@@ -26,6 +26,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -62,7 +63,7 @@ func ToUnicode(input string) []byte {
 // Return the values needed to encode a unicode string according to NDR (except for the Ptrs and MaxCount which has to be added manually)
 func NewUnicodeStr(s string, addNullByte bool) (offset uint32, actualCount uint32, paddlen int, buffer []byte) {
 	if addNullByte {
-		s = nullTerminate(s)
+		s = NullTerminate(s)
 	}
 	buffer = ToUnicode(s)
 	actualCount = uint32(len(buffer) / 2)
@@ -74,7 +75,7 @@ func NewUnicodeStr(s string, addNullByte bool) (offset uint32, actualCount uint3
 	return
 }
 
-func nullTerminate(s string) string {
+func NullTerminate(s string) string {
 	if s == "" {
 		s = "\x00"
 	} else if s[len(s)-1] != 0x00 {
@@ -83,7 +84,7 @@ func nullTerminate(s string) string {
 	return s
 }
 
-func stripNullByte(s string) string {
+func StripNullByte(s string) string {
 	if s == "" {
 		return ""
 	}
@@ -485,4 +486,25 @@ func ConvertFromFiletime(t *Filetime) time.Time {
 	ft -= 116444736000000000 // remove time between unix & windows offset
 	ft *= 100
 	return time.Unix(0, int64(ft))
+}
+
+func ParseAccessMask(mask uint32) []string {
+	permissions := []string{}
+	for v, s := range accessMaskMap {
+		if mask&v > 0 {
+			permissions = append(permissions, s)
+		}
+	}
+	slices.Sort(permissions)
+	return permissions
+}
+
+func ParseAceFlags(aceFlags byte) string {
+	flags := ""
+	for v, s := range aceFlagsMap {
+		if aceFlags&v > 0 {
+			flags += "," + s
+		}
+	}
+	return strings.TrimPrefix(flags, ",")
 }

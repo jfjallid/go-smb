@@ -24,9 +24,8 @@ package msrrp
 import (
 	"encoding/binary"
 	"fmt"
-	"strconv"
-	"strings"
 
+	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/go-smb/smb/dcerpc"
 	"github.com/jfjallid/golog"
 )
@@ -93,18 +92,30 @@ var PermMap = map[uint32]string{
 
 // MS-RRP Section 2.2.5 RVALENT ve_type
 const (
-	RegBinary            uint32 = 3
-	RegDword             uint32 = 4
+	RegNone              uint32 = 0
+	RegSz                uint32 = 1 // A null-terminated string.
+	RegExpandSz          uint32 = 2 // A null-terminated string that contains unexpanded references to environment variables (for example, "%PATH%").
+	RegBinary            uint32 = 3 // Binary data in any form.
+	RegDword             uint32 = 4 // A 32-bit number.
 	RegDwordLittleEndian uint32 = 4
 	RegDwordBigEndian    uint32 = 5
-	RegExpandSz          uint32 = 2
-	RegLink              uint32 = 6
-	RegMultiSz           uint32 = 7
-	RegNone              uint32 = 0
-	RegQword             uint32 = 11
+	RegLink              uint32 = 6  // A symbolic link.
+	RegMultiSz           uint32 = 7  // A sequence of null-terminated strings, terminated by an empty string (\0).
+	RegQword             uint32 = 11 // A 64-bit number.
 	RegQwordLittleEndian uint32 = 11
-	RegSz                uint32 = 1
 )
+
+var RegValueTypeMap = map[uint32]string{
+	RegNone:           "RegNone",
+	RegSz:             "RegSz",
+	RegExpandSz:       "RegExpandSz",
+	RegBinary:         "RegBinary",
+	RegDword:          "RegDword",
+	RegDwordBigEndian: "RegDwordBigEndian",
+	RegLink:           "RegLink",
+	RegMultiSz:        "RegMultiSz",
+	RegQword:          "RegQword",
+}
 
 // MS-RRP Section 2.2.6 Common Error Codes
 const (
@@ -116,6 +127,7 @@ const (
 	ErrorNotReady           uint32 = 0x00000015 // The service is not ready. Calls can be repeated at a later time.
 	ErrorInvalidParameter   uint32 = 0x00000057 // The parameter is incorrect.
 	ErrorCallNotImplemented uint32 = 0x00000078 // The method is not valid.
+	ErrorBadPathName        uint32 = 0x000000A1
 	ErrorBusy               uint32 = 0x000000AA // The requested resource is busy.
 	ErrorAlreadyExists      uint32 = 0x000000B7 // File already exists.
 	ErrorMoreData           uint32 = 0x000000EA // The size of the buffer is not large enough to hold the requested data.
@@ -133,6 +145,7 @@ var ReturnCodeMap = map[uint32]error{
 	ErrorNotReady:           fmt.Errorf("ERROR_NOT_READY"),
 	ErrorInvalidParameter:   fmt.Errorf("ERROR_INVALID_PARAMETER"),
 	ErrorCallNotImplemented: fmt.Errorf("ERROR_CALL_NOT_IMPLEMENTED"),
+	ErrorBadPathName:        fmt.Errorf("ERROR_BAD_PATH_NAME"),
 	ErrorBusy:               fmt.Errorf("ERROR_BUSY"),
 	ErrorAlreadyExists:      fmt.Errorf("ERROR_ALREADY_EXISTS"),
 	ErrorMoreData:           fmt.Errorf("ERROR_MORE_DATA"),
@@ -184,63 +197,6 @@ const (
 	BaseRegDeleteKeyEx          uint16 = 35 // Called by the client. In response, the server deletes the specified subkey. This function differs from BaseRegDeleteKey in that either 32-bit or 64-bit keys can be deleted, regardless of what kind of application is running.
 )
 
-// MS-DTYP Section 2.4.6 Security_Descriptor Control Flag
-const (
-	SecurityDescriptorFlagOD uint16 = 0x0001 // Owner Default
-	SecurityDescriptorFlagGD uint16 = 0x0002 // Group Default
-	SecurityDescriptorFlagDP uint16 = 0x0004 // DACL Present
-	SecurityDescriptorFlagDD uint16 = 0x0008 // DACL Defaulted
-	SecurityDescriptorFlagSP uint16 = 0x0010 // SACL Present
-	SecurityDescriptorFlagSD uint16 = 0x0020 // SACL Defaulted
-	SecurityDescriptorFlagDT uint16 = 0x0040 // DACL Trusted
-	SecurityDescriptorFlagSS uint16 = 0x0080 // Server Security
-	SecurityDescriptorFlagDC uint16 = 0x0100 // DACL Computed Inheritance Required
-	SecurityDescriptorFlagSC uint16 = 0x0200 // SACL Computed Inheritance Required
-	SecurityDescriptorFlagDI uint16 = 0x0400 // DACL Auto-Inherited
-	SecurityDescriptorFlagSI uint16 = 0x0800 // SACL Auto-Inherited
-	SecurityDescriptorFlagPD uint16 = 0x1000 // DACL Protected
-	SecurityDescriptorFlagPS uint16 = 0x2000 // SACL Protected
-	SecurityDescriptorFlagPM uint16 = 0x4000 // RM Control Valid
-	SecurityDescriptorFlagSR uint16 = 0x8000 // Self-Relative
-)
-
-// MS-DTYP Section 2.4.4.1 ACE_HEADER
-// AceType
-const (
-	AccessAllowedAceType               byte = 0x00
-	AccessDeniedAceType                byte = 0x01
-	SystemAuditAceType                 byte = 0x02
-	SystemAlarmAceType                 byte = 0x03
-	AccessAllowedCompoundAceType       byte = 0x04
-	AccessAllowedObjectAceType         byte = 0x05
-	AccessDeniedObjectAceType          byte = 0x06
-	SystemAuditObjectAceType           byte = 0x07
-	SystemAlarmObjectAceType           byte = 0x08
-	AccessAllowedCallbackAceType       byte = 0x09
-	AccessDeniedCallbackAceType        byte = 0x0a
-	AccessAllowedCallbackObjectAceType byte = 0x0b
-	AccessDeniedCallbackObjectAceType  byte = 0x0c
-	SystemAuditCallbackAceType         byte = 0x0d
-	SystemAlarmCallbackAceType         byte = 0x0e
-	SystemAuditCallbackObjectAceType   byte = 0x0f
-	SystemAlarmCallbackObjectAceType   byte = 0x10
-	SystemMandatoryLabelAceType        byte = 0x11
-	SystemResourceAttribyteAceType     byte = 0x12
-	SystemScopedPolicyIdAceType        byte = 0x13
-)
-
-// AceFlags
-const (
-	ObjectInheritAce        byte = 0x01
-	ContainerInheritAce     byte = 0x02
-	NoPropagateInheritAce   byte = 0x04
-	InheritOnlyAce          byte = 0x08
-	InheritedAce            byte = 0x10
-	SuccessfulAccessAceFlag byte = 0x40
-	FailedAccessAceFlag     byte = 0x80
-	DefaultAceFlag          byte = 0x02 // ContainerInheritAce
-)
-
 // Enum of base keys
 const (
 	HKEYClassesRoot byte = iota
@@ -248,11 +204,17 @@ const (
 	HKEYLocalMachine
 	HKEYPerformanceData
 	HKEYUsers
+	HKEYCurrentConfig
 )
 
 const (
 	RegOptionBackupRestore uint32 = 0x04
 	RegOptionOpenLink      uint32 = 0x08
+)
+
+const (
+	RegCreatedNewKey     uint32 = 0x01
+	RegOpenedExistingKey uint32 = 0x02
 )
 
 type RPCCon struct {
@@ -261,56 +223,6 @@ type RPCCon struct {
 
 func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 	return &RPCCon{sb}
-}
-
-func convertSIDtoStr(sid *SID) (s string, err error) {
-	// Not sure what the first two bytes are but the
-	// Identifier Authority is stored as BigEndian while the rest is little endian
-	auth := binary.BigEndian.Uint32(sid.Authority[2:])
-	s = fmt.Sprintf("S-%d-%d", sid.Revision, auth)
-	//NOTE Seems that perhaps the sid.NumAuth (count) does not always accurately specify number of
-	// Sub Authoritys but rather number of DWORDS. E.g., a SubAuthority could take more than 1 DWORD?
-	for i := 0; i < int(sid.NumAuth); i++ {
-		s = fmt.Sprintf("%s-%d", s, sid.SubAuthorities[i])
-	}
-	return
-}
-
-func convertStrToSID(s string) (sid *SID, err error) {
-	sid = &SID{}
-	parts := strings.Split(s, "-")
-	if len(parts) < 4 {
-		err = fmt.Errorf("Invalid SID representation")
-		return
-	}
-	rev, err := strconv.ParseUint(parts[1], 10, 32)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	sid.Revision = byte(rev)
-	auth, err := strconv.ParseUint(parts[2], 10, 32)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	authBuf := make([]byte, 2, 6)
-	authBuf = binary.BigEndian.AppendUint32(authBuf, uint32(auth))
-	sid.Authority = authBuf
-	subCount := byte(0)
-	subAuths := make([]uint32, 0)
-	for _, part := range parts[3:] {
-		subA, err := strconv.ParseUint(part, 10, 32)
-		if err != nil {
-			log.Errorln(err)
-			return nil, err
-		}
-		subAuths = append(subAuths, uint32(subA))
-		subCount += 1
-	}
-	sid.SubAuthorities = subAuths
-	sid.NumAuth = subCount
-	return
 }
 
 func (r *RPCCon) OpenBaseKey(baseName byte) (handle []byte, err error) {
@@ -325,6 +237,12 @@ func (r *RPCCon) OpenBaseKey(baseName byte) (handle []byte, err error) {
 		opCode = OpenClassesRoot
 	case HKEYLocalMachine:
 		opCode = OpenLocalMachine
+	case HKEYCurrentUser:
+		opCode = OpenCurrentUser
+	case HKEYUsers:
+		opCode = OpenUsers
+	case HKEYCurrentConfig:
+		opCode = OpenCurrentConfig
 	default:
 		err = fmt.Errorf("NOT Implemented base key!")
 		return
@@ -391,6 +309,129 @@ func (r *RPCCon) CloseKeyHandle(hKey []byte) (err error) {
 	return
 }
 
+// Opnum 6
+func (r *RPCCon) CreateKey(hKey []byte, name, class string, options, desiredAccess uint32, sa *RpcSecurityAttributes) (hSubKey []byte, disposition uint32, err error) {
+	if desiredAccess == 0 {
+		desiredAccess = PermMaximumAllowed
+	}
+
+	req := BaseRegCreateKeyReq{
+		HKey: hKey,
+		SubKey: RRPUnicodeStr{
+			S: msdtyp.NullTerminate(name),
+		},
+		Class: RRPUnicodeStr{
+			S: msdtyp.NullTerminate(class),
+		},
+		Options:       options,
+		DesiredAccess: desiredAccess,
+		SecurityAttr:  sa,
+		Disposition:   RegCreatedNewKey,
+	}
+
+	log.Debugf("Trying to create registry key (%s)\n", name)
+	reqBuf, err := req.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	buffer, err := r.MakeIoCtlRequest(BaseRegCreateKey, reqBuf)
+	if err != nil {
+		return
+	}
+	if len(buffer) < 28 {
+		err = fmt.Errorf("Response to BaseRegCreateKey was too short")
+		log.Errorln(err)
+		return
+	}
+	var res BaseRegCreateKeyRes
+	err = res.UnmarshalBinary(buffer)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	hSubKey = res.HKey
+	disposition = res.Disposition
+	return
+}
+
+// Opnum 7
+func (r *RPCCon) DeleteKey(hKey []byte, name string) (err error) {
+	req := BaseRegDeleteKeyReq{
+		HKey: hKey,
+		SubKey: RRPUnicodeStr{
+			S: msdtyp.NullTerminate(name),
+		},
+	}
+
+	log.Debugf("Trying to delete registry key (%s)\n", name)
+	reqBuf, err := req.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	buffer, err := r.MakeIoCtlRequest(BaseRegDeleteKey, reqBuf)
+	if err != nil {
+		return
+	}
+	if len(buffer) < 4 {
+		err = fmt.Errorf("Response to BaseRegDeleteKey was too short")
+		log.Errorln(err)
+		return
+	}
+	returnCode := binary.LittleEndian.Uint32(buffer[:4])
+	if returnCode != ErrorSuccess {
+		if returnCode == ErrorFileNotFound {
+			err = fmt.Errorf("Registry Key does not exist")
+		} else {
+			err = ReturnCodeMap[returnCode]
+			log.Errorln(err)
+		}
+		return
+	}
+	return
+}
+
+// Opnum 8
+func (r *RPCCon) DeleteValue(hKey []byte, name string) (err error) {
+	req := BaseRegDeleteValueReq{
+		HKey: hKey,
+		ValueName: RRPUnicodeStr{
+			S: msdtyp.NullTerminate(name),
+		},
+	}
+
+	log.Debugf("Trying to delete registry key value (%s)\n", name)
+	reqBuf, err := req.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	buffer, err := r.MakeIoCtlRequest(BaseRegDeleteValue, reqBuf)
+	if err != nil {
+		return
+	}
+	if len(buffer) < 4 {
+		err = fmt.Errorf("Response to BaseRegDeleteValue was too short")
+		log.Errorln(err)
+		return
+	}
+	returnCode := binary.LittleEndian.Uint32(buffer[:4])
+	if returnCode != ErrorSuccess {
+		if returnCode == ErrorFileNotFound {
+			err = fmt.Errorf("Registry value does not exist")
+		} else {
+			err = ReturnCodeMap[returnCode]
+			log.Errorln(err)
+		}
+		return
+	}
+	return
+}
+
 // Opnum 9
 func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 	req := BaseRegEnumKeyReq{
@@ -433,9 +474,6 @@ func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 		KeyName:   res.NameOut.S,
 		ClassName: res.ClassOut.S,
 	}
-	//info.ClassName = info.ClassName[:len(info.ClassName)-1] // Remove null byte
-	//info.KeyName = info.KeyName[:len(info.KeyName)-1]       // Remove null byte
-
 	return
 }
 
@@ -502,23 +540,28 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 		return
 	}
 
+	typeName, found := RegValueTypeMap[res.Type]
+	if !found {
+		typeName = "<Unknown>"
+	}
 	value = &ValueInfo{
 		Name:     res.NameOut.S,
 		Type:     res.Type,
+		TypeName: typeName,
 		ValueLen: res.DataLen,
 		Value:    res.Data,
 	}
 	return
 }
 
-func NewAce(sidStr string, mask uint32, aceType, aceFlags byte) (ace *ACE, err error) {
-	sid, err := convertStrToSID(sidStr)
+func NewAce(sidStr string, mask uint32, aceType, aceFlags byte) (ace *msdtyp.ACE, err error) {
+	sid, err := msdtyp.ConvertStrToSID(sidStr)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	return &ACE{
-		Header: ACEHeader{
+	return &msdtyp.ACE{
+		Header: msdtyp.ACEHeader{
 			Type:  aceType,
 			Flags: aceFlags,
 			Size:  uint16(sid.NumAuth*4 + 16),
@@ -528,14 +571,14 @@ func NewAce(sidStr string, mask uint32, aceType, aceFlags byte) (ace *ACE, err e
 	}, nil
 }
 
-func NewACL(acls []ACE) (acl *PACL) {
+func NewACL(acls []msdtyp.ACE) (acl *msdtyp.PACL) {
 	numAcls := len(acls)
 	aceSize := uint16(8)
 	for _, ace := range acls {
 		aceSize += ace.Header.Size
 	}
 
-	return &PACL{
+	return &msdtyp.PACL{
 		AclRevision: 2, // NT4
 		AclSize:     aceSize,
 		AceCount:    uint32(numAcls),
@@ -543,8 +586,8 @@ func NewACL(acls []ACE) (acl *PACL) {
 	}
 }
 
-func NewSecurityDescriptor(control uint16, owner, group *SID, dacl, sacl *PACL) (sd *SecurityDescriptor, err error) {
-	sd = &SecurityDescriptor{
+func NewSecurityDescriptor(control uint16, owner, group *msdtyp.SID, dacl, sacl *msdtyp.PACL) (sd *msdtyp.SecurityDescriptor, err error) {
+	sd = &msdtyp.SecurityDescriptor{
 		Revision: 1,
 		Control:  control,
 	}
@@ -561,13 +604,13 @@ func NewSecurityDescriptor(control uint16, owner, group *SID, dacl, sacl *PACL) 
 	}
 	if sacl != nil {
 		sd.Sacl = sacl
-		sd.Control |= SecurityDescriptorFlagSP
+		sd.Control |= msdtyp.SecurityDescriptorFlagSP
 		sd.OffsetSacl = offset
 		offset += uint32(sacl.AclSize)
 	}
 	if dacl != nil {
 		sd.Dacl = dacl
-		sd.Control |= SecurityDescriptorFlagDP
+		sd.Control |= msdtyp.SecurityDescriptorFlagDP
 		sd.OffsetDacl = offset
 	}
 
@@ -579,12 +622,14 @@ func (r *RPCCon) OpenSubKey(hKey []byte, subkey string) ([]byte, error) {
 }
 
 func (r *RPCCon) OpenSubKeyExt(hKey []byte, subkey string, opts, desiredAccess uint32) (handle []byte, err error) {
+	if desiredAccess == 0 {
+		desiredAccess = PermMaximumAllowed
+	}
 	req := BaseRegOpenKeyReq{
 		HKey:          hKey,
 		SubKey:        RRPUnicodeStr{MaxLength: uint16(len(subkey)), S: subkey},
 		Options:       opts,
 		DesiredAccess: desiredAccess,
-		//DesiredAccess: KeyEnumerateSubKeys|KeyQueryValue, // These permissions result in AccessDenied for certain keys
 	}
 
 	log.Debugf("Trying to open subkey (%s)\n", subkey)
@@ -609,7 +654,14 @@ func (r *RPCCon) OpenSubKeyExt(hKey []byte, subkey string, opts, desiredAccess u
 	}
 
 	if res.ReturnCode != ErrorSuccess {
-		err = ReturnCodeMap[res.ReturnCode]
+		status, found := ReturnCodeMap[res.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in BaseRegOpenKey response: 0x%x\n", res.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		return
 	}
 
 	handle = res.HKey
@@ -661,12 +713,71 @@ func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 	return
 }
 
-func (r *RPCCon) QueryValue(hKey []byte, name string) (result []byte, err error) {
+func (r *RPCCon) QueryValueExt(hKey []byte, name string) (result any, dataType uint32, err error) {
+	var data []byte
+	data, dataType, err = r.QueryValue2(hKey, name)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	switch dataType {
+	case RegNone:
+		result = data
+	case RegSz, RegExpandSz:
+		var s string
+		s, err = msdtyp.FromUnicodeString(data)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		// Optionally remove null terminator
+		if s[len(s)-1] == 0x00 {
+			s = s[:len(s)-1]
+		}
+		result = s
+		return
+	case RegBinary:
+		result = data
+	case RegDword:
+		if len(data) != 4 {
+			err = fmt.Errorf("Invalid length for DWORD type registry value")
+			log.Errorln(err)
+			return
+		}
+		result = binary.LittleEndian.Uint32(data)
+	case RegDwordBigEndian:
+		if len(data) != 4 {
+			err = fmt.Errorf("Invalid length for DWORD big endian type registry value")
+			log.Errorln(err)
+			return
+		}
+		result = binary.BigEndian.Uint32(data)
+	//case RegLink:
+	case RegMultiSz:
+		result, err = fromUnicodeStrArray(data)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	case RegQword:
+		if len(data) != 8 {
+			err = fmt.Errorf("Invalid length for QWORD type registry value")
+			log.Errorln(err)
+			return
+		}
+		result = binary.LittleEndian.Uint64(data)
+	default:
+		log.Errorf("Unknown type %d of registry value", dataType)
+		result = data
+	}
+	return
+}
 
+func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType uint32, err error) {
 	// If I send the parameter Data (lpData) as nil and the DataLen(lpcbData) and MaxSize(lpcbLen) to 0
 	// The server will respond with the size of the requested value in the lpcbData parameter.
 
-	name = nullTerminate(name)
+	name = msdtyp.NullTerminate(name)
 
 	req := BaseRegQueryValueReq{
 		HKey:      hKey,
@@ -720,51 +831,63 @@ func (r *RPCCon) QueryValue(hKey []byte, name string) (result []byte, err error)
 
 	if res.ReturnCode != ErrorSuccess {
 		err = ReturnCodeMap[res.ReturnCode]
+		if err == ReturnCodeMap[ErrorFileNotFound] {
+			if name == "" {
+				err = fmt.Errorf("Default value has not been defined")
+			} else {
+				err = fmt.Errorf("Provided name of registry key value not found")
+			}
+		}
+		log.Errorln(err)
+		return
 	}
 
-	return res.Data, nil
+	return res.Data, res.Type, nil
+}
+
+func (r *RPCCon) QueryValue(hKey []byte, name string) (result []byte, err error) {
+	result, _, err = r.QueryValue2(hKey, name)
+	return
 }
 
 func (r *RPCCon) QueryValueString(hKey []byte, name string) (result string, err error) {
-	data, err := r.QueryValue(hKey, name)
+	data, dataType, err := r.QueryValue2(hKey, name)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
+	if dataType != RegSz {
+		err = fmt.Errorf("Registry value is not of type string")
+		log.Errorln(err)
+		return
+	}
 
-	return FromUnicodeString(data[:len(data)-2])
+	// All strings in the registry should be null terminated
+	// but not necessarily Unicode so this could be problematic
+	return msdtyp.FromUnicodeString(data[:len(data)-2])
 }
 
 func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err error) {
-	adminSIDStr := "S-1-5-32-544"
+	var ownerSid *msdtyp.SID
+	var acl *msdtyp.PACL
 
-	// Restrict access to Local Administrators group.
+	// If owner is empty, use a default DACL and owner for the registry dump on disk
 	if owner != "" {
-		_, err = convertStrToSID(owner)
+		ownerSid, err = msdtyp.ConvertStrToSID(owner)
 		if err != nil {
-			log.Errorln("Invalid Owner SID. Falling back on using local administrators SID")
-			owner = adminSIDStr
+			log.Errorln(err)
+			return
 		}
-	} else {
-		owner = adminSIDStr
+		adminMask := PermGenericRead | PermGenericWrite | PermWriteDacl | PermDelete
+		var adminAce *msdtyp.ACE
+		adminAce, err = NewAce(owner, adminMask, msdtyp.AccessAllowedAceType, msdtyp.ContainerInheritAce)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		acl = NewACL([]msdtyp.ACE{*adminAce})
 	}
-	adminMask := PermGenericRead | PermGenericWrite | PermWriteDacl | PermDelete
-	aAce, err := NewAce(owner, adminMask, AccessAllowedAceType, ContainerInheritAce)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	ownerSid, err := convertStrToSID(owner)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	acl := NewACL([]ACE{*aAce})
-
-	// OwnerSid is not required. Without it it falls back to Local Administrators?
-	// Or perhaps to the user authenticated?
-	sd, err := NewSecurityDescriptor(SecurityDescriptorFlagSR, ownerSid, nil, acl, nil)
-	//sd, err := NewSecurityDescriptor(SecurityDescriptorFlagSR, nil, nil, acl, nil)
+	sd, err := NewSecurityDescriptor(msdtyp.SecurityDescriptorFlagSR, ownerSid, nil, acl, nil)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -809,14 +932,21 @@ func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err err
 	return
 }
 
-func (r *RPCCon) GetKeySecurity(hKey []byte) (sd *SecurityDescriptor, err error) {
+func (r *RPCCon) GetKeySecurity(hKey []byte) (sd *msdtyp.SecurityDescriptor, err error) {
+	return r.GetKeySecurityExt(hKey, OwnerSecurityInformation|GroupSecurityInformation|DACLSecurityInformation)
+}
+
+func (r *RPCCon) GetKeySecurityExt(hKey []byte, securityInformation uint32) (sd *msdtyp.SecurityDescriptor, err error) {
+	if securityInformation == 0 {
+		securityInformation = OwnerSecurityInformation
+	}
 
 	//TODO check if I can ask for size first and then send another request with that size
 	// Suggest a pretty big security descriptor like 4096 bytes, but check if server responds with error
 	// that the buffer was too small and if so, send another request with as big of a buffer as the server demands
 	req := BaseRegGetKeySecurityReq{
 		HKey:                hKey,
-		SecurityInformation: OwnerSecurityInformation | GroupSecurityInformation | DACLSecurityInformation,
+		SecurityInformation: securityInformation,
 		SecurityDescriptorIn: RpcSecurityDescriptor{
 			InSecurityDescriptor: 4096,
 		},
@@ -853,7 +983,7 @@ func (r *RPCCon) GetKeySecurity(hKey []byte) (sd *SecurityDescriptor, err error)
 	return
 }
 
-func (r *RPCCon) SetKeySecurity(hKey []byte, sd *SecurityDescriptor) (err error) {
+func (r *RPCCon) SetKeySecurity(hKey []byte, sd *msdtyp.SecurityDescriptor) (err error) {
 	req := BaseRegSetKeySecurityReq{
 		HKey: hKey,
 		SecurityDescriptorIn: RpcSecurityDescriptor{
@@ -905,12 +1035,17 @@ func (r *RPCCon) GetSubKeyNames(hKey []byte, subkey string) ([]string, error) {
 }
 
 func (r *RPCCon) GetSubKeyNamesExt(hKey []byte, subkey string, opts, desiredAccess uint32) (names []string, err error) {
-	hSubKey, err := r.OpenSubKeyExt(hKey, subkey, opts, desiredAccess)
-	if err != nil {
-		log.Errorln(err)
-		return
+	var hSubKey []byte
+	if subkey != "" {
+		hSubKey, err = r.OpenSubKeyExt(hKey, subkey, opts, desiredAccess)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		defer r.CloseKeyHandle(hSubKey)
+	} else {
+		hSubKey = hKey
 	}
-	defer r.CloseKeyHandle(hSubKey)
 	res, err := r.QueryKeyInfo(hSubKey)
 	if err != nil {
 		log.Errorln(err)
@@ -927,12 +1062,29 @@ func (r *RPCCon) GetSubKeyNamesExt(hKey []byte, subkey string, opts, desiredAcce
 		}
 
 		name := res2.KeyName
-
-		//names = append(names, subkey + "\\" + name[:len(name)-1]) //Skip trailing null byte
-		//names = append(names, subkey + "\\" + name)
 		names = append(names, name)
 	}
 
+	return
+}
+
+func (r *RPCCon) GetKeyValues(hKey []byte) (items []ValueInfo, err error) {
+	res, err := r.QueryKeyInfo(hKey)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	items = make([]ValueInfo, 0, res.Values)
+	for i := uint32(0); i < res.Values; i++ {
+		value, err := r.EnumValue(hKey, i)
+		if err != nil {
+			log.Errorln(err)
+			return nil, err
+		}
+		value.Name = value.Name[:len(value.Name)-1]
+		items = append(items, *value)
+	}
 	return
 }
 
@@ -953,5 +1105,94 @@ func (r *RPCCon) GetValueNames(hKey []byte) (names []string, err error) {
 		name := value.Name
 		names = append(names, name[:len(name)-1])
 	}
+	return
+}
+
+func (r *RPCCon) SetValue(hKey []byte, name string, value any, dataType uint32) (err error) {
+	name = msdtyp.NullTerminate(name)
+	var data []byte
+	switch dataType {
+	case RegSz:
+		s, ok := value.(string)
+		if !ok {
+			err = fmt.Errorf("Provided value is not of type string")
+			log.Errorln(err)
+			return
+		}
+		data = msdtyp.ToUnicode(msdtyp.NullTerminate(s))
+	//case RegExpandSz:
+	case RegBinary:
+		b, ok := value.([]byte)
+		if !ok {
+			err = fmt.Errorf("Provided value is not of type []byte")
+			log.Errorln(err)
+			return
+		}
+		data = b
+	case RegDword:
+		d, ok := value.(uint32)
+		if !ok {
+			err = fmt.Errorf("Provided value is not of type uint32")
+			log.Errorln(err)
+			return
+		}
+		data = make([]byte, 4)
+		binary.LittleEndian.PutUint32(data, d)
+	case RegDwordBigEndian:
+		d, ok := value.(uint32)
+		if !ok {
+			err = fmt.Errorf("Provided value is not of type uint32")
+			log.Errorln(err)
+			return
+		}
+		data = make([]byte, 4)
+		binary.BigEndian.PutUint32(data, d)
+	//case RegLink:
+	//case RegMultiSz:
+	case RegQword:
+		d, ok := value.(uint64)
+		if !ok {
+			err = fmt.Errorf("Provided value is not of type uint64")
+			log.Errorln(err)
+			return
+		}
+		data = make([]byte, 8)
+		binary.LittleEndian.PutUint64(data, d)
+	default:
+		err = fmt.Errorf("Unknown type %d of registry value", dataType)
+		log.Errorln(err)
+		return
+	}
+	req := BaseRegSetValueReq{
+		HKey:      hKey,
+		ValueName: RRPUnicodeStr{MaxLength: uint16(len(name)), S: name},
+		Type:      dataType,
+		Data:      data,
+	}
+
+	log.Debugf("Trying to Set the key value for (%s)\n", name)
+	reqBuf, err := req.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	buffer, err := r.MakeIoCtlRequest(BaseRegSetValue, reqBuf)
+	if err != nil {
+		return
+	}
+
+	if len(buffer) < 4 {
+		err = fmt.Errorf("Response to BaseRegSetValue was too short")
+		log.Errorln(err)
+		return
+	}
+	returnCode := binary.LittleEndian.Uint32(buffer[:4])
+	if returnCode != ErrorSuccess {
+		err = ReturnCodeMap[returnCode]
+		log.Errorln(err)
+		return
+	}
+
 	return
 }

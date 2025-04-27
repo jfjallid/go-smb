@@ -1616,7 +1616,17 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 	if h.Status == StatusEndOfFile {
 		return 0, io.EOF
 	} else if h.Status == FsctlStatusPipeDisconnected {
-		return 0, FsctlStatusMap[FsctlStatusPipeDisconnected]
+		return 0, StatusMap[FsctlStatusPipeDisconnected]
+	} else if h.Status > 0 {
+		status, found := StatusMap[h.Status]
+		if !found {
+			err = fmt.Errorf("Received unknown response code for Read Request: 0x%x\n", h.Status)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("Failed Read Request with error: %s\n", status)
+		err = status
+		return
 	}
 
 	var res ReadRes
@@ -1963,7 +1973,9 @@ func (s *Connection) WriteIoCtlReq(req *IoCtlReq) (res IoCtlRes, err error) {
 			log.Errorln(err)
 			return
 		}
-		return res, fmt.Errorf("IoCtlRequest failed with status: %s\n", status)
+		err = status
+		log.Errorf("IoCtlRequest failed with status: %s\n", status)
+		return
 	}
 
 	if err = encoder.Unmarshal(buf, &res); err != nil {

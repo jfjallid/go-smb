@@ -284,9 +284,24 @@ type SamrQueryInformationUser2Res struct {
 	ReturnCode uint32
 }
 
+// Opnum 50
+type SamrCreateUser2InDomainReq struct {
+	DomainHandle  []byte
+	Name          string // RPC_UNICODE_STRING
+	AccountType   uint32
+	DesiredAccess uint32
+}
+
+// Opnum 50
+type SamrCreateUser2InDomainRes struct {
+	UserHandle    []byte
+	GrantedAccess uint32
+	RelativeId    uint32
+	ReturnCode    uint32
+}
+
 // Opnum 55
 type SamrUnicodeChangePasswordUser2Req struct {
-	//BindingHandle           []byte
 	ServerName        string
 	UserName          string
 	NewPwEncWithOldNt []byte
@@ -725,6 +740,107 @@ func (self *SamrQueryInformationUser2Res) UnmarshalBinary(buf []byte) (err error
 
 	default:
 		err = fmt.Errorf("Unsupported InformationClass: %d", infoClass)
+		return
+	}
+
+	return
+}
+
+func (self *SamrCreateUser2InDomainReq) MarshalBinary() (res []byte, err error) {
+	log.Debugln("In MarshalBinary for SamrCreateUser2InDomainReq")
+
+	var ret []byte
+	w := bytes.NewBuffer(ret)
+	refId := uint32(1)
+
+	err = binary.Write(w, le, self.DomainHandle)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.Name, &refId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.AccountType)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.DesiredAccess)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
+}
+
+func (self *SamrCreateUser2InDomainReq) UnmarshalBinary(buf []byte) error {
+	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrCreateUser2InDomainReq")
+}
+
+func (self *SamrCreateUser2InDomainRes) MarshalBinary() ([]byte, error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrCreateUser2InDomainRes")
+}
+
+func (self *SamrCreateUser2InDomainRes) UnmarshalBinary(buf []byte) (err error) {
+	log.Debugln("In UnmarshalBinary for SamrCreateUser2InDomainRes")
+	if len(buf) < 28 {
+		return fmt.Errorf("Buffer to small for SamrCreateUser2InDomainRes")
+	}
+	r := bytes.NewReader(buf)
+
+	// Start with ReturnCode
+	_, err = r.Seek(-4, io.SeekEnd)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, le, &self.ReturnCode)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	if self.ReturnCode > 0 {
+		status, found := ResponseCodeMap[self.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown Samr return code for SamrCreateUser2InDomain response: 0x%x\n", self.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		log.Errorln(err)
+		return
+	}
+
+	_, err = r.Seek(0, io.SeekStart)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	self.UserHandle = make([]byte, 20)
+	err = binary.Read(r, le, &self.UserHandle)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, le, &self.GrantedAccess)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Read(r, le, &self.RelativeId)
+	if err != nil {
+		log.Errorln(err)
 		return
 	}
 
