@@ -1273,7 +1273,7 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 			log.Errorln(err)
 			return
 		}
-		log.Debugf("Failed to Create/open file for list directory with NT Status Error: %v\n", status)
+		log.Debugf("Failed to Create/Open file for list directory with NT Status Error: %v\n", status)
 		err = status
 		return
 	}

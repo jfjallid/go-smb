@@ -28,6 +28,6 @@ import (
 	"github.com/jfjallid/gokrb5/v8/config"
 )
 
-func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string) (c *client.Client, err error) {
+func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string, settings ...func(*client.Settings)) (c *client.Client, err error) {
 	return nil, fmt.Errorf("CCACHE files not implemented on Windows")
 }

@@ -26,8 +26,10 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/jfjallid/gofork/encoding/asn1"
+	"golang.org/x/net/proxy"
 
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/krb5ssp"
@@ -56,12 +58,17 @@ const (
 )
 
 type KRB5Initiator struct {
-	User     string
-	Password string
-	Hash     []byte
-	AESKey   []byte
-	Domain   string
-	DCIP     string
+	User        string
+	Password    string
+	Hash        []byte
+	AESKey      []byte
+	Domain      string
+	DCIP        string
+	DialTimout  time.Duration
+	ProxyDialer proxy.Dialer
+	DnsHost     string
+	DnsTCP      bool
+	Host        string
 
 	client *krb5ssp.Client
 	seqNum uint32
@@ -104,8 +111,23 @@ func (i *KRB5Initiator) initKerberosClient() error {
 			return err
 		}
 	}
+	if i.DialTimout.Seconds() < 0 {
+		err = fmt.Errorf("A DialTimeout cannot be a negative duration")
+		log.Errorln(err)
+		return err
+	}
+	if i.Domain == "" {
+		parts := strings.SplitN(i.Host, ".", 2)
+		if len(parts) < 2 {
+			err = fmt.Errorf("Must specify a host FQDN to initialize a Kerberos client")
+			log.Errorln(err)
+			fmt.Printf("host: %s, parts: %v\n", i.Host, parts)
+			return err
+		}
+		i.Domain = parts[1]
+	}
 
-	i.client, err = krb5ssp.InitKerberosClient(i.User, i.Domain, i.Password, i.Hash, i.AESKey, i.DCIP, i.SPN)
+	i.client, err = krb5ssp.InitKerberosClient(i.User, i.Domain, i.Password, i.Hash, i.AESKey, i.DCIP, i.SPN, i.DialTimout, i.ProxyDialer, i.DnsHost, i.DnsTCP)
 	return err
 }
 

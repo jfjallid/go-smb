@@ -74,11 +74,13 @@ const (
 	FsctlStatusInvalidPipeState      uint32 = 0xc00000ad //The named pipe is not in the connected state or not in the full-duplex message mode.
 	StatusPipeBusy                   uint32 = 0xc00000ae
 	FsctlStatusPipeDisconnected      uint32 = 0xc00000b0 //The specified named pipe is in the disconnected state.
+	StatusFileIsADirectory           uint32 = 0xc00000ba
 	StatusNotSupported               uint32 = 0xc00000bb
 	StatusNetworkNameDeleted         uint32 = 0xc00000c9
 	StatusBadNetworkName             uint32 = 0xc00000cc
 	FsctlStatusInvalidUserBuffer     uint32 = 0xc00000e8 //An exception was raised while accessing a user buffer.
 	StatusDirectoryNotEmpty          uint32 = 0xc0000101
+	StatusNotADirectory              uint32 = 0xc0000103
 	StatusCannotDelete               uint32 = 0xc0000121
 	FsctlStatusPipeBroken            uint32 = 0xc000014b // The pipe operation has failed because the other end of the pipe has been closed
 	StatusUserSessionDeleted         uint32 = 0xc0000203
@@ -113,10 +115,12 @@ var StatusMap = map[uint32]error{
 	StatusNetworkNameDeleted:         fmt.Errorf("Network name deleted"),
 	StatusBadNetworkName:             fmt.Errorf("Bad network name"),
 	StatusDirectoryNotEmpty:          fmt.Errorf("Directory is not empty"),
+	StatusNotADirectory:              fmt.Errorf("Not a directory!"),
 	StatusUserSessionDeleted:         fmt.Errorf("User session deleted"),
 	StatusPasswordMustChange:         fmt.Errorf("User is required to change password at next logon"),
 	StatusAccountLockedOut:           fmt.Errorf("User account has been locked!"),
 	StatusVirusInfected:              fmt.Errorf("The file contains a virus"),
+	StatusFileIsADirectory:           fmt.Errorf("File is a directory!"),
 	FsctlStatusPipeDisconnected:      fmt.Errorf("FSCTL_STATUS_PIPE_DISCONNECTED"),
 	FsctlStatusInvalidPipeState:      fmt.Errorf("FSCTL_STATUS_INVALID_PIPE_STATE"),
 	FsctlStatusInvalidUserBuffer:     fmt.Errorf("FSCTL_STATUS_INVALID_USER_BUFFER"),

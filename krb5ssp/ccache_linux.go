@@ -30,7 +30,7 @@ import (
 	"github.com/jfjallid/gokrb5/v8/credentials"
 )
 
-func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string) (c *client.Client, err error) {
+func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string, settings ...func(*client.Settings)) (c *client.Client, err error) {
 	cacheFile := os.Getenv("KRB5CCNAME")
 	if cacheFile != "" {
 		var cache *credentials.CCache
@@ -59,7 +59,7 @@ func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string)
 				log.Infof("Kerberos cache only contains credentials for the %s username, but not for %s as requested\n", cacheUser, username)
 				return
 			}
-			c, err = client.NewFromCCache(cache, strings.Split(spn, "/"), cfg, client.DisablePAFXFAST(true))
+			c, err = client.NewFromCCache(cache, strings.Split(spn, "/"), cfg, settings...)
 			if err != nil {
 				log.Errorln(err)
 				return

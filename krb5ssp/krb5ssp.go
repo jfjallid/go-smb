@@ -25,6 +25,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 	"github.com/jfjallid/gokrb5/v8/messages"
 	"github.com/jfjallid/gokrb5/v8/types"
 	"github.com/jfjallid/golog"
+	"golang.org/x/net/proxy"
 )
 
 var le = binary.LittleEndian
@@ -173,21 +175,22 @@ func (self *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func InitKerberosClient(username, domain, password string, hash, aesKey []byte, dcip, spn string) (c *Client, err error) {
+func InitKerberosClientExt(username, domain, password string, hash, aesKey []byte, spn string, timeout time.Duration, dialer proxy.Dialer, cfg *config.Config) (c *Client, err error) {
+	if cfg == nil {
+		err = fmt.Errorf("Must specify a config when using InitKerberosClientExt")
+		return
+	}
 	c = &Client{}
-	cfg := config.New()
-	cfg.LibDefaults.DNSLookupKDC = true
-	cfg.LibDefaults.DefaultRealm = strings.ToUpper(domain)
-	if dcip != "" {
-		cfg.Realms = []config.Realm{
-			config.Realm{
-				Realm: strings.ToUpper(domain),
-				KDC:   []string{dcip + ":88"},
-			},
-		}
+	settings := []func(*client.Settings){}
+	settings = append(settings, client.DisablePAFXFAST(true))
+	if dialer != nil {
+		settings = append(settings, client.SetProxyDialer(dialer))
+	}
+	if timeout > 0 {
+		settings = append(settings, client.SetDialTimout(timeout))
 	}
 
-	c.Client, err = getClientFromCachedTicket(cfg, username, domain, spn)
+	c.Client, err = getClientFromCachedTicket(cfg, username, strings.ToUpper(domain), spn, settings...)
 	if err != nil {
 		log.Errorln(err)
 		// Try other methods
@@ -196,13 +199,16 @@ func InitKerberosClient(username, domain, password string, hash, aesKey []byte, 
 
 	if c.Client == nil {
 		if aesKey != nil {
-			c.Client = client.NewWithKey(username, strings.ToUpper(domain), aesKey, cfg, client.DisablePAFXFAST(true))
+			c.Client = client.NewWithKey(username, strings.ToUpper(domain), aesKey, cfg, settings...)
+			//c.Client = client.NewWithKey(username, strings.ToUpper(domain), aesKey, cfg, client.DisablePAFXFAST(true))
 			log.Infoln("Used pass the key to create new kerberos client")
 		} else if hash != nil {
-			c.Client = client.NewWithHash(username, strings.ToUpper(domain), hash, cfg, client.DisablePAFXFAST(true))
+			c.Client = client.NewWithHash(username, strings.ToUpper(domain), hash, cfg, settings...)
+			//c.Client = client.NewWithHash(username, strings.ToUpper(domain), hash, cfg, client.DisablePAFXFAST(true))
 			log.Infoln("Used pass the hash to create new kerberos client")
 		} else if password != "" {
-			c.Client = client.NewWithPassword(username, strings.ToUpper(domain), password, cfg, client.DisablePAFXFAST(true))
+			c.Client = client.NewWithPassword(username, strings.ToUpper(domain), password, cfg, settings...)
+			//c.Client = client.NewWithPassword(username, strings.ToUpper(domain), password, cfg, client.DisablePAFXFAST(true))
 			log.Infoln("Used password to create new kerberos client")
 		} else {
 			return nil, fmt.Errorf("Cannot initialize a Kerberos client with an empty cache and without specifying either a password, hash or AES key")
@@ -219,6 +225,40 @@ func InitKerberosClient(username, domain, password string, hash, aesKey []byte, 
 	}
 
 	return
+}
+
+func InitKerberosClient(username, domain, password string, hash, aesKey []byte, dcip, spn string, timeout time.Duration, dialer proxy.Dialer, dnsHost string, dnsTCP bool) (c *Client, err error) {
+	cfg := config.New()
+	cfg.LibDefaults.DNSLookupKDC = true
+	cfg.LibDefaults.DefaultRealm = strings.ToUpper(domain)
+	cfg.Realms = []config.Realm{
+		config.Realm{
+			Realm: strings.ToUpper(domain),
+		},
+	}
+	if dcip != "" {
+		cfg.Realms[0].KDC = []string{dcip + ":88"}
+	} else {
+		cfg.Realms[0].KDC = []string{domain + ":88"}
+	}
+	if dialer != nil {
+		// Force TCP communication with KDC when using socks proxy
+		cfg.LibDefaults.UDPPreferenceLimit = 1
+		if dnsHost != "" {
+			cfg.SetDNSResolver(dialer.(proxy.ContextDialer), dnsHost, "tcp")
+		}
+	} else {
+		protocol := "udp"
+		if dnsTCP {
+			protocol = "tcp"
+			cfg.LibDefaults.UDPPreferenceLimit = 1
+		}
+		if dnsHost != "" {
+			cfg.SetDNSResolver(&net.Dialer{Timeout: timeout}, dnsHost, protocol)
+		}
+	}
+
+	return InitKerberosClientExt(username, domain, password, hash, aesKey, spn, timeout, dialer, cfg)
 }
 
 // Context of the Authenticator checksum is decribed in RFC1964 Section 1.1.1
