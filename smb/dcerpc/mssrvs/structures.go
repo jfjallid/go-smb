@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/go-smb/smb/dcerpc"
+	"github.com/jfjallid/ndr"
 	"io"
 )
 
@@ -227,6 +228,38 @@ type NetServerGetInfoRequest struct {
 type NetServerGetInfoResponse struct {
 	Info         *NetServerInfo
 	WindowsError uint32
+}
+
+type AdtSecurityDescriptor struct {
+	Length uint32
+	Buffer []byte `ndr:"pointer,conformant"`
+}
+
+//typedef struct _ADT_SECURITY_DESCRIPTOR {
+//DWORD Length;
+//[size_is(Length)] unsigned char* Buffer;
+//} ADT_SECURITY_DESCRIPTOR,
+//*PADT_SECURITY_DESCRIPTOR;
+
+// MS-SRVS Opnum 39
+type NetrpGetFileSecurityReq struct {
+	ServerName           string `ndr:"toppointer,fullpointer,conformant,varying"`
+	ShareName            string `ndr:"toppointer,fullpointer,conformant,varying"`
+	FileName             string `ndr:"toppointer,conformant,varying"`
+	RequestedInformation uint32
+}
+
+// DWORD NetrpGetFileSecurity(
+// [in, string, unique] SRVSVC_HANDLE ServerName,
+// [in, string, unique] WCHAR* ShareName,
+// [in, string] WCHAR* lpFileName,
+// [in] SECURITY_INFORMATION RequestedInformation,
+// [out] PADT_SECURITY_DESCRIPTOR* SecurityDescriptor
+// );
+// MS-SRVS Opnum 39
+type NetrpGetFileSecurityRes struct {
+	SecurityDescriptor AdtSecurityDescriptor `ndr:"toppointer,fullpointer"`
+	WindowsError       uint32
 }
 
 func (self *NetServerGetInfoRequest) MarshalBinary() ([]byte, error) {
@@ -967,4 +1000,42 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 
 	err = binary.Read(r, le, &self.WindowsError)
 	return nil
+}
+
+func (self *NetrpGetFileSecurityReq) Marshal() (b []byte, err error) {
+	enc := ndr.NewEncoder(bytes.NewBuffer(([]byte{})), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err = enc.Encode(self)
+	if err != nil {
+		err = fmt.Errorf("error marshaling NetrpGetFileSecurityReq: %v", err)
+	}
+	return
+}
+
+func (self *NetrpGetFileSecurityReq) Unmarshal(b []byte) (err error) {
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	err = dec.Decode(self)
+	if err != nil {
+		err = fmt.Errorf("error unmarshaling NetrpGetFileSecurityReq: %v", err)
+	}
+	return
+}
+
+func (self *NetrpGetFileSecurityRes) Marshal() (b []byte, err error) {
+	enc := ndr.NewEncoder(bytes.NewBuffer(([]byte{})), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err = enc.Encode(self)
+	if err != nil {
+		err = fmt.Errorf("error marshaling NetrpGetFileSecurityRes: %v", err)
+	}
+	return
+}
+
+func (self *NetrpGetFileSecurityRes) Unmarshal(b []byte) (err error) {
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	err = dec.Decode(self)
+	if err != nil {
+		err = fmt.Errorf("error unmarshaling NetrpGetFileSecurityRes: %v", err)
+	}
+	return
 }

@@ -54,9 +54,10 @@ const (
 
 // MSRPC Server Service (srvsvc) Operations
 const (
-	SrvSvcOpNetrSessionEnum  uint16 = 12
-	SrvSvcOpNetShareEnumAll  uint16 = 15
-	SrvSvcOpNetServerGetInfo uint16 = 21
+	SrvSvcOpNetrSessionEnum      uint16 = 12
+	SrvSvcOpNetShareEnumAll      uint16 = 15
+	SrvSvcOpNetServerGetInfo     uint16 = 21
+	SrvSvcOpNetrpGetFileSecurity uint16 = 39
 )
 
 const (
@@ -578,4 +579,56 @@ func (self *NetShareEnumAllResponse) UnmarshalBinary(buf []byte) (err error) {
 	}
 
 	return nil
+}
+
+func (sb *RPCCon) NetGetFileSecurity(share, path string) (sd *msdtyp.SecurityDescriptor, err error) {
+	log.Debugln("In NetGetFileSecurity")
+	// TODO Validate path
+	netReq := NetrpGetFileSecurityReq{
+		ServerName:           "100.100.100.52",
+		ShareName:            share,
+		FileName:             path,
+		RequestedInformation: 0x4, // DACL Security Information
+
+	}
+	netBuf, err := netReq.Marshal()
+	if err != nil {
+		return
+	}
+
+	buffer, err := sb.MakeIoCtlRequest(SrvSvcOpNetrpGetFileSecurity, netBuf)
+	if err != nil {
+		return
+	}
+
+	if len(buffer) < 8 {
+		return nil, fmt.Errorf("Server response to NetGetFileSecurity was too small. Expected at atleast 8 bytes")
+	}
+	var response NetrpGetFileSecurityRes
+	err = response.Unmarshal(buffer)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	if response.WindowsError != 0 {
+		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
+		if !found {
+			err = fmt.Errorf("NetGetFileSecurity returned unknown error code: 0x%x\n", response.WindowsError)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("NetGetFileSecurity return error: %v\n", responseCode)
+		return nil, responseCode
+	}
+	var secInfo msdtyp.SecurityDescriptor
+	if response.SecurityDescriptor.Length > 0 {
+		err = secInfo.UnmarshalBinary(response.SecurityDescriptor.Buffer)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		sd = &secInfo
+	}
+
+	return
 }
