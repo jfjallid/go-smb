@@ -978,8 +978,8 @@ func (sb *RPCCon) SamrGetMembersInAlias(aliasHandle *SamrHandle) (members []msdt
 		return
 	}
 
-	if len(buffer) < 20 {
-		return nil, fmt.Errorf("Server response to SamrGetMembersInAlias was too small. Expected at atleast 20 bytes")
+	if len(buffer) < 12 {
+		return nil, fmt.Errorf("Server response to SamrGetMembersInAlias was too small. Expected at atleast 12 bytes")
 	}
 
 	var resp SamrGetMembersInAliasRes

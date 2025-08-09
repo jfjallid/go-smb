@@ -2057,7 +2057,7 @@ func (self *SamrGetMembersInAliasRes) MarshalBinary() ([]byte, error) {
 
 func (self *SamrGetMembersInAliasRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrGetMembersInAliasRes")
-	if len(buf) < 20 {
+	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for SamrGetMembersInAliasRes")
 	}
 	r := bytes.NewReader(buf)
