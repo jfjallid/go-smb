@@ -1807,8 +1807,15 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			ContextType: SigningCapabilities,
 			Data:        scBuf,
 			DataLength:  uint16(len(scBuf)),
-			Padd:        make([]byte, (8-(len(scBuf)%8))%8),
+			//Padd:        make([]byte, (8-(len(scBuf)%8))%8), // Padding not needed for the last item in the list.
 		}
+		/*
+		TODO When rewriting the marshalling, move padding to before instead ot after each context based on alignment.
+		The first negotiate context in the list MUST appear at the byte offset
+		indicated by the SMB2 NEGOTIATE request's NegotiateContextOffset field.
+		Subsequent negotiate contexts MUST appear at the first 8-byte-aligned
+		offset following the previous negotiate context.
+		*/
 		req.ContextList = append(req.ContextList, n)
 
 		req.NegotiateContextCount = uint16(len(req.ContextList))
