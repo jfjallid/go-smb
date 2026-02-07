@@ -38,7 +38,6 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/jfjallid/go-smb/smb"
 	"github.com/jfjallid/golog"
 )
 
@@ -46,7 +45,7 @@ var (
 	MSRPCUuidNdr                  = "8a885d04-1ceb-11c9-9fe8-08002b104860" // NDR Transfer Syntax version 2.0
 	re           regexp.Regexp    = *regexp.MustCompile(`([\dA-Fa-f]{8})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})([\dA-Fa-f]{8})`)
 	le           binary.ByteOrder = binary.LittleEndian
-	log                           = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc")
+	log                           = golog.Get("github.com/jfjallid/go-smb/dcerpc")
 )
 
 const (
@@ -64,13 +63,36 @@ var responseCodeMap = map[uint32]error{
 // MSRPC Packet header common fields
 const PDUHeaderCommonSize int = 16
 
+// MSRPC Request header size (header + AllocHint + ContextId + Opnum)
+const RequestHeaderSize int = 24
+
 // MSRPC Packet Types
 const (
-	PacketTypeRequest  uint8 = 0
-	PacketTypeResponse uint8 = 2
-	PacketTypeFault    uint8 = 3
-	PacketTypeBind     uint8 = 11
-	PacketTypeBindAck  uint8 = 12
+	PacketTypeRequest          uint8 = 0
+	PacketTypeResponse         uint8 = 2
+	PacketTypeFault            uint8 = 3
+	PacketTypeBind             uint8 = 11
+	PacketTypeBindAck          uint8 = 12
+	PacketTypeAlterContext     uint8 = 14
+	PacketTypeAlterContextResp uint8 = 15
+	PacketTypeAuth3            uint8 = 16
+)
+
+// Auth types (MS-RPCE 2.2.1.1.7)
+const (
+	RpcAuthnNone        uint8 = 0x00
+	RpcAuthnWinnt       uint8 = 0x0A // NTLMSSP
+	RpcAuthnGssKerberos uint8 = 0x10 // Kerberos
+)
+
+// Auth levels (MS-RPCE 2.2.1.1.8)
+const (
+	RpcAuthnLevelNone         uint8 = 1
+	RpcAuthnLevelConnect      uint8 = 2
+	RpcAuthnLevelCall         uint8 = 3
+	RpcAuthnLevelPkt          uint8 = 4
+	RpcAuthnLevelPktIntegrity uint8 = 5
+	RpcAuthnLevelPktPrivacy   uint8 = 6
 )
 
 // C706 Section 12.6.3.1 PFC Flags
@@ -103,6 +125,30 @@ const (
 	proposedTransferSyntaxNotSupported                       // 2
 	localLimitExceeded                                       // 3
 )
+
+// DCERPCTransport abstracts the underlying transport for DCERPC PDUs.
+type DCERPCTransport interface {
+	// Transceive sends a complete DCERPC PDU and returns the first response PDU.
+	// For SMB: maps to FsctlPipeTransceive (atomic send+receive).
+	// For TCP: writes PDU then reads response.
+	Transceive(pdu []byte) ([]byte, error)
+
+	// Write sends a DCERPC PDU without waiting for a response.
+	// Used for send-side fragmentation (non-last fragments) and Auth3.
+	// For SMB: maps to WriteFile on the named pipe.
+	// For TCP: writes PDU to socket.
+	Write(pdu []byte) error
+
+	// Read reads the next DCERPC PDU fragment from the transport.
+	// Used for continuation fragments after the first Transceive response.
+	// For SMB: maps to ReadFile on the named pipe.
+	// For TCP: reads a complete PDU (header + body based on FragLength).
+	Read(maxSize uint16) ([]byte, error)
+
+	// GetSessionKey returns the session key for upper-layer encryption
+	// (e.g., MS-LSAD DES secret encryption, MS-SAMR RC4 password encryption).
+	GetSessionKey() []byte
+}
 
 func newHeader() Header {
 	return Header{
@@ -229,14 +275,10 @@ func newRequestReq(callId uint32, op uint16) (*RequestReq, error) {
 	}, nil
 }
 
-func Bind(f *smb.File, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string) (bind *ServiceBind, err error) {
+func Bind(transport DCERPCTransport, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string) (bind *ServiceBind, err error) {
 	log.Debugln("In Bind")
-	// Sanity check
-	if f == nil {
-		return nil, fmt.Errorf("File argument cannot be nil")
-	}
-	if !f.IsOpen() {
-		return nil, fmt.Errorf("File must be opened before calling Bind")
+	if transport == nil {
+		return nil, fmt.Errorf("Transport argument cannot be nil")
 	}
 	callId := atomic.Uint32{}
 	maxFragRxSize := uint16(4280)
@@ -251,18 +293,13 @@ func Bind(f *smb.File, interface_uuid string, majorVersion, minorVersion uint16,
 		return
 	}
 
-	ioCtlReq, err := f.NewIoCTLReq(smb.FsctlPipeTransceive, buf)
-	if err != nil {
-		return
-	}
-
-	ioCtlRes, err := f.WriteIoCtlReq(ioCtlReq)
+	response, err := transport.Transceive(buf)
 	if err != nil {
 		return
 	}
 
 	var bindRes BindRes
-	err = bindRes.UnmarshalBinary(ioCtlRes.Buffer)
+	err = bindRes.UnmarshalBinary(response)
 	if err != nil {
 		return
 	}
@@ -297,78 +334,134 @@ func Bind(f *smb.File, interface_uuid string, majorVersion, minorVersion uint16,
 
 	return &ServiceBind{
 		callId:              &callId,
-		f:                   f,
+		transport:           transport,
 		maxFragReceiveSize:  bindRes.MaxSendFragSize,
 		maxFragTransmitSize: bindRes.MaxRecvFragSize,
 	}, nil
 }
 
 func (sb *ServiceBind) GetSessionKey() (sessionKey []byte) {
-	return sb.f.GetSessionKey()
+	return sb.transport.GetSessionKey()
 }
 
-func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result []byte, err error) {
+func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byte, err error) {
 	callId := sb.callId.Add(1)
-	fragmentedResponse := false
+	totalPayloadLen := len(innerBuf)
+	maxStub := int(sb.maxFragTransmitSize) - RequestHeaderSize
+	if maxStub <= 0 {
+		maxStub = totalPayloadLen
+	}
 
-	for {
-		var resHeader Header
-		var responseBuffer []byte
-		if !fragmentedResponse {
-			var req *RequestReq
-			req, err = newRequestReq(callId, opcode)
-			if err != nil {
-				log.Errorln(err)
-				return
-			}
+	// Determine if we need send-side fragmentation
+	needsSendFragmentation := totalPayloadLen > maxStub
 
-			req.Buffer = make([]byte, len(innerBuf))
-			copy(req.Buffer, innerBuf)
-			req.FragLength = uint16(len(innerBuf) + 24) // Includes header size
-
-			// Encode DCERPC Request
-			var buf []byte
-			buf, err = req.MarshalBinary()
-			if err != nil {
-				log.Errorln(err)
-				return
-			}
-
-			var ioCtlReq *smb.IoCtlReq
-			ioCtlReq, err = sb.f.NewIoCTLReq(smb.FsctlPipeTransceive, buf)
-			if err != nil {
-				log.Errorln(err)
-				return
-			}
-
-			//NOTE Might be a problem with exceeding a max payload size of 65536 for
-			// servers that do not support multi-credit requests
-			var ioCtlRes smb.IoCtlRes
-			// Send DCERPC request inside SMB IoCTL Request
-			ioCtlRes, err = sb.f.WriteIoCtlReq(ioCtlReq)
-			if err != nil {
-				log.Errorln(err)
-				return
-			}
-			responseBuffer = ioCtlRes.Buffer
-		} else {
-			var n int
-			responseBuffer = make([]byte, sb.maxFragReceiveSize+16) // 16 bytes overhead of read request
-			n, err = sb.f.ReadFile(responseBuffer, 0)
-			if err != nil {
-				log.Errorln(err)
-				return
-			}
-			responseBuffer = responseBuffer[:n]
+	if !needsSendFragmentation {
+		// Single fragment: send via Transceive and get response
+		var req *RequestReq
+		req, err = newRequestReq(callId, opcode)
+		if err != nil {
+			log.Errorln(err)
+			return
 		}
 
+		req.Buffer = make([]byte, len(innerBuf))
+		copy(req.Buffer, innerBuf)
+		req.AllocHint = uint32(totalPayloadLen)
+		req.FragLength = uint16(len(innerBuf) + RequestHeaderSize)
+
+		var buf []byte
+		buf, err = req.MarshalBinary()
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+
+		var responseBuffer []byte
+		responseBuffer, err = sb.transport.Transceive(buf)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+
+		// Process response (may be fragmented on the receive side)
+		return sb.processResponse(callId, responseBuffer)
+	}
+
+	// Send-side fragmentation: split payload into multiple fragments
+	offset := 0
+	firstFrag := true
+	for offset < totalPayloadLen {
+		remaining := totalPayloadLen - offset
+		chunkSize := maxStub
+		if chunkSize > remaining {
+			chunkSize = remaining
+		}
+		lastFrag := (offset + chunkSize) >= totalPayloadLen
+
+		var req *RequestReq
+		req, err = newRequestReq(callId, opcode)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+
+		req.Buffer = make([]byte, chunkSize)
+		copy(req.Buffer, innerBuf[offset:offset+chunkSize])
+		req.AllocHint = uint32(totalPayloadLen)
+		req.FragLength = uint16(chunkSize + RequestHeaderSize)
+
+		// Set fragmentation flags
+		req.Flags = 0
+		if firstFrag {
+			req.Flags |= PfcFirstFrag
+		}
+		if lastFrag {
+			req.Flags |= PfcLastFrag
+		}
+
+		var buf []byte
+		buf, err = req.MarshalBinary()
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+
+		if lastFrag {
+			// Last fragment: use Transceive to get response
+			var responseBuffer []byte
+			responseBuffer, err = sb.transport.Transceive(buf)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			return sb.processResponse(callId, responseBuffer)
+		}
+
+		// Non-last fragment: use Write (no response expected)
+		err = sb.transport.Write(buf)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+
+		offset += chunkSize
+		firstFrag = false
+	}
+
+	return
+}
+
+// processResponse handles the receive-side reassembly of a DCERPC response,
+// which may arrive as multiple fragments.
+func (sb *ServiceBind) processResponse(callId uint32, responseBuffer []byte) (result []byte, err error) {
+	for {
 		if len(responseBuffer) < PDUHeaderCommonSize {
 			err = fmt.Errorf("Read/IoCtl response on DCERPC fragment was smaller than the DCERPC header size")
 			log.Errorln(err)
 			return
 		}
 
-		// Unmarshal DCERPC Request response
+		var resHeader Header
 		err = resHeader.UnmarshalBinary(responseBuffer[:PDUHeaderCommonSize])
 		if err != nil {
 			log.Errorln(err)
@@ -422,8 +515,12 @@ func (sb *ServiceBind) MakeIoCtlRequest(opcode uint16, innerBuf []byte) (result 
 			break
 		}
 
-		fragmentedResponse = true
-		// Request the next fragment
+		// Read the next response fragment
+		responseBuffer, err = sb.transport.Read(sb.maxFragReceiveSize)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
 	}
 
 	return

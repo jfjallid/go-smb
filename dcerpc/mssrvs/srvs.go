@@ -36,12 +36,12 @@ import (
 	"io"
 
 	"github.com/jfjallid/go-smb/msdtyp"
-	"github.com/jfjallid/go-smb/smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc"
 	"github.com/jfjallid/golog"
 )
 
 var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc/mssrvs")
+	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/mssrvs")
 	le  binary.ByteOrder = binary.LittleEndian
 )
 
@@ -180,7 +180,7 @@ func (sb *RPCCon) NetSessionEnum(clientName, username string, level int) (res *S
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SrvSvcOpNetrSessionEnum, netBuf)
+	buffer, err := sb.MakeRequest(SrvSvcOpNetrSessionEnum, netBuf)
 	if err != nil {
 		return
 	}
@@ -239,7 +239,7 @@ func (sb *RPCCon) NetServerGetInfo(host string, level int) (res *NetServerInfo, 
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SrvSvcOpNetServerGetInfo, netBuf)
+	buffer, err := sb.MakeRequest(SrvSvcOpNetServerGetInfo, netBuf)
 	if err != nil {
 		return
 	}
@@ -283,7 +283,7 @@ func (sb *RPCCon) NetShareEnumAll(host string) (res []NetShare, err error) {
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SrvSvcOpNetShareEnumAll, netBuf)
+	buffer, err := sb.MakeRequest(SrvSvcOpNetShareEnumAll, netBuf)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -596,7 +596,7 @@ func (sb *RPCCon) NetGetFileSecurity(share, path string) (sd *msdtyp.SecurityDes
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SrvSvcOpNetrpGetFileSecurity, netBuf)
+	buffer, err := sb.MakeRequest(SrvSvcOpNetrpGetFileSecurity, netBuf)
 	if err != nil {
 		return
 	}

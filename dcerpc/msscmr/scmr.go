@@ -29,12 +29,12 @@ import (
 	"strings"
 
 	"github.com/jfjallid/go-smb/msdtyp"
-	"github.com/jfjallid/go-smb/smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc"
 	"github.com/jfjallid/golog"
 )
 
 var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc/msscmr")
+	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/msscmr")
 	le  binary.ByteOrder = binary.LittleEndian
 )
 
@@ -376,7 +376,7 @@ func (sb *RPCCon) openSCManager(desiredAccess uint32) (handle []byte, err error)
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlROpenSCManagerW, scBuf)
+	buffer, err := sb.MakeRequest(SvcCtlROpenSCManagerW, scBuf)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -417,7 +417,7 @@ func (sb *RPCCon) openService(scHandle []byte, serviceName string, desiredAccess
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlROpenServiceW, serviceBuf)
+	buffer, err := sb.MakeRequest(SvcCtlROpenServiceW, serviceBuf)
 	if err != nil {
 		return
 	}
@@ -463,7 +463,7 @@ func (sb *RPCCon) GetServiceStatus(serviceName string) (status uint32, err error
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlRQueryServiceStatus, ssBuf)
+	buffer, err := sb.MakeRequest(SvcCtlRQueryServiceStatus, ssBuf)
 	if err != nil {
 		return
 	}
@@ -516,7 +516,7 @@ func (sb *RPCCon) StartService(serviceName string, args []string) (err error) {
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlRStartServiceW, ssBuf)
+	buffer, err := sb.MakeRequest(SvcCtlRStartServiceW, ssBuf)
 	if err != nil {
 		return
 	}
@@ -557,7 +557,7 @@ func (sb *RPCCon) ControlService(serviceName string, control uint32) (err error)
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlRControlService, csBuf)
+	buffer, err := sb.MakeRequest(SvcCtlRControlService, csBuf)
 	if err != nil {
 		return
 	}
@@ -606,7 +606,7 @@ func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, er
 	}
 
 	// Make request to figure out buffer size
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlRQueryServiceConfigW, innerBuf)
+	buffer, err := sb.MakeRequest(SvcCtlRQueryServiceConfigW, innerBuf)
 	if err != nil {
 		return
 	}
@@ -635,7 +635,7 @@ func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, er
 		return
 	}
 
-	buffer, err = sb.MakeIoCtlRequest(SvcCtlRQueryServiceConfigW, innerBuf2)
+	buffer, err = sb.MakeRequest(SvcCtlRQueryServiceConfigW, innerBuf2)
 	if err != nil {
 		return
 	}
@@ -684,7 +684,7 @@ func (sb *RPCCon) GetServiceConfig2(serviceName string, infoLevel uint32) (resul
 	}
 
 	// Make request to figure out buffer size
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlRQueryServiceConfig2W, innerBuf)
+	buffer, err := sb.MakeRequest(SvcCtlRQueryServiceConfig2W, innerBuf)
 	if err != nil {
 		return
 	}
@@ -713,7 +713,7 @@ func (sb *RPCCon) GetServiceConfig2(serviceName string, infoLevel uint32) (resul
 		return
 	}
 
-	buffer, err = sb.MakeIoCtlRequest(SvcCtlRQueryServiceConfig2W, innerBuf2)
+	buffer, err = sb.MakeRequest(SvcCtlRQueryServiceConfig2W, innerBuf2)
 	if err != nil {
 		return
 	}
@@ -796,7 +796,7 @@ func (sb *RPCCon) ChangeServiceConfig(
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlRChangeServiceConfigW, innerBuf)
+	buffer, err := sb.MakeRequest(SvcCtlRChangeServiceConfigW, innerBuf)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -845,7 +845,7 @@ func (sb *RPCCon) ChangeServiceConfig2(serviceName string, info *ConfigInfoW) (e
 	}
 
 	// Make request to figure out buffer size
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlRChangeServiceConfig2W, innerBuf)
+	buffer, err := sb.MakeRequest(SvcCtlRChangeServiceConfig2W, innerBuf)
 	if err != nil {
 		return
 	}
@@ -916,7 +916,7 @@ func (sb *RPCCon) CreateService(
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlRCreateServiceW, innerBuf)
+	buffer, err := sb.MakeRequest(SvcCtlRCreateServiceW, innerBuf)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -951,7 +951,7 @@ func (sb *RPCCon) CreateService(
 			return err2
 		}
 
-		buffer, err2 := sb.MakeIoCtlRequest(SvcCtlRStartServiceW, ssBuf)
+		buffer, err2 := sb.MakeRequest(SvcCtlRStartServiceW, ssBuf)
 		if err != nil {
 			return err2
 		}
@@ -993,7 +993,7 @@ func (sb *RPCCon) DeleteService(serviceName string) (err error) {
 		return
 	}
 
-	_, err = sb.MakeIoCtlRequest(SvcCtlRControlService, csBuf)
+	_, err = sb.MakeRequest(SvcCtlRControlService, csBuf)
 	if err != nil {
 		log.Errorln(err)
 		// Continue with deletion even if stop failed for some reason
@@ -1008,7 +1008,7 @@ func (sb *RPCCon) DeleteService(serviceName string) (err error) {
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlRDeleteService, innerBuf)
+	buffer, err := sb.MakeRequest(SvcCtlRDeleteService, innerBuf)
 	if err != nil {
 		return
 	}
@@ -1058,7 +1058,7 @@ func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result [
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlREnumServicesStatusW, enumSSBuf)
+	buffer, err := sb.MakeRequest(SvcCtlREnumServicesStatusW, enumSSBuf)
 	if err != nil {
 		log.Errorf("Failed to EnumServicesStatus with error: %v\n", err)
 		return
@@ -1092,7 +1092,7 @@ func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result [
 	}
 
 	log.Debugln("Attempting to list all services")
-	buffer, err = sb.MakeIoCtlRequest(SvcCtlREnumServicesStatusW, enumSSBuf)
+	buffer, err = sb.MakeRequest(SvcCtlREnumServicesStatusW, enumSSBuf)
 	if err != nil {
 		log.Errorf("Failed to EnumServicesStatus with error: %v\n", err)
 		return
@@ -1133,7 +1133,7 @@ func (sb *RPCCon) CloseServiceHandle(serviceHandle []byte) {
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SvcCtlRCloseServiceHandle, closeBuf)
+	buffer, err := sb.MakeRequest(SvcCtlRCloseServiceHandle, closeBuf)
 	if err != nil {
 		log.Errorf("Failed to close service handle with error: %v\n", err)
 		return

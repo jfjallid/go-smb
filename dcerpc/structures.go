@@ -35,24 +35,92 @@ import (
 	"fmt"
 	"io"
 	"sync/atomic"
-
-	"github.com/jfjallid/go-smb/smb"
 )
-
-// Unused
-//type RPCClient interface {
-//	Bind(interface_uuid, transfer_uuid string) (bool, error)
-//	//Write()
-//}
 
 type ServiceBind struct {
 	// callId always contains the last used value, so call Add(1) first
-	callId *atomic.Uint32 // Use it with callId.Add(1)
-	f      *smb.File
-	// Currently unused, but should probably be respected at some point
-	maxFragTransmitSize uint16 // Max size of fragment the server accepts
-	// Currently unused, but should probably be validated at some point
-	maxFragReceiveSize uint16 // Max size of fragment server should send
+	callId    *atomic.Uint32 // Use it with callId.Add(1)
+	transport DCERPCTransport
+	// Max size of fragment the server accepts
+	maxFragTransmitSize uint16
+	// Max size of fragment server should send
+	maxFragReceiveSize uint16
+}
+
+// AuthVerifier represents the auth_verifier structure appended to DCERPC PDUs
+// when authentication is used (MS-RPCE 2.2.2.11).
+type AuthVerifier struct {
+	AuthType      uint8
+	AuthLevel     uint8
+	AuthPadLength uint8
+	AuthReserved  uint8  // Must be 0
+	AuthContextId uint32
+	AuthValue     []byte
+}
+
+func (self *AuthVerifier) MarshalBinary() (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+	err = binary.Write(w, le, self.AuthType)
+	if err != nil {
+		return
+	}
+	err = binary.Write(w, le, self.AuthLevel)
+	if err != nil {
+		return
+	}
+	err = binary.Write(w, le, self.AuthPadLength)
+	if err != nil {
+		return
+	}
+	err = binary.Write(w, le, self.AuthReserved)
+	if err != nil {
+		return
+	}
+	err = binary.Write(w, le, self.AuthContextId)
+	if err != nil {
+		return
+	}
+	_, err = w.Write(self.AuthValue)
+	if err != nil {
+		return
+	}
+	return w.Bytes(), nil
+}
+
+func (self *AuthVerifier) UnmarshalBinary(buf []byte) (err error) {
+	if len(buf) < 8 {
+		return fmt.Errorf("Buffer is too small to unmarshal AuthVerifier")
+	}
+	r := bytes.NewReader(buf)
+	err = binary.Read(r, le, &self.AuthType)
+	if err != nil {
+		return
+	}
+	err = binary.Read(r, le, &self.AuthLevel)
+	if err != nil {
+		return
+	}
+	err = binary.Read(r, le, &self.AuthPadLength)
+	if err != nil {
+		return
+	}
+	err = binary.Read(r, le, &self.AuthReserved)
+	if err != nil {
+		return
+	}
+	err = binary.Read(r, le, &self.AuthContextId)
+	if err != nil {
+		return
+	}
+	remaining := len(buf) - 8
+	if remaining > 0 {
+		self.AuthValue = make([]byte, remaining)
+		_, err = r.Read(self.AuthValue)
+		if err != nil {
+			return
+		}
+	}
+	return
 }
 
 // Defined in C706 (DCE 1.1: Remote Procedure Call) section 12.6.3.1 as "common fields"
@@ -620,7 +688,7 @@ func (self *RequestReq) MarshalBinary() (ret []byte, err error) {
 		return
 	}
 
-	err = binary.Write(w, le, uint32(len(self.Buffer))) // AllocHint
+	err = binary.Write(w, le, self.AllocHint)
 	if err != nil {
 		log.Errorln(err)
 		return

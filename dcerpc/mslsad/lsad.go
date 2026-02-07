@@ -28,12 +28,12 @@ import (
 	"strings"
 
 	"github.com/jfjallid/go-smb/msdtyp"
-	"github.com/jfjallid/go-smb/smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc"
 	"github.com/jfjallid/golog"
 )
 
 var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc/mslsad")
+	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/mslsad")
 	le  binary.ByteOrder = binary.LittleEndian
 )
 
@@ -165,7 +165,7 @@ func (sb *RPCCon) LsarCloseHandle(handle []byte) (err error) {
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarClose, innerBuf)
+	buffer, err := sb.MakeRequest(LsarClose, innerBuf)
 	if err != nil {
 		return
 	}
@@ -207,7 +207,7 @@ func (sb *RPCCon) LsarQueryInformationPolicy(policyHandle []byte, informationCla
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarQueryInformationPolicy, innerBuf)
+	buffer, err := sb.MakeRequest(LsarQueryInformationPolicy, innerBuf)
 	if err != nil {
 		return
 	}
@@ -251,7 +251,7 @@ func (sb *RPCCon) LsarCreateAccount(policyHandle []byte, sid string, desiredAcce
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarCreateAccount, innerBuf)
+	buffer, err := sb.MakeRequest(LsarCreateAccount, innerBuf)
 	if err != nil {
 		return
 	}
@@ -298,7 +298,7 @@ func (sb *RPCCon) LsarEnumerateAccounts(policyHandle []byte) (accounts []msdtyp.
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarEnumerateAccounts, innerBuf)
+	buffer, err := sb.MakeRequest(LsarEnumerateAccounts, innerBuf)
 	if err != nil {
 		return
 	}
@@ -354,7 +354,7 @@ func (sb *RPCCon) LsarOpenAccount(policyHandle []byte, sid *msdtyp.SID, desiredA
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarOpenAccount, innerBuf)
+	buffer, err := sb.MakeRequest(LsarOpenAccount, innerBuf)
 	if err != nil {
 		return
 	}
@@ -398,7 +398,7 @@ func (sb *RPCCon) LsarGetSystemAccessAccount(accountHandle []byte) (systemAccess
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarGetSystemAccessAccount, innerBuf)
+	buffer, err := sb.MakeRequest(LsarGetSystemAccessAccount, innerBuf)
 	if err != nil {
 		return
 	}
@@ -443,7 +443,7 @@ func (sb *RPCCon) LsarSetSystemAccessAccount(accountHandle []byte, systemAccess 
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarSetSystemAccessAccount, innerBuf)
+	buffer, err := sb.MakeRequest(LsarSetSystemAccessAccount, innerBuf)
 	if err != nil {
 		return
 	}
@@ -481,7 +481,7 @@ func (sb *RPCCon) LsarEnumerateAccountRights(policyHandle []byte, sid *msdtyp.SI
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarEnumerateAccountRights, innerBuf)
+	buffer, err := sb.MakeRequest(LsarEnumerateAccountRights, innerBuf)
 	if err != nil {
 		return
 	}
@@ -530,7 +530,7 @@ func (sb *RPCCon) LsarAddAccountRights(policyHandle []byte, sid *msdtyp.SID, rig
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarAddAccountRights, innerBuf)
+	buffer, err := sb.MakeRequest(LsarAddAccountRights, innerBuf)
 	if err != nil {
 		return
 	}
@@ -571,7 +571,7 @@ func (sb *RPCCon) LsarRemoveAccountRights(policyHandle []byte, sid *msdtyp.SID, 
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarRemoveAccountRights, innerBuf)
+	buffer, err := sb.MakeRequest(LsarRemoveAccountRights, innerBuf)
 	if err != nil {
 		return
 	}
@@ -622,7 +622,7 @@ func (sb *RPCCon) LsarOpenPolicy2(systemName string) (policyHandle []byte, err e
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarOpenPolicy2, innerBuf)
+	buffer, err := sb.MakeRequest(LsarOpenPolicy2, innerBuf)
 	if err != nil {
 		return
 	}

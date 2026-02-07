@@ -26,11 +26,11 @@ import (
 	"fmt"
 
 	"github.com/jfjallid/go-smb/msdtyp"
-	"github.com/jfjallid/go-smb/smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc"
 	"github.com/jfjallid/golog"
 )
 
-var log = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc/msrrp")
+var log = golog.Get("github.com/jfjallid/go-smb/dcerpc/msrrp")
 
 var (
 	MSRRPUuid                = "338CD001-2244-31F1-AAAA-900038001003"
@@ -254,7 +254,7 @@ func (r *RPCCon) OpenBaseKey(baseName byte) (handle []byte, err error) {
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(opCode, reqBuf)
+	buffer, err := r.MakeRequest(opCode, reqBuf)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -288,7 +288,7 @@ func (r *RPCCon) CloseKeyHandle(hKey []byte) (err error) {
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegCloseKey, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegCloseKey, reqBuf)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -336,7 +336,7 @@ func (r *RPCCon) CreateKey(hKey []byte, name, class string, options, desiredAcce
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegCreateKey, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegCreateKey, reqBuf)
 	if err != nil {
 		return
 	}
@@ -372,7 +372,7 @@ func (r *RPCCon) DeleteKey(hKey []byte, name string) (err error) {
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegDeleteKey, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegDeleteKey, reqBuf)
 	if err != nil {
 		return
 	}
@@ -410,7 +410,7 @@ func (r *RPCCon) DeleteValue(hKey []byte, name string) (err error) {
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegDeleteValue, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegDeleteValue, reqBuf)
 	if err != nil {
 		return
 	}
@@ -453,7 +453,7 @@ func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegEnumKey, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegEnumKey, reqBuf)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -496,7 +496,7 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegEnumValue, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegEnumValue, reqBuf)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -518,7 +518,7 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 			log.Errorln(err)
 			return
 		}
-		buffer, err = r.MakeIoCtlRequest(BaseRegEnumValue, reqBuf)
+		buffer, err = r.MakeRequest(BaseRegEnumValue, reqBuf)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -639,7 +639,7 @@ func (r *RPCCon) OpenSubKeyExt(hKey []byte, subkey string, opts, desiredAccess u
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegOpenKey, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegOpenKey, reqBuf)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -683,7 +683,7 @@ func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegQueryInfoKey, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegQueryInfoKey, reqBuf)
 	if err != nil {
 		return
 	}
@@ -795,7 +795,7 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegQueryValue, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegQueryValue, reqBuf)
 	if err != nil {
 		return
 	}
@@ -816,7 +816,7 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 			log.Errorln(err)
 			return
 		}
-		buffer, err = r.MakeIoCtlRequest(BaseRegQueryValue, reqBuf)
+		buffer, err = r.MakeRequest(BaseRegQueryValue, reqBuf)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -913,7 +913,7 @@ func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err err
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegSaveKey, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegSaveKey, reqBuf)
 	if err != nil {
 		return
 	}
@@ -959,7 +959,7 @@ func (r *RPCCon) GetKeySecurityExt(hKey []byte, securityInformation uint32) (sd 
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegGetKeySecurity, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegGetKeySecurity, reqBuf)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1010,7 +1010,7 @@ func (r *RPCCon) SetKeySecurity(hKey []byte, sd *msdtyp.SecurityDescriptor) (err
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegSetKeySecurity, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegSetKeySecurity, reqBuf)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1177,7 +1177,7 @@ func (r *RPCCon) SetValue(hKey []byte, name string, value any, dataType uint32) 
 		return
 	}
 
-	buffer, err := r.MakeIoCtlRequest(BaseRegSetValue, reqBuf)
+	buffer, err := r.MakeRequest(BaseRegSetValue, reqBuf)
 	if err != nil {
 		return
 	}

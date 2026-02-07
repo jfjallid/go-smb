@@ -26,12 +26,12 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/jfjallid/go-smb/smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc"
 	"github.com/jfjallid/golog"
 )
 
 var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc/mswkst")
+	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/mswkst")
 	le  binary.ByteOrder = binary.LittleEndian
 )
 
@@ -99,7 +99,7 @@ func (sb *RPCCon) EnumWkstLoggedOnUsers(level int) (res WkstaUserEnumUnion, err 
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(WksSvcWkstaUserEnum, innerBuf)
+	buffer, err := sb.MakeRequest(WksSvcWkstaUserEnum, innerBuf)
 	if err != nil {
 		return
 	}

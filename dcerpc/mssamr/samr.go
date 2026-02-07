@@ -32,12 +32,12 @@ import (
 
 	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/go-smb/ntlmssp"
-	"github.com/jfjallid/go-smb/smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc"
 	"github.com/jfjallid/golog"
 )
 
 var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/smb/dcerpc/mssamr")
+	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/mssamr")
 	le  binary.ByteOrder = binary.LittleEndian
 )
 
@@ -380,7 +380,7 @@ func (sb *RPCCon) SamrConnect5(serverName string) (handle *SamrHandle, err error
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrConnect5, innerBuf)
+	buffer, err := sb.MakeRequest(SamrConnect5, innerBuf)
 	if err != nil {
 		return
 	}
@@ -418,7 +418,7 @@ func (sb *RPCCon) SamrEnumDomains(handle *SamrHandle) (domains []string, err err
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrEnumDomains, innerBuf)
+	buffer, err := sb.MakeRequest(SamrEnumDomains, innerBuf)
 	if err != nil {
 		return
 	}
@@ -463,7 +463,7 @@ func (sb *RPCCon) SamrLookupDomain(handle *SamrHandle, name string) (domainId *m
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrLookupDomain, innerBuf)
+	buffer, err := sb.MakeRequest(SamrLookupDomain, innerBuf)
 	if err != nil {
 		return
 	}
@@ -501,7 +501,7 @@ func (sb *RPCCon) SamrAddMemberToGroup(groupHandle *SamrHandle, rid, attributes 
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrAddMemberToGroup, innerBuf)
+	buffer, err := sb.MakeRequest(SamrAddMemberToGroup, innerBuf)
 	if err != nil {
 		return
 	}
@@ -543,7 +543,7 @@ func (sb *RPCCon) SamrRemoveMemberFromGroup(groupHandle *SamrHandle, rid uint32)
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrRemoveMemberFromGroup, innerBuf)
+	buffer, err := sb.MakeRequest(SamrRemoveMemberFromGroup, innerBuf)
 	if err != nil {
 		return
 	}
@@ -587,7 +587,7 @@ func (sb *RPCCon) SamrGetMembersInGroup(groupHandle *SamrHandle) (members []Samr
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrGetMembersInGroup, innerBuf)
+	buffer, err := sb.MakeRequest(SamrGetMembersInGroup, innerBuf)
 	if err != nil {
 		return
 	}
@@ -630,7 +630,7 @@ func (sb *RPCCon) SamrOpenDomain(handle *SamrHandle, desiredAccess uint32, domai
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrOpenDomain, innerBuf)
+	buffer, err := sb.MakeRequest(SamrOpenDomain, innerBuf)
 	if err != nil {
 		return
 	}
@@ -667,7 +667,7 @@ func (sb *RPCCon) SamrAddMemberToAlias(aliasHandle *SamrHandle, sid *msdtyp.SID)
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrAddMemberToAlias, innerBuf)
+	buffer, err := sb.MakeRequest(SamrAddMemberToAlias, innerBuf)
 	if err != nil {
 		return
 	}
@@ -709,7 +709,7 @@ func (sb *RPCCon) SamrRemoveMemberFromAlias(aliasHandle *SamrHandle, sid *msdtyp
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrRemoveMemberFromAlias, innerBuf)
+	buffer, err := sb.MakeRequest(SamrRemoveMemberFromAlias, innerBuf)
 	if err != nil {
 		return
 	}
@@ -761,7 +761,7 @@ func (sb *RPCCon) SamrLookupNamesInDomain(domainHandle *SamrHandle, names []stri
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrLookupNamesInDomain, innerBuf)
+	buffer, err := sb.MakeRequest(SamrLookupNamesInDomain, innerBuf)
 	if err != nil {
 		return
 	}
@@ -817,7 +817,7 @@ func (sb *RPCCon) SamrLookupIdsInDomain(domainHandle *SamrHandle, ids []uint32) 
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrLookupIdsInDomain, innerBuf)
+	buffer, err := sb.MakeRequest(SamrLookupIdsInDomain, innerBuf)
 	if err != nil {
 		return
 	}
@@ -884,7 +884,7 @@ func (sb *RPCCon) SamrOpenGroup(domainHandle *SamrHandle, desiredAccess, rid uin
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrOpenGroup, innerBuf)
+	buffer, err := sb.MakeRequest(SamrOpenGroup, innerBuf)
 	if err != nil {
 		return
 	}
@@ -933,7 +933,7 @@ func (sb *RPCCon) SamrOpenAlias(domainHandle *SamrHandle, desiredAccess, aliasId
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrOpenAlias, innerBuf)
+	buffer, err := sb.MakeRequest(SamrOpenAlias, innerBuf)
 	if err != nil {
 		return
 	}
@@ -973,7 +973,7 @@ func (sb *RPCCon) SamrGetMembersInAlias(aliasHandle *SamrHandle) (members []msdt
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrGetMembersInAlias, innerBuf)
+	buffer, err := sb.MakeRequest(SamrGetMembersInAlias, innerBuf)
 	if err != nil {
 		return
 	}
@@ -1013,7 +1013,7 @@ func (sb *RPCCon) SamrCloseHandle(handle *SamrHandle) (err error) {
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrCloseHandle, innerBuf)
+	buffer, err := sb.MakeRequest(SamrCloseHandle, innerBuf)
 	if err != nil {
 		return
 	}
@@ -1055,7 +1055,7 @@ func (sb *RPCCon) SamrRidToSid(domainHandle *SamrHandle, rid uint32) (sid *msdty
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrRidToSid, innerBuf)
+	buffer, err := sb.MakeRequest(SamrRidToSid, innerBuf)
 	if err != nil {
 		return
 	}
@@ -1096,7 +1096,7 @@ func (sb *RPCCon) SamrCreateUserInDomain(domainHandle *SamrHandle, name string, 
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrCreateUserInDomain, innerBuf)
+	buffer, err := sb.MakeRequest(SamrCreateUserInDomain, innerBuf)
 	if err != nil {
 		return
 	}
@@ -1141,7 +1141,7 @@ func (sb *RPCCon) SamrEnumDomainUsers(domainHandle *SamrHandle, accountFlags uin
 		}
 
 		var buffer []byte
-		buffer, err = sb.MakeIoCtlRequest(SamrEnumDomainUsers, innerBuf)
+		buffer, err = sb.MakeRequest(SamrEnumDomainUsers, innerBuf)
 		if err != nil {
 			return
 		}
@@ -1218,7 +1218,7 @@ func (sb *RPCCon) SamrEnumerateGroupsInDomain(domainHandle *SamrHandle, maxLengt
 		}
 
 		var buffer []byte
-		buffer, err = sb.MakeIoCtlRequest(SamrEnumerateGroupsInDomain, innerBuf)
+		buffer, err = sb.MakeRequest(SamrEnumerateGroupsInDomain, innerBuf)
 		if err != nil {
 			return
 		}
@@ -1289,7 +1289,7 @@ func (sb *RPCCon) SamrGetUserInfo2(userHandle *SamrHandle, informationClass uint
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrQueryInformationUser2, innerBuf)
+	buffer, err := sb.MakeRequest(SamrQueryInformationUser2, innerBuf)
 	if err != nil {
 		return
 	}
@@ -1336,7 +1336,7 @@ func (sb *RPCCon) SamrCreateUser2InDomain(domainHandle *SamrHandle, name string,
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrCreateUser2InDomain, innerBuf)
+	buffer, err := sb.MakeRequest(SamrCreateUser2InDomain, innerBuf)
 	if err != nil {
 		return
 	}
@@ -1400,7 +1400,7 @@ func (sb *RPCCon) SamrChangePassword2(username, currPw, newPw string, currNTHash
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrUnicodeChangePasswordUser2, innerBuf)
+	buffer, err := sb.MakeRequest(SamrUnicodeChangePasswordUser2, innerBuf)
 	if err != nil {
 		return
 	}
@@ -1501,7 +1501,7 @@ func (sb *RPCCon) SamrSetUserInfo2(userHandle *SamrHandle, input *SamrUserInfoIn
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrSetInformationUser2, innerBuf)
+	buffer, err := sb.MakeRequest(SamrSetInformationUser2, innerBuf)
 	if err != nil {
 		return
 	}
@@ -1551,7 +1551,7 @@ func (sb *RPCCon) SamrEnumAliasesInDomain(domainHandle *SamrHandle, maxLength ui
 		}
 
 		var buffer []byte
-		buffer, err = sb.MakeIoCtlRequest(SamrEnumAliasesInDomain, innerBuf)
+		buffer, err = sb.MakeRequest(SamrEnumAliasesInDomain, innerBuf)
 		if err != nil {
 			return
 		}
@@ -1628,7 +1628,7 @@ func (sb *RPCCon) SamrOpenUser(domainHandle *SamrHandle, desiredAccess, rid uint
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrOpenUser, innerBuf)
+	buffer, err := sb.MakeRequest(SamrOpenUser, innerBuf)
 	if err != nil {
 		return
 	}
@@ -1664,7 +1664,7 @@ func (sb *RPCCon) SamrDeleteUser(userHandle *SamrHandle) (err error) {
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(SamrDeleteUser, innerBuf)
+	buffer, err := sb.MakeRequest(SamrDeleteUser, innerBuf)
 	if err != nil {
 		return
 	}

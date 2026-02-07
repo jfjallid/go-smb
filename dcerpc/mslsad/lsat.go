@@ -98,7 +98,7 @@ func (sb *RPCCon) LsarGetUserName() (username, domain string, err error) {
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarGetUserName, innerBuf)
+	buffer, err := sb.MakeRequest(LsarGetUserName, innerBuf)
 	if err != nil {
 		return
 	}
@@ -163,7 +163,7 @@ func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res Sid
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarLookupSids2, innerBuf)
+	buffer, err := sb.MakeRequest(LsarLookupSids2, innerBuf)
 	if err != nil {
 		return
 	}
@@ -227,7 +227,7 @@ func (sb *RPCCon) LsarLookupNames3(level LsapLookupLevel, names []string) (res N
 		return
 	}
 
-	buffer, err := sb.MakeIoCtlRequest(LsarLookupNames3, innerBuf)
+	buffer, err := sb.MakeRequest(LsarLookupNames3, innerBuf)
 	if err != nil {
 		return
 	}

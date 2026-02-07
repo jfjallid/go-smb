@@ -34,7 +34,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/jfjallid/go-smb/msdtyp"
-	"github.com/jfjallid/go-smb/smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc"
 	"io"
 )
 

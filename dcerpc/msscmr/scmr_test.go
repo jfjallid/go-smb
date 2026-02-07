@@ -28,7 +28,7 @@ import (
 	"testing"
 
 	"github.com/jfjallid/go-smb/msdtyp"
-	"github.com/jfjallid/go-smb/smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc"
 )
 
 func TestOpenSCManagerReq(t *testing.T) {

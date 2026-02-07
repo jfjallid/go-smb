@@ -3,7 +3,7 @@
 ## Description
 Package go-smb is a work in progress to create a go library that implements
 an SMB2/3 client with support for interacting with various RPC endpoints using
-DCERPC over named pipes.
+DCERPC over named pipes or raw TCP connections.
 This project was created as a way to learn how to interact remotely with Windows
 services and the remote registry, but has evolved to include support for more
 RPC services.
@@ -115,8 +115,9 @@ import (
 
 	"github.com/jfjallid/go-smb/smb"
 	"github.com/jfjallid/go-smb/spnego"
-	"github.com/jfjallid/go-smb/smb/dcerpc"
-	"github.com/jfjallid/go-smb/smb/dcerpc/mssrvs"
+	"github.com/jfjallid/go-smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc/smbtransport"
+	"github.com/jfjallid/go-smb/dcerpc/mssrvs"
 )
 
 func main() {
@@ -164,7 +165,59 @@ func main() {
     }
     defer f.CloseFile()
 
-    bind, err := dcerpc.Bind(f, mssrvs.MSRPCUuidSrvSvc, mssrvs.MSRPCSrvSvcMajorVersion, mssrvs.MSRPCSrvSvcMinorVersion, dcerpc.MSRPCUuidNdr)
+    transport, err := smbtransport.NewSMBTransport(f)
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+
+    bind, err := dcerpc.Bind(transport, mssrvs.MSRPCUuidSrvSvc, mssrvs.MSRPCSrvSvcMajorVersion, mssrvs.MSRPCSrvSvcMinorVersion, dcerpc.MSRPCUuidNdr)
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    rpccon := mssrvs.NewRPCCon(bind)
+
+    shares, err := rpccon.NetShareEnumAll(hostname)
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+
+    fmt.Printf("\nShares:\n")
+    for _, share := range shares {
+        fmt.Printf("Name: %s\nComment: %s\nType: %s\n\n", share.Name, share.Comment, share.Type)
+    }
+}
+```
+
+### List SMB Shares via TCP (without SMB)
+
+When the target RPC service is accessible over a direct TCP endpoint (e.g., dynamic
+RPC ports), you can connect without SMB:
+
+```go
+package main
+
+import (
+	"fmt"
+	"net"
+
+	"github.com/jfjallid/go-smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc/mssrvs"
+)
+
+func main() {
+    hostname := "192.168.0.1"
+    conn, err := net.Dial("tcp", hostname+":49667")
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    defer conn.Close()
+
+    transport := dcerpc.NewTCPTransport(conn)
+    bind, err := dcerpc.Bind(transport, mssrvs.MSRPCUuidSrvSvc, mssrvs.MSRPCSrvSvcMajorVersion, mssrvs.MSRPCSrvSvcMinorVersion, dcerpc.MSRPCUuidNdr)
     if err != nil {
         fmt.Println(err)
         return
