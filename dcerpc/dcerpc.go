@@ -165,7 +165,7 @@ func newHeader() Header {
 	}
 }
 
-func uuid_to_bin(uuid string) ([]byte, error) {
+func UUIDToBin(uuid string) ([]byte, error) {
 	//log.Debugln("In uuid_to_bin")
 
 	if !strings.ContainsRune(uuid, '-') {
@@ -221,12 +221,12 @@ func uuid_to_bin(uuid string) ([]byte, error) {
 func newBindReq(callId uint32, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string, maxTransmitSize, maxRecvSize uint16) (req *BindReq, err error) {
 	log.Debugln("In newBindReq")
 
-	srsv_uuid, err := uuid_to_bin(interface_uuid)
+	srsv_uuid, err := UUIDToBin(interface_uuid)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	ndr_uuid, err := uuid_to_bin(transfer_uuid)
+	ndr_uuid, err := UUIDToBin(transfer_uuid)
 	if err != nil {
 		log.Errorln(err)
 		return

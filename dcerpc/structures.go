@@ -655,7 +655,10 @@ func (self *BindRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	alignmentBytes := 4 - ((self.SecAddrLen + 2) % 4)
+	// From IDL:
+	// u_int8 [size_is(align(4))] pad2
+	// align(4) can be 0 if we are at the 4 byte boundary
+	alignmentBytes := (4 - ((self.SecAddrLen + 2) % 4)) % 4
 	_, err = r.Seek(int64(alignmentBytes), io.SeekCurrent) // Align to 4-byte boundary
 	if err != nil {
 		log.Errorln(err)
