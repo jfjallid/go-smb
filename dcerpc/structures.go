@@ -45,6 +45,9 @@ type ServiceBind struct {
 	maxFragTransmitSize uint16
 	// Max size of fragment server should send
 	maxFragReceiveSize uint16
+	// Auth state (set by BindAuth, zero for unauthenticated Bind)
+	authType  uint8
+	authLevel uint8
 }
 
 // AuthVerifier represents the auth_verifier structure appended to DCERPC PDUs
@@ -185,8 +188,7 @@ type BindReq struct {
 	MaxRecvFragSize uint16
 	Association     uint32      // A value of 0 means a request for a new Association group
 	ContextList     ContextList // p_cont_list_t
-	// Auth verifier? An optional field if AuthLength is != 0
-	// Haven't implemented any support for that
+	AuthVerifier    *AuthVerifier // Optional, present when AuthLength != 0
 }
 
 /*
@@ -230,7 +232,57 @@ type BindRes struct {
 	SecAddrLen      uint16
 	SecAddr         []byte
 	ResultList      ContextResList
-	// Auth verifier? An optional field if AuthLength != 0
+	AuthVerifier    *AuthVerifier // Parsed when Header.AuthLength > 0
+}
+
+// Auth3Req is sent as the third leg of an NTLM authentication handshake
+// (MS-RPCE 2.2.2.3). The server does not send a response to this PDU.
+type Auth3Req struct {
+	Header                       // Type = PacketTypeAuth3
+	MaxSendFragSize uint16       // Pad field (same layout as Bind)
+	MaxRecvFragSize uint16       // Pad field
+	AuthVerifier    AuthVerifier // Required
+}
+
+func (self *Auth3Req) MarshalBinary() (ret []byte, err error) {
+	w := bytes.NewBuffer(ret)
+
+	hBuf, err := self.Header.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	_, err = w.Write(hBuf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, self.MaxSendFragSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, self.MaxRecvFragSize)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	// Auth3 body is just the pad fields (4 bytes), no auth padding needed
+	var authBuf []byte
+	authBuf, err = self.AuthVerifier.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	_, err = w.Write(authBuf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	return w.Bytes(), nil
 }
 
 // C706 Section 12.6.4.9
@@ -549,6 +601,32 @@ func (self *BindReq) MarshalBinary() (ret []byte, err error) {
 		return
 	}
 
+	if self.AuthVerifier != nil {
+		// Compute auth padding to align to 4-byte boundary
+		bodyLen := w.Len()
+		authPad := (4 - (bodyLen % 4)) % 4
+		if authPad > 0 {
+			_, err = w.Write(make([]byte, authPad))
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+		}
+		self.AuthVerifier.AuthPadLength = uint8(authPad)
+
+		var authBuf []byte
+		authBuf, err = self.AuthVerifier.MarshalBinary()
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		_, err = w.Write(authBuf)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
 	return w.Bytes(), nil
 }
 
@@ -672,6 +750,22 @@ func (self *BindRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 	self.ResultList = *resList
+
+	// Parse AuthVerifier if present
+	if self.Header.AuthLength > 0 {
+		// The auth verifier is at the end of the PDU: last AuthLength + 8 bytes
+		// (8 bytes = auth verifier header: AuthType, AuthLevel, AuthPadLength, AuthReserved, AuthContextId)
+		authTotalLen := int(self.Header.AuthLength) + 8
+		if int(self.Header.FragLength) >= authTotalLen {
+			authStart := int(self.Header.FragLength) - authTotalLen
+			self.AuthVerifier = &AuthVerifier{}
+			err = self.AuthVerifier.UnmarshalBinary(buf[authStart:self.Header.FragLength])
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+		}
+	}
 	return
 }
 

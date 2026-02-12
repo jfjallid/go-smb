@@ -38,6 +38,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/golog"
 )
 
@@ -337,6 +338,188 @@ func Bind(transport DCERPCTransport, interface_uuid string, majorVersion, minorV
 		transport:           transport,
 		maxFragReceiveSize:  bindRes.MaxSendFragSize,
 		maxFragTransmitSize: bindRes.MaxRecvFragSize,
+	}, nil
+}
+
+// SessionKeySettable is implemented by transports that support setting a
+// session key after an authenticated bind (e.g., TCPTransport).
+type SessionKeySettable interface {
+	SetSessionKey(key []byte)
+}
+
+// authTypeForMechanism maps a GSS mechanism OID to the corresponding
+// RPC authentication type constant.
+func authTypeForMechanism(mechanism gss.Mechanism) (uint8, error) {
+	oid := mechanism.Oid()
+	if oid.Equal(gss.NtLmSSPMechTypeOid) {
+		return RpcAuthnWinnt, nil
+	}
+	if oid.Equal(gss.KerberosSSPMechTypeOid) || oid.Equal(gss.MsKerberosOid) {
+		return RpcAuthnGssKerberos, nil
+	}
+	return 0, fmt.Errorf("Unsupported authentication mechanism OID: %v", oid)
+}
+
+// BindAuth performs an authenticated DCERPC bind using the provided GSS mechanism.
+// For NTLM (3-leg), it uses Alter Context instead of Auth3 for the third leg so
+// that the server's response confirms authentication success.
+// For Kerberos (1-2 leg), the BindAck response is sufficient.
+func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string, authLevel uint8, mechanism gss.Mechanism) (bind *ServiceBind, err error) {
+	log.Debugln("In BindAuth")
+	if transport == nil {
+		return nil, fmt.Errorf("Transport argument cannot be nil")
+	}
+	if mechanism == nil {
+		return nil, fmt.Errorf("Mechanism argument cannot be nil")
+	}
+
+	authType, err := authTypeForMechanism(mechanism)
+	if err != nil {
+		return nil, err
+	}
+
+	callId := atomic.Uint32{}
+	maxFragRxSize := uint16(4280)
+	maxFragTxSize := uint16(4280)
+
+	// Step 1: Get initial auth token from mechanism
+	initToken, err := mechanism.InitSecContext(nil)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to initialize security context: %w", err)
+	}
+
+	// Step 2: Build Bind request with AuthVerifier
+	bindReq, err := newBindReq(callId.Add(1), interface_uuid, majorVersion, minorVersion, transfer_uuid, maxFragTxSize, maxFragRxSize)
+	if err != nil {
+		return
+	}
+	bindReq.AuthVerifier = &AuthVerifier{
+		AuthType:      authType,
+		AuthLevel:     authLevel,
+		AuthContextId: 0,
+		AuthValue:     initToken,
+	}
+
+	// Set AuthLength to the length of just the auth token
+	bindReq.Header.AuthLength = uint16(len(initToken))
+
+	buf, err := bindReq.MarshalBinary()
+	if err != nil {
+		return
+	}
+	// Update FragLength to actual PDU size
+	binary.LittleEndian.PutUint16(buf[8:10], uint16(len(buf)))
+
+	// Step 3: Send Bind, receive BindAck
+	response, err := transport.Transceive(buf)
+	if err != nil {
+		return
+	}
+
+	var bindRes BindRes
+	err = bindRes.UnmarshalBinary(response)
+	if err != nil {
+		return
+	}
+
+	// Step 4: Validate BindAck
+	if bindRes.CallId != bindReq.CallId {
+		return nil, fmt.Errorf("Received invalid callId: %d\n", bindRes.CallId)
+	}
+	if bindRes.Type != PacketTypeBindAck {
+		return nil, fmt.Errorf("Invalid response from server: %v\n", bindRes)
+	}
+	if len(bindRes.ResultList.Items) == 0 {
+		return nil, fmt.Errorf("Invalid response from server with no Context Items: %v\n", bindRes.ResultList)
+	}
+	if bindRes.ResultList.Items[0].Result != acceptance {
+		errMsg := ""
+		switch bindRes.ResultList.Items[0].Reason {
+		case reasonNotSpecified:
+			errMsg = "Reason not specified"
+		case abstractSyntaxNotSupported:
+			errMsg = "Abstract syntax not supported"
+		case proposedTransferSyntaxNotSupported:
+			errMsg = "Proposed transfer syntax not supported"
+		case localLimitExceeded:
+			errMsg = "Local limit exceeded"
+		default:
+			errMsg = fmt.Sprintf("Unknown reason: %d\n", bindRes.ResultList.Items[0].Reason)
+		}
+		return nil, fmt.Errorf("Server did not approve bind request with reason: \"%s\"\n", errMsg)
+	}
+
+	// Step 5: Process server auth token if present
+	if bindRes.AuthVerifier != nil && len(bindRes.AuthVerifier.AuthValue) > 0 {
+		var responseToken []byte
+		responseToken, err = mechanism.InitSecContext(bindRes.AuthVerifier.AuthValue)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to process server auth token: %w", err)
+		}
+
+		// Step 6: If we got a response token, send Alter Context (third leg).
+		// Alter Context has the same wire format as Bind but gets a response,
+		// unlike Auth3 which is fire-and-forget. This lets us confirm auth success.
+		if len(responseToken) > 0 {
+			alterReq, err2 := newBindReq(callId.Add(1), interface_uuid, majorVersion, minorVersion, transfer_uuid, maxFragTxSize, maxFragRxSize)
+			if err2 != nil {
+				return nil, fmt.Errorf("Failed to build Alter Context: %w", err2)
+			}
+			alterReq.Header.Type = PacketTypeAlterContext
+			alterReq.AuthVerifier = &AuthVerifier{
+				AuthType:      authType,
+				AuthLevel:     authLevel,
+				AuthContextId: 0,
+				AuthValue:     responseToken,
+			}
+			alterReq.Header.AuthLength = uint16(len(responseToken))
+
+			var alterBuf []byte
+			alterBuf, err = alterReq.MarshalBinary()
+			if err != nil {
+				return nil, fmt.Errorf("Failed to marshal Alter Context: %w", err)
+			}
+			binary.LittleEndian.PutUint16(alterBuf[8:10], uint16(len(alterBuf)))
+
+			var alterResponse []byte
+			alterResponse, err = transport.Transceive(alterBuf)
+			if err != nil {
+				return nil, fmt.Errorf("Failed to send Alter Context: %w", err)
+			}
+
+			var alterRes BindRes
+			err = alterRes.UnmarshalBinary(alterResponse)
+			if err != nil {
+				return nil, fmt.Errorf("Failed to unmarshal Alter Context Response: %w", err)
+			}
+
+			if alterRes.Type != PacketTypeAlterContextResp {
+				return nil, fmt.Errorf("Expected Alter Context Response (type %d), got type %d", PacketTypeAlterContextResp, alterRes.Type)
+			}
+			if len(alterRes.ResultList.Items) == 0 {
+				return nil, fmt.Errorf("Alter Context Response has no context items")
+			}
+			if alterRes.ResultList.Items[0].Result != acceptance {
+				return nil, fmt.Errorf("Authentication failed: server rejected Alter Context")
+			}
+		}
+	}
+
+	// Step 7: Set session key on transport
+	sessionKey := mechanism.SessionKey()
+	if len(sessionKey) > 0 {
+		if settable, ok := transport.(SessionKeySettable); ok {
+			settable.SetSessionKey(sessionKey)
+		}
+	}
+
+	return &ServiceBind{
+		callId:              &callId,
+		transport:           transport,
+		maxFragReceiveSize:  bindRes.MaxSendFragSize,
+		maxFragTransmitSize: bindRes.MaxRecvFragSize,
+		authType:            authType,
+		authLevel:           authLevel,
 	}, nil
 }
 

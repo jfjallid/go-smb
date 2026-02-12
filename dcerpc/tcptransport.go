@@ -71,6 +71,11 @@ func (t *TCPTransport) GetSessionKey() []byte {
 	return t.sessionKey
 }
 
+func (t *TCPTransport) SetSessionKey(key []byte) {
+	t.sessionKey = make([]byte, len(key))
+	copy(t.sessionKey, key)
+}
+
 func (t *TCPTransport) writePDU(pdu []byte) error {
 	_, err := t.conn.Write(pdu)
 	return err
