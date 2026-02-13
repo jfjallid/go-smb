@@ -49,6 +49,9 @@ type NTLMInitiator struct {
 
 	ntlm   *ntlmssp.Client
 	seqNum uint32
+
+	sealSeqNum   uint32
+	unsealSeqNum uint32
 }
 
 func (i *NTLMInitiator) Oid() asn1.ObjectIdentifier {
@@ -118,3 +121,33 @@ func (i *NTLMInitiator) GetUsername() string {
 	}
 	return i.ntlm.User
 }
+
+// Seal encrypts toEncrypt and computes a MAC over toSign.
+// Implements the dcerpc.Sealer interface for per-PDU encryption.
+func (i *NTLMInitiator) Seal(toEncrypt, toSign []byte) (ciphertext, signature []byte) {
+	ct, sig, newSeqNum := i.ntlm.Session().EncryptAndSign(toEncrypt, toSign, i.sealSeqNum)
+	i.sealSeqNum = newSeqNum
+	return ct, sig
+}
+
+// Decrypt decrypts ciphertext without verifying the MAC.
+// Implements the dcerpc.Sealer interface.
+func (i *NTLMInitiator) Decrypt(ciphertext []byte) []byte {
+	return i.ntlm.Session().DecryptOnly(ciphertext)
+}
+
+// VerifyMAC verifies a MAC over signData against the expected signature.
+// Must be called after Decrypt so the RC4 handle is correctly positioned.
+// Implements the dcerpc.Sealer interface.
+func (i *NTLMInitiator) VerifyMAC(signData, expectedSig []byte) error {
+	newSeqNum, err := i.ntlm.Session().VerifyMAC(signData, expectedSig, i.unsealSeqNum)
+	if err != nil {
+		return err
+	}
+	i.unsealSeqNum = newSeqNum
+	return nil
+}
+
+// SignatureSize returns the NTLM signature size (always 16 bytes).
+// Implements the dcerpc.Sealer interface.
+func (i *NTLMInitiator) SignatureSize() int { return 16 }

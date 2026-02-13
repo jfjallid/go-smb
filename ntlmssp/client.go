@@ -64,6 +64,7 @@ type Client struct {
 	guestSession   bool
 	session        *Session
 	neg            *Negotiate
+	negBytes       []byte // Original marshaled Negotiate for MIC computation
 	TargetSPN      string
 	channelBinding *channelBindings // Reserved for future use
 
@@ -80,6 +81,7 @@ func (c *Client) Negotiate() ([]byte, error) {
 			FlgNegTargetInfo |
 			FlgNegExtendedSessionSecurity |
 			FlgNegNtLm |
+			FlgNegSeal |
 			FlgNegSign |
 			FlgNegRequestTarget |
 			FlgNegUnicode |
@@ -99,10 +101,22 @@ func (c *Client) Negotiate() ([]byte, error) {
 	req.NegotiateFlags |= FlgNegKeyExch
 	req.Version = le.Uint64(version)
 	c.neg = &req
-	return encoder.Marshal(req)
+	buf, err := encoder.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	c.negBytes = make([]byte, len(buf))
+	copy(c.negBytes, buf)
+	return buf, nil
 }
 
 func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
+	// Save original challenge bytes for MIC computation before any processing.
+	// Unmarshal may create slices sharing cmsg's backing array, and subsequent
+	// AV_PAIR modifications (MsvAvFlags) could mutate cmsg in place.
+	originalChallenge := make([]byte, len(cmsg))
+	copy(originalChallenge, cmsg)
+
 	chall := NewChallenge()
 	err = encoder.Unmarshal(cmsg, &chall)
 	if err != nil {
@@ -396,20 +410,13 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 
 	auth.Version = c.neg.Version
 
-	// Calc MIC of Neg, Chall, and Auth messages
+	// Calc MIC of Neg, Chall, and Auth messages.
+	// Per MS-NLMP, the MIC must be computed over the original wire bytes of each
+	// message, not re-marshaled structs. Re-marshaling can produce different bytes
+	// due to offset recalculation and AV_PAIR mutations (MsvAvFlags).
 	h = hmac.New(md5.New, session.exportedSessionKey)
-	nmsgBuf, err := encoder.Marshal(c.neg)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	h.Write(nmsgBuf)
-	cmsgBuf, err := encoder.Marshal(chall)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	h.Write(cmsgBuf)
+	h.Write(c.negBytes)
+	h.Write(originalChallenge)
 
 	authBytes, err := encoder.Marshal(&auth)
 	if err != nil {

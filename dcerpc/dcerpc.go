@@ -127,6 +127,28 @@ const (
 	localLimitExceeded                                       // 3
 )
 
+// Sealer provides per-PDU encryption/decryption for auth levels
+// PktIntegrity and PktPrivacy. The mechanism (e.g., NTLMInitiator)
+// implements this interface to seal outgoing and unseal incoming stubs.
+//
+// DCERPC requires the MAC to cover the full PDU (header + plaintext stub +
+// auth_pad + sec_trailer) while only the stub + auth_pad portion is encrypted.
+// The Seal method takes separate toEncrypt and toSign parameters for this.
+type Sealer interface {
+	// Seal encrypts toEncrypt (stub + auth_pad) and computes a MAC over
+	// toSign (full PDU: header + plaintext_stub + auth_pad + sec_trailer).
+	// Returns ciphertext and signature separately.
+	Seal(toEncrypt, toSign []byte) (ciphertext, signature []byte)
+	// Decrypt decrypts ciphertext without verifying. Used as the first
+	// step of unseal so the caller can build signData from the plaintext.
+	Decrypt(ciphertext []byte) []byte
+	// VerifyMAC verifies a MAC over signData against expectedSig.
+	// Must be called after Decrypt so the RC4 handle is correctly positioned.
+	VerifyMAC(signData, expectedSig []byte) error
+	// SignatureSize returns the fixed signature length (e.g., 16 for NTLM).
+	SignatureSize() int
+}
+
 // DCERPCTransport abstracts the underlying transport for DCERPC PDUs.
 type DCERPCTransport interface {
 	// Transceive sends a complete DCERPC PDU and returns the first response PDU.
@@ -513,6 +535,15 @@ func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, mi
 		}
 	}
 
+	var sealer Sealer
+	if authLevel >= RpcAuthnLevelPktIntegrity {
+		s, ok := mechanism.(Sealer)
+		if !ok {
+			return nil, fmt.Errorf("Mechanism does not support per-PDU auth for level %d", authLevel)
+		}
+		sealer = s
+	}
+
 	return &ServiceBind{
 		callId:              &callId,
 		transport:           transport,
@@ -520,6 +551,7 @@ func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, mi
 		maxFragTransmitSize: bindRes.MaxRecvFragSize,
 		authType:            authType,
 		authLevel:           authLevel,
+		sealer:              sealer,
 	}, nil
 }
 
@@ -530,7 +562,12 @@ func (sb *ServiceBind) GetSessionKey() (sessionKey []byte) {
 func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byte, err error) {
 	callId := sb.callId.Add(1)
 	totalPayloadLen := len(innerBuf)
-	maxStub := int(sb.maxFragTransmitSize) - RequestHeaderSize
+	authOverhead := 0
+	if sb.sealer != nil {
+		// 8 = auth verifier header, + signature size, + worst-case auth padding (3 bytes)
+		authOverhead = 8 + sb.sealer.SignatureSize() + 3
+	}
+	maxStub := int(sb.maxFragTransmitSize) - RequestHeaderSize - authOverhead
 	if maxStub <= 0 {
 		maxStub = totalPayloadLen
 	}
@@ -557,6 +594,14 @@ func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byt
 		if err != nil {
 			log.Errorln(err)
 			return
+		}
+
+		if sb.sealer != nil {
+			buf, err = sb.sealRequestPDU(buf)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
 		}
 
 		var responseBuffer []byte
@@ -609,6 +654,14 @@ func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byt
 			return
 		}
 
+		if sb.sealer != nil {
+			buf, err = sb.sealRequestPDU(buf)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+		}
+
 		if lastFrag {
 			// Last fragment: use Transceive to get response
 			var responseBuffer []byte
@@ -632,6 +685,139 @@ func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byt
 	}
 
 	return
+}
+
+// sealRequestPDU encrypts the stub data in a marshaled Request PDU and appends
+// an AuthVerifier. The input pdu must be a complete marshaled RequestReq
+// (header + AllocHint + CtxId + Opnum + plaintext stub).
+//
+// Per MS-RPCE, the MAC covers the full PDU (header + plaintext stub + auth_pad
+// + sec_trailer) while only stub + auth_pad is encrypted.
+func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
+	if len(pdu) < RequestHeaderSize {
+		return nil, fmt.Errorf("PDU too short to seal: %d bytes", len(pdu))
+	}
+
+	stub := pdu[RequestHeaderSize:]
+
+	// Compute auth padding to align (header + stub + padding) to 4-byte boundary
+	authPad := (4 - (len(pdu) % 4)) % 4
+	toEncrypt := make([]byte, len(stub)+authPad)
+	copy(toEncrypt, stub)
+	// padding bytes are zero (already zero from make)
+
+	sigSize := sb.sealer.SignatureSize()
+
+	// Build sec_trailer (8 bytes) for inclusion in signed data
+	secTrailer := AuthVerifier{
+		AuthType:      sb.authType,
+		AuthLevel:     sb.authLevel,
+		AuthPadLength: uint8(authPad),
+		AuthReserved:  0,
+		AuthContextId: 0,
+	}
+	secTrailerBytes, err := secTrailer.MarshalBinary()
+	if err != nil {
+		return nil, fmt.Errorf("Failed to marshal sec_trailer: %w", err)
+	}
+	// secTrailerBytes is 8 bytes (no AuthValue)
+
+	// Compute the total FragLength for the header before signing
+	fragLen := uint16(RequestHeaderSize + len(toEncrypt) + len(secTrailerBytes) + sigSize)
+
+	// Build the header with correct FragLength and AuthLength
+	header := make([]byte, RequestHeaderSize)
+	copy(header, pdu[:RequestHeaderSize])
+	binary.LittleEndian.PutUint16(header[8:10], fragLen)
+	binary.LittleEndian.PutUint16(header[10:12], uint16(sigSize))
+
+	// Build toSign: header + plaintext stub+pad + sec_trailer
+	// This is the full PDU minus the auth_value (signature)
+	toSign := make([]byte, 0, int(fragLen)-sigSize)
+	toSign = append(toSign, header...)
+	toSign = append(toSign, toEncrypt...)
+	toSign = append(toSign, secTrailerBytes...)
+
+	// Encrypt toEncrypt, compute MAC over toSign
+	ciphertext, signature := sb.sealer.Seal(toEncrypt, toSign)
+
+	// Assemble sealed PDU: header + ciphertext + sec_trailer + signature
+	sealed := make([]byte, int(fragLen))
+	copy(sealed[:RequestHeaderSize], header)
+	copy(sealed[RequestHeaderSize:], ciphertext)
+	copy(sealed[RequestHeaderSize+len(ciphertext):], secTrailerBytes)
+	copy(sealed[RequestHeaderSize+len(ciphertext)+len(secTrailerBytes):], signature)
+
+	return sealed, nil
+}
+
+// ResponseHeaderSize is the fixed size of a Response PDU header
+// (common header 16 + AllocHint 4 + ContextId 2 + CancelCount 1 + Reserved 1).
+const ResponseHeaderSize int = 24
+
+// unsealResponsePDU decrypts the stub data in a Response PDU and returns a
+// clean buffer that RequestRes.UnmarshalBinary can parse (with auth stripped).
+//
+// Per MS-RPCE, the MAC covers the full PDU (header + plaintext stub + auth_pad
+// + sec_trailer) while only stub + auth_pad is encrypted.
+func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, error) {
+	fragLen := int(header.FragLength)
+	authTotalLen := int(header.AuthLength) + 8
+	if fragLen < ResponseHeaderSize+authTotalLen {
+		return nil, fmt.Errorf("Response PDU too short to contain auth verifier")
+	}
+
+	authStart := fragLen - authTotalLen
+	signatureStart := fragLen - int(header.AuthLength)
+
+	// Extract sec_trailer (8 bytes) and signature
+	secTrailerBytes := pdu[authStart:signatureStart]
+	signature := pdu[signatureStart:fragLen]
+
+	// Unmarshal sec_trailer to get AuthPadLength
+	var av AuthVerifier
+	err := av.UnmarshalBinary(pdu[authStart:fragLen])
+	if err != nil {
+		return nil, fmt.Errorf("Failed to unmarshal response AuthVerifier: %w", err)
+	}
+
+	// Encrypted data is between response header and sec_trailer
+	encryptedData := pdu[ResponseHeaderSize:authStart]
+
+	// Step 1: Decrypt (advances receive-side RC4 handle by len(encryptedData))
+	plaintext := sb.sealer.Decrypt(encryptedData)
+
+	// Step 2: Build signData = header + plaintext + sec_trailer
+	// Use the PDU header bytes as received (with FragLength including auth overhead)
+	signData := make([]byte, 0, ResponseHeaderSize+len(plaintext)+len(secTrailerBytes))
+	signData = append(signData, pdu[:ResponseHeaderSize]...)
+	signData = append(signData, plaintext...)
+	signData = append(signData, secTrailerBytes...)
+
+	// Step 3: Verify MAC (advances receive-side RC4 handle by 8)
+	err = sb.sealer.VerifyMAC(signData, signature)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to verify response PDU signature: %w", err)
+	}
+
+	// Strip auth padding
+	stubLen := len(plaintext) - int(av.AuthPadLength)
+	if stubLen < 0 {
+		return nil, fmt.Errorf("Auth padding length %d exceeds plaintext length %d", av.AuthPadLength, len(plaintext))
+	}
+	stub := plaintext[:stubLen]
+
+	// Rebuild clean PDU: header + response fields + stub (no auth)
+	newFragLen := uint16(ResponseHeaderSize + len(stub))
+	cleanPDU := make([]byte, newFragLen)
+	copy(cleanPDU[:ResponseHeaderSize], pdu[:ResponseHeaderSize])
+	copy(cleanPDU[ResponseHeaderSize:], stub)
+
+	// Fix header: FragLength = new size, AuthLength = 0
+	binary.LittleEndian.PutUint16(cleanPDU[8:10], newFragLen)
+	binary.LittleEndian.PutUint16(cleanPDU[10:12], 0)
+
+	return cleanPDU, nil
 }
 
 // processResponse handles the receive-side reassembly of a DCERPC response,
@@ -684,6 +870,21 @@ func (sb *ServiceBind) processResponse(callId uint32, responseBuffer []byte) (re
 			err = fmt.Errorf("DCERPC response fragment is less that specified fragment lengh. Received %d bytes from ReadRequest, but FragLength field specifies %d bytes!", len(responseBuffer), resHeader.FragLength)
 			log.Errorln(err)
 			return
+		}
+
+		// Unseal response if per-PDU auth is active
+		if resHeader.AuthLength > 0 && sb.sealer != nil {
+			responseBuffer, err = sb.unsealResponsePDU(responseBuffer, &resHeader)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+			// Re-parse header since we rebuilt the buffer
+			err = resHeader.UnmarshalBinary(responseBuffer[:PDUHeaderCommonSize])
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
 		}
 
 		// Time to unpack the Response PDU
