@@ -368,15 +368,15 @@ func NewNetShareEnumAllRequest(serverName string) *NetShareEnumAllRequest {
 	return &nr
 }
 
-func (self *NetShareEnumAllRequest) MarshalBinary() (ret []byte, err error) {
+func (s *NetShareEnumAllRequest) MarshalBinary() (ret []byte, err error) {
 	log.Debugln("In MarshalBinary for NetShareEnumAllRequest")
 
 	refId := uint32(1)
 
 	w := bytes.NewBuffer(ret)
-	if self.ServerName != "" {
+	if s.ServerName != "" {
 		// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-		_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.ServerName, &refId, true)
+		_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.ServerName, &refId, true)
 		if err != nil {
 			log.Errorln(err)
 			return nil, err
@@ -393,14 +393,14 @@ func (self *NetShareEnumAllRequest) MarshalBinary() (ret []byte, err error) {
 	// Not sure why there is no Referent ptr here
 
 	// Encode Share Enum Union discriminator (Level switch)
-	err = binary.Write(w, le, self.InfoStruct.Level)
+	err = binary.Write(w, le, s.InfoStruct.Level)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Encode the Level in the Share Enum Union
-	err = binary.Write(w, le, self.InfoStruct.Level)
+	err = binary.Write(w, le, s.InfoStruct.Level)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -414,9 +414,9 @@ func (self *NetShareEnumAllRequest) MarshalBinary() (ret []byte, err error) {
 	}
 	refId++
 
-	switch self.InfoStruct.Level {
+	switch s.InfoStruct.Level {
 	case 1:
-		ptr := self.InfoStruct.ShareInfo.(*ShareInfoContainer1)
+		ptr := s.InfoStruct.ShareInfo.(*ShareInfoContainer1)
 		err = binary.Write(w, le, ptr.EntriesRead)
 		if err != nil {
 			log.Errorln(err)
@@ -433,10 +433,10 @@ func (self *NetShareEnumAllRequest) MarshalBinary() (ret []byte, err error) {
 			}
 		}
 	default:
-		return nil, fmt.Errorf("Not yet implemented support for marshalling a ShareInfoContainer%d\n", self.InfoStruct.Level)
+		return nil, fmt.Errorf("Not yet implemented support for marshalling a ShareInfoContainer%d\n", s.InfoStruct.Level)
 	}
 
-	err = binary.Write(w, le, self.MaxBuffer)
+	err = binary.Write(w, le, s.MaxBuffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -449,7 +449,7 @@ func (self *NetShareEnumAllRequest) MarshalBinary() (ret []byte, err error) {
 		return
 	}
 
-	binary.Write(w, le, self.ResumeHandle)
+	binary.Write(w, le, s.ResumeHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -466,10 +466,10 @@ func (s *NetShareEnumAllResponse) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshaBinary of NetShareEnumAllResponse")
 }
 
-func (self *NetShareEnumAllResponse) UnmarshalBinary(buf []byte) (err error) {
+func (s *NetShareEnumAllResponse) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for NetShareEnumAllResponse")
 	r := bytes.NewReader(buf)
-	self.InfoStruct = &NetShareEnum{}
+	s.InfoStruct = &NetShareEnum{}
 
 	// Skip the Share Enum Union discriminator (Level switch)
 	_, err = r.Seek(4, io.SeekCurrent)
@@ -479,7 +479,7 @@ func (self *NetShareEnumAllResponse) UnmarshalBinary(buf []byte) (err error) {
 	}
 
 	// Decode the Level in the Share Enum Union
-	err = binary.Read(r, le, &self.InfoStruct.Level)
+	err = binary.Read(r, le, &s.InfoStruct.Level)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -492,7 +492,7 @@ func (self *NetShareEnumAllResponse) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	switch self.InfoStruct.Level {
+	switch s.InfoStruct.Level {
 	case 1:
 		ptr := &ShareInfoContainer1{}
 		err = binary.Read(r, le, &ptr.EntriesRead)
@@ -550,12 +550,12 @@ func (self *NetShareEnumAllResponse) UnmarshalBinary(buf []byte) (err error) {
 			}
 		}
 
-		self.InfoStruct.ShareInfo = ptr
+		s.InfoStruct.ShareInfo = ptr
 	default:
-		return fmt.Errorf("NOT IMPLEMENTED NetShareEnumAllResponse with ShareInfo level %d\n", self.InfoStruct.Level)
+		return fmt.Errorf("NOT IMPLEMENTED NetShareEnumAllResponse with ShareInfo level %d\n", s.InfoStruct.Level)
 	}
 
-	err = binary.Read(r, le, &self.TotalEntries)
+	err = binary.Read(r, le, &s.TotalEntries)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -566,13 +566,13 @@ func (self *NetShareEnumAllResponse) UnmarshalBinary(buf []byte) (err error) {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ResumeHandle)
+	err = binary.Read(r, le, &s.ResumeHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.WindowsError)
+	err = binary.Read(r, le, &s.WindowsError)
 	if err != nil {
 		log.Errorln(err)
 		return

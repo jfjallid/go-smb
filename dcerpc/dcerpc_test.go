@@ -49,7 +49,7 @@ func TestBindReq(t *testing.T) {
 	binary.LittleEndian.PutUint16(buf[8:10], uint16(len(buf)))
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -66,55 +66,55 @@ func TestBindRes(t *testing.T) {
 	}
 
 	if res.MajorVersion != 5 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.MajorVersion==5, got %v", res.MajorVersion)
 	}
 
 	if res.Flags != 3 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.Flags==3, got %v", res.Flags)
 	}
 
 	if res.Representation != 16 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.Representation==16, got %v", res.Representation)
 	}
 
 	if res.FragLength != 68 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.FragLength==68, got %v", res.FragLength)
 	}
 
 	if res.CallId != 2596996162 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.CallId==2596996162, got %v", res.CallId)
 	}
 
 	if res.MaxRecvFragSize != 4280 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.MaxRecvFragSize==4280, got %v", res.MaxRecvFragSize)
 	}
 
 	if res.MaxSendFragSize != 4280 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.MaxSendFragSize==4280, got %v", res.MaxSendFragSize)
 	}
 
 	if res.Association != 0x000054d7 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.Association==0x000054d7, got %v", res.Association)
 	}
 
 	if res.SecAddrLen != 13 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.SecAddrLen==13, got %v", res.SecAddrLen)
 	}
 
 	if !bytes.Equal(res.SecAddr, []byte("\\pipe\\ntsvcs\x00")) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", res.SecAddr, []byte("\\pipe\\ntsvcs\x00"))
 	}
 
 	if res.ResultList.Results != 1 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ResultList.Results==1, got %v", res.ResultList.Results)
 	}
 
 	if res.ResultList.Items[0].Result != acceptance {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ResultList.Items[0].Result==acceptance, got %v", res.ResultList.Items[0].Result)
 	}
 
 	if res.ResultList.Items[0].Reason != reasonNotSpecified {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ResultList.Items[0].Reason==reasonNotSpecified, got %v", res.ResultList.Items[0].Reason)
 	}
 
 	ndr, err := hex.DecodeString("045d888aeb1cc9119fe808002b104860")
@@ -123,10 +123,10 @@ func TestBindRes(t *testing.T) {
 	}
 
 	if !bytes.Equal(res.ResultList.Items[0].TransferSyntax.UUID, ndr) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", res.ResultList.Items[0].TransferSyntax.UUID, ndr)
 	}
 
 	if res.ResultList.Items[0].TransferSyntax.Version != 2 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ResultList.Items[0].TransferSyntax.Version==2, got %v", res.ResultList.Items[0].TransferSyntax.Version)
 	}
 }

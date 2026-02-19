@@ -57,6 +57,9 @@ const (
 	ErrorContextMismatch uint32 = 0x1c00001a
 )
 
+// defaultMaxFragSize is the MS-RPCE minimum max fragment size (section 3.3.1.5.2).
+const defaultMaxFragSize uint16 = 4280
+
 var responseCodeMap = map[uint32]error{
 	ErrorSuccess:         fmt.Errorf("The operation completed successfully"),
 	ErrorAccessDenied:    fmt.Errorf("Access denied!"),
@@ -268,15 +271,15 @@ func UUIDToBin(uuid string) ([]byte, error) {
 	return buf, nil
 }
 
-func newBindReq(callId uint32, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string, maxTransmitSize, maxRecvSize uint16) (req *BindReq, err error) {
+func newBindReq(callId uint32, interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string, maxTransmitSize, maxRecvSize uint16) (req *BindReq, err error) {
 	log.Debugln("In newBindReq")
 
-	srsv_uuid, err := UUIDToBin(interface_uuid)
+	serviceUUID, err := UUIDToBin(interfaceUUID)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	ndr_uuid, err := UUIDToBin(transfer_uuid)
+	transferSyntaxUUID, err := UUIDToBin(transferUUID)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -287,12 +290,12 @@ func newBindReq(callId uint32, interface_uuid string, majorVersion, minorVersion
 	ctxItem := ContextItem{
 		Id: 0,
 		AbstractSyntax: SyntaxId{
-			UUID:    srsv_uuid,
+			UUID:    serviceUUID,
 			Version: (uint32(minorVersion) << 16) | uint32(majorVersion),
 		},
 		TransferSyntax: []SyntaxId{
 			SyntaxId{
-				UUID:    ndr_uuid,
+				UUID:    transferSyntaxUUID,
 				Version: 2,
 			},
 		},
@@ -325,7 +328,7 @@ func newRequestReq(callId uint32, op uint16) (*RequestReq, error) {
 }
 // parseAndValidateCommonHeader validates a BindAck or AlterContext response PDU Common Header.
 // It checks the CallId and the packet type
-func parseAndValidateCommonHeader(response []byte, expectedCallId uint32) (error) {
+func parseAndValidateCommonHeader(response []byte, expectedCallId uint32) error {
 	var h Header
 	err := h.UnmarshalBinary(response[:16])
 	if err != nil {
@@ -382,15 +385,15 @@ func parseAndValidateBindAck(response []byte, expectedCallId uint32) (*BindRes, 
 	return &bindRes, nil
 }
 
-func Bind(transport DCERPCTransport, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string) (bind *ServiceBind, err error) {
+func Bind(transport DCERPCTransport, interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string) (bind *ServiceBind, err error) {
 	log.Debugln("In Bind")
 	if transport == nil {
 		return nil, fmt.Errorf("Transport argument cannot be nil")
 	}
 	callId := atomic.Uint32{}
-	maxFragRxSize := uint16(4280)
-	maxFragTxSize := uint16(4280)
-	bindReq, err := newBindReq(callId.Add(1), interface_uuid, majorVersion, minorVersion, transfer_uuid, maxFragTxSize, maxFragRxSize)
+	maxFragRxSize := defaultMaxFragSize
+	maxFragTxSize := defaultMaxFragSize
+	bindReq, err := newBindReq(callId.Add(1), interfaceUUID, majorVersion, minorVersion, transferUUID, maxFragTxSize, maxFragRxSize)
 	if err != nil {
 		return
 	}
@@ -399,7 +402,7 @@ func Bind(transport DCERPCTransport, interface_uuid string, majorVersion, minorV
 	if err != nil {
 		return
 	}
-	// Update FragLength to actual PDU size
+	// Patch FragLength at header offset 8 now that total PDU size is known.
 	binary.LittleEndian.PutUint16(buf[8:10], uint16(len(buf)))
 
 	response, err := transport.Transceive(buf)
@@ -412,6 +415,8 @@ func Bind(transport DCERPCTransport, interface_uuid string, majorVersion, minorV
 		return
 	}
 
+	// MaxSendFragSize is the max the server will send to us (our receive limit);
+	// MaxRecvFragSize is the max the server can receive from us (our transmit limit).
 	return &ServiceBind{
 		callId:              &callId,
 		transport:           transport,
@@ -492,7 +497,7 @@ func marshalSPNEGOResp(resp gss.NegTokenResp) ([]byte, error) {
 // response confirms authentication success.
 // For Kerberos, it wraps tokens in SPNEGO and uses Alter Context for the third
 // leg to finalize the security context.
-func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string, authLevel uint8, mechanism gss.Mechanism) (bind *ServiceBind, err error) {
+func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string, authLevel uint8, mechanism gss.Mechanism) (bind *ServiceBind, err error) {
 	log.Debugln("In BindAuth")
 	if transport == nil {
 		return nil, fmt.Errorf("Transport argument cannot be nil")
@@ -509,8 +514,8 @@ func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, mi
 	useSpnego := isKerberosMech(mechanism)
 
 	callId := atomic.Uint32{}
-	maxFragRxSize := uint16(4280)
-	maxFragTxSize := uint16(4280)
+	maxFragRxSize := defaultMaxFragSize
+	maxFragTxSize := defaultMaxFragSize
 
 	// Step 1: Get initial auth token from mechanism
 	mechToken, err := mechanism.InitSecContext(nil)
@@ -532,7 +537,7 @@ func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, mi
 	}
 
 	// Step 2: Build Bind request with AuthVerifier
-	bindReq, err := newBindReq(callId.Add(1), interface_uuid, majorVersion, minorVersion, transfer_uuid, maxFragTxSize, maxFragRxSize)
+	bindReq, err := newBindReq(callId.Add(1), interfaceUUID, majorVersion, minorVersion, transferUUID, maxFragTxSize, maxFragRxSize)
 	if err != nil {
 		return
 	}
@@ -549,7 +554,7 @@ func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, mi
 	if err != nil {
 		return
 	}
-	// Update FragLength to actual PDU size
+	// Patch FragLength at header offset 8 now that total PDU size is known.
 	binary.LittleEndian.PutUint16(buf[8:10], uint16(len(buf)))
 
 	// Step 3: Send Bind, receive BindAck
@@ -613,7 +618,7 @@ func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, mi
 
 		// Step 6: Send third leg via Alter Context to finalize the security context.
 		if len(responseToken) > 0 {
-			alterReq, err2 := newBindReq(callId.Add(1), interface_uuid, majorVersion, minorVersion, transfer_uuid, maxFragTxSize, maxFragRxSize)
+			alterReq, err2 := newBindReq(callId.Add(1), interfaceUUID, majorVersion, minorVersion, transferUUID, maxFragTxSize, maxFragRxSize)
 			if err2 != nil {
 				return nil, fmt.Errorf("Failed to build Alter Context: %w", err2)
 			}
@@ -675,6 +680,8 @@ func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, mi
 		sealer = s
 	}
 
+	// MaxSendFragSize is the max the server will send to us (our receive limit);
+	// MaxRecvFragSize is the max the server can receive from us (our transmit limit).
 	return &ServiceBind{
 		callId:              &callId,
 		transport:           transport,

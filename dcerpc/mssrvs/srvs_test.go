@@ -43,7 +43,7 @@ func TestNetShareEnumAllReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -60,85 +60,85 @@ func TestNetShareEnumAllRes(t *testing.T) {
 	}
 
 	if res.InfoStruct.Level != 1 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.InfoStruct.Level==1, got %v", res.InfoStruct.Level)
 	}
 
 	ctr1 := res.InfoStruct.ShareInfo.(*ShareInfoContainer1)
 
 	if ctr1.EntriesRead != 5 {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.EntriesRead==5, got %v", ctr1.EntriesRead)
 	}
 
 	if ctr1.Buffer[0].Type != StypeDisktree|StypeSpecial {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[0].Type==StypeDisktree|StypeSpecial, got %v", ctr1.Buffer[0].Type)
 	}
 
 	if ctr1.Buffer[0].Name != "ADMIN$" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[0].Name==ADMIN$, got %v", ctr1.Buffer[0].Name)
 	}
 
 	if ctr1.Buffer[0].Comment != "Remote Admin" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[0].Comment==Remote Admin, got %v", ctr1.Buffer[0].Comment)
 	}
 
 	if ctr1.Buffer[1].Type != StypeDisktree|StypeSpecial {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[1].Type==StypeDisktree|StypeSpecial, got %v", ctr1.Buffer[1].Type)
 	}
 
 	if ctr1.Buffer[1].Name != "C$" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[1].Name==C$, got %v", ctr1.Buffer[1].Name)
 	}
 
 	if ctr1.Buffer[1].Comment != "Default share" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[1].Comment==Default share, got %v", ctr1.Buffer[1].Comment)
 	}
 
 	if ctr1.Buffer[2].Type != StypeIPC|StypeSpecial {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[2].Type==StypeIPC|StypeSpecial, got %v", ctr1.Buffer[2].Type)
 	}
 
 	if ctr1.Buffer[2].Name != "IPC$" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[2].Name==IPC$, got %v", ctr1.Buffer[2].Name)
 	}
 
 	if ctr1.Buffer[2].Comment != "Remote IPC" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[2].Comment==Remote IPC, got %v", ctr1.Buffer[2].Comment)
 	}
 
 	if ctr1.Buffer[3].Type != StypeDisktree {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[3].Type==StypeDisktree, got %v", ctr1.Buffer[3].Type)
 	}
 
 	if ctr1.Buffer[3].Name != "Z" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[3].Name==Z, got %v", ctr1.Buffer[3].Name)
 	}
 
 	if ctr1.Buffer[3].Comment != "" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[3].Comment==, got %v", ctr1.Buffer[3].Comment)
 	}
 
 	if ctr1.Buffer[4].Type != StypeDisktree|StypeSpecial {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[4].Type==StypeDisktree|StypeSpecial, got %v", ctr1.Buffer[4].Type)
 	}
 
 	if ctr1.Buffer[4].Name != "Z$" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[4].Name==Z$, got %v", ctr1.Buffer[4].Name)
 	}
 
 	if ctr1.Buffer[4].Comment != "Default share" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ctr1.Buffer[4].Comment==Default share, got %v", ctr1.Buffer[4].Comment)
 	}
 
 	if res.TotalEntries != 5 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.TotalEntries==5, got %v", res.TotalEntries)
 	}
 
 	if res.ResumeHandle != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ResumeHandle==0, got %v", res.ResumeHandle)
 	}
 
 	if res.WindowsError != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.WindowsError==0, got %v", res.WindowsError)
 	}
 }
 
@@ -160,7 +160,7 @@ func TestNetServerInfoReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -178,65 +178,65 @@ func TestNetServerInfoRes(t *testing.T) {
 	}
 
 	if res.WindowsError != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.WindowsError==0, got %v", res.WindowsError)
 	}
 
 	if res.Info.Level != 102 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.Info.Level==102, got %v", res.Info.Level)
 	}
 
 	ptr := res.Info.Pointer.(*NetServerInfo102)
 
 	if ptr.PlatformId != 500 {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.PlatformId==500, got %v", ptr.PlatformId)
 	}
 
 	if ptr.VersionMajor != 10 {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.VersionMajor==10, got %v", ptr.VersionMajor)
 	}
 
 	if ptr.VersionMinor != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.VersionMinor==0, got %v", ptr.VersionMinor)
 	}
 
 	if ptr.SvType != 0x9003 {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.SvType==0x9003, got %v", ptr.SvType)
 	}
 
 	if ptr.Users != 16777216 {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.Users==16777216, got %v", ptr.Users)
 	}
 
 	if ptr.Disc != 15 {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.Disc==15, got %v", ptr.Disc)
 	}
 
 	if ptr.Hidden != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.Hidden==0, got %v", ptr.Hidden)
 	}
 
 	if ptr.Announce != 60 {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.Announce==60, got %v", ptr.Announce)
 	}
 
 	if ptr.Anndelta != 3000 {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.Anndelta==3000, got %v", ptr.Anndelta)
 	}
 
 	if ptr.Licences != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.Licences==0, got %v", ptr.Licences)
 	}
 
 	if ptr.Name != "WIN2K19" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.Name==WIN2K19, got %v", ptr.Name)
 	}
 
 	if ptr.Comment != "" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.Comment==, got %v", ptr.Comment)
 	}
 
 	if ptr.Userpath != "c:\\" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.Userpath==c:\\, got %v", ptr.Userpath)
 	}
 }
 
@@ -267,7 +267,7 @@ func TestNetSessionEnumReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -285,25 +285,25 @@ func TestNetSessionEnumRes(t *testing.T) {
 	}
 
 	if res.WindowsError != 0 {
-		t.Error("Fail")
+		t.Errorf("expected res.WindowsError==0, got %v", res.WindowsError)
 	}
 
 	if res.Info.Level != 10 {
-		t.Error("Fail")
+		t.Errorf("expected res.Info.Level==10, got %v", res.Info.Level)
 	}
 
 	ptr := res.Info.SessionInfo.(*SessionInfoContainer10)
 
 	if ptr.EntriesRead != 1 {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.EntriesRead==1, got %v", ptr.EntriesRead)
 	}
 
 	if ptr.Buffer[0].Cname != "\\\\100.100.100.51" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.Buffer[0].Cname==\\\\100.100.100.51, got %v", ptr.Buffer[0].Cname)
 	}
 
 	if ptr.Buffer[0].Username != "administrator" {
-		t.Fatal("Fail")
+		t.Fatalf("expected ptr.Buffer[0].Username==administrator, got %v", ptr.Buffer[0].Username)
 	}
 
 	if ptr.Buffer[0].Time != 2 {

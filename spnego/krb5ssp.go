@@ -64,15 +64,15 @@ type KRB5Initiator struct {
 	AESKey      []byte
 	Domain      string
 	DCIP        string
-	DialTimout  time.Duration
+	DialTimeout time.Duration
 	ProxyDialer proxy.Dialer
 	DnsHost     string
 	DnsTCP      bool
 	Host        string
+	SPN         string
 
 	client       *krb5ssp.Client
 	micSeqNum    uint32
-	SPN          string
 	sealSeqNum   uint64
 	unsealSeqNum uint64
 }
@@ -113,7 +113,7 @@ func (i *KRB5Initiator) initKerberosClient() error {
 			return err
 		}
 	}
-	if i.DialTimout.Seconds() < 0 {
+	if i.DialTimeout.Seconds() < 0 {
 		err = fmt.Errorf("A DialTimeout cannot be a negative duration")
 		log.Errorln(err)
 		return err
@@ -133,7 +133,7 @@ func (i *KRB5Initiator) initKerberosClient() error {
 			i.DnsHost += ":53"
 		}
 	}
-	i.client, err = krb5ssp.InitKerberosClient(i.User, i.Domain, i.Password, i.Hash, i.AESKey, i.DCIP, i.SPN, i.DialTimout, i.ProxyDialer, i.DnsHost, i.DnsTCP)
+	i.client, err = krb5ssp.InitKerberosClient(i.User, i.Domain, i.Password, i.Hash, i.AESKey, i.DCIP, i.SPN, i.DialTimeout, i.ProxyDialer, i.DnsHost, i.DnsTCP)
 	return err
 }
 

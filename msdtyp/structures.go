@@ -242,13 +242,17 @@ type PaclPermissions struct {
 	Entries []AcePermissions
 }
 
-func (self *ReturnCode) MarshalBinary() ([]byte, error) {
+func (s *ReturnCode) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for ReturnCode")
 }
 
-func (self *ReturnCode) UnmarshalBinary(buf []byte) error {
-	self.uint32 = le.Uint32(buf)
+func (s *ReturnCode) UnmarshalBinary(buf []byte) error {
+	s.uint32 = le.Uint32(buf)
 	return nil
+}
+
+func (r ReturnCode) Value() uint32 {
+	return r.uint32
 }
 
 // Specifically to handle all the ref id ptrs and array len and size valus that are lifted out of the structures
@@ -441,85 +445,85 @@ func WriteRPCUnicodeStrPtr(w io.Writer, s string, refId *uint32) (n int, err err
 	return
 }
 
-func (self *SecurityDescriptor) MarshalBinary() (ret []byte, err error) {
+func (s *SecurityDescriptor) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 	ptrBuf := make([]byte, 0)
 	// Order: 1. SACL, 2. DACL, 3. Owner, 4. Group
 	bufOffset := uint32(20)
 
-	if self.Sacl != nil {
-		sBuf, err := self.Sacl.MarshalBinary()
+	if s.Sacl != nil {
+		sBuf, err := s.Sacl.MarshalBinary()
 		if err != nil {
 			log.Errorln(err)
 			return nil, err
 		}
 		ptrBuf = append(ptrBuf, sBuf...)
-		self.Control |= SecurityDescriptorFlagSP
-		self.OffsetSacl = bufOffset
+		s.Control |= SecurityDescriptorFlagSP
+		s.OffsetSacl = bufOffset
 		bufOffset += uint32(len(sBuf))
 	}
-	if self.Dacl != nil {
-		dBuf, err := self.Dacl.MarshalBinary()
+	if s.Dacl != nil {
+		dBuf, err := s.Dacl.MarshalBinary()
 		if err != nil {
 			return nil, err
 		}
 		ptrBuf = append(ptrBuf, dBuf...)
-		self.Control |= SecurityDescriptorFlagDP
-		self.OffsetDacl = bufOffset
+		s.Control |= SecurityDescriptorFlagDP
+		s.OffsetDacl = bufOffset
 		bufOffset += uint32(len(dBuf))
 	}
 
-	if self.OwnerSid != nil {
-		oBuf, err := self.OwnerSid.MarshalBinary()
+	if s.OwnerSid != nil {
+		oBuf, err := s.OwnerSid.MarshalBinary()
 		if err != nil {
 			return nil, err
 		}
 		ptrBuf = append(ptrBuf, oBuf...)
-		self.OffsetOwner = bufOffset
+		s.OffsetOwner = bufOffset
 		bufOffset += uint32(len(oBuf))
 	}
 
-	if self.OffsetGroup != 0 {
-		gBuf, err := self.GroupSid.MarshalBinary()
+	if s.OffsetGroup != 0 {
+		gBuf, err := s.GroupSid.MarshalBinary()
 		if err != nil {
 			return nil, err
 		}
 		ptrBuf = append(ptrBuf, gBuf...)
-		self.OffsetGroup = bufOffset
+		s.OffsetGroup = bufOffset
 	}
 
 	// Encode revision
-	err = binary.Write(w, le, self.Revision)
+	err = binary.Write(w, le, s.Revision)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	// Encode control
-	err = binary.Write(w, le, self.Control)
+	err = binary.Write(w, le, s.Control)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	// Encode  OffsetOwner
-	err = binary.Write(w, le, self.OffsetOwner)
+	err = binary.Write(w, le, s.OffsetOwner)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	// Encode  OffsetGroup
-	err = binary.Write(w, le, self.OffsetGroup)
+	err = binary.Write(w, le, s.OffsetGroup)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	// Encode  OffsetSacl
-	err = binary.Write(w, le, self.OffsetSacl)
+	err = binary.Write(w, le, s.OffsetSacl)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	// Encode  OffsetDacl
-	err = binary.Write(w, le, self.OffsetDacl)
+	err = binary.Write(w, le, s.OffsetDacl)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -535,82 +539,82 @@ func (self *SecurityDescriptor) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SecurityDescriptor) UnmarshalBinary(buf []byte) (err error) {
+func (s *SecurityDescriptor) UnmarshalBinary(buf []byte) (err error) {
 
 	r := bytes.NewReader(buf)
 
-	err = binary.Read(r, le, &self.Revision)
+	err = binary.Read(r, le, &s.Revision)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.Control)
+	err = binary.Read(r, le, &s.Control)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.OffsetOwner)
+	err = binary.Read(r, le, &s.OffsetOwner)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.OffsetGroup)
+	err = binary.Read(r, le, &s.OffsetGroup)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.OffsetSacl)
+	err = binary.Read(r, le, &s.OffsetSacl)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.OffsetDacl)
+	err = binary.Read(r, le, &s.OffsetDacl)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.OffsetOwner != 0 {
-		_, err = r.Seek(int64(self.OffsetOwner), io.SeekStart)
-		self.OwnerSid, err = ReadSID(r)
+	if s.OffsetOwner != 0 {
+		_, err = r.Seek(int64(s.OffsetOwner), io.SeekStart)
+		s.OwnerSid, err = ReadSID(r)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	}
-	if self.OffsetGroup != 0 {
-		_, err = r.Seek(int64(self.OffsetGroup), io.SeekStart)
+	if s.OffsetGroup != 0 {
+		_, err = r.Seek(int64(s.OffsetGroup), io.SeekStart)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
-		self.GroupSid, err = ReadSID(r)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-	}
-
-	if (self.Control & SecurityDescriptorFlagSP) == SecurityDescriptorFlagSP {
-		_, err = r.Seek(int64(self.OffsetSacl), io.SeekStart)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-		self.Sacl, err = readPACL(r)
+		s.GroupSid, err = ReadSID(r)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	}
 
-	if (self.Control & SecurityDescriptorFlagDP) == SecurityDescriptorFlagDP {
-		_, err = r.Seek(int64(self.OffsetDacl), io.SeekStart)
+	if (s.Control & SecurityDescriptorFlagSP) == SecurityDescriptorFlagSP {
+		_, err = r.Seek(int64(s.OffsetSacl), io.SeekStart)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
-		self.Dacl, err = readPACL(r)
+		s.Sacl, err = readPACL(r)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+
+	if (s.Control & SecurityDescriptorFlagDP) == SecurityDescriptorFlagDP {
+		_, err = r.Seek(int64(s.OffsetDacl), io.SeekStart)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		s.Dacl, err = readPACL(r)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -620,26 +624,26 @@ func (self *SecurityDescriptor) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *SID) MarshalBinary() (ret []byte, err error) {
+func (s *SID) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 
 	// Encode ACE SID
-	err = binary.Write(w, le, self.Revision)
+	err = binary.Write(w, le, s.Revision)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, byte(len(self.SubAuthorities)))
+	err = binary.Write(w, le, byte(len(s.SubAuthorities)))
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.Authority)
+	err = binary.Write(w, le, s.Authority)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.SubAuthorities)
+	err = binary.Write(w, le, s.SubAuthorities)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -681,7 +685,7 @@ func ReadSID(r *bytes.Reader) (s *SID, err error) {
 	return
 }
 
-func (self *SID) UnmarshalBinary(buf []byte) (err error) {
+func (s *SID) UnmarshalBinary(buf []byte) (err error) {
 	r := bytes.NewReader(buf)
 	sid, err := ReadSID(r)
 	if err != nil {
@@ -689,37 +693,37 @@ func (self *SID) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	*self = *sid
+	*s = *sid
 	return nil
 }
 
-func (self *ACE) MarshalBinary() (ret []byte, err error) {
+func (s *ACE) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.Header.Type)
+	err = binary.Write(w, le, s.Header.Type)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.Header.Flags)
+	err = binary.Write(w, le, s.Header.Flags)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.Header.Size)
+	err = binary.Write(w, le, s.Header.Size)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.Mask)
+	err = binary.Write(w, le, s.Mask)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Encode ACE SID
-	sidBuf, err := self.Sid.MarshalBinary()
+	sidBuf, err := s.Sid.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -768,7 +772,7 @@ func readACE(r *bytes.Reader) (a *ACE, err error) {
 	return
 }
 
-func (self *ACE) UnmarshalBinary(buf []byte) (err error) {
+func (s *ACE) UnmarshalBinary(buf []byte) (err error) {
 	r := bytes.NewReader(buf)
 	ace, err := readACE(r)
 	if err != nil {
@@ -776,32 +780,32 @@ func (self *ACE) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	*self = *ace
+	*s = *ace
 	return nil
 }
 
-func (self *PACL) MarshalBinary() (ret []byte, err error) {
+func (s *PACL) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.AclRevision)
+	err = binary.Write(w, le, s.AclRevision)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.AclSize)
+	err = binary.Write(w, le, s.AclSize)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Encode AceCount at 4 byte boundary
-	err = binary.Write(w, le, uint32(len(self.ACLS)))
+	err = binary.Write(w, le, uint32(len(s.ACLS)))
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	for _, item := range self.ACLS {
+	for _, item := range s.ACLS {
 		var aceBuf []byte
 		aceBuf, err = item.MarshalBinary()
 		if err != nil {
@@ -851,14 +855,14 @@ func readPACL(r *bytes.Reader) (p *PACL, err error) {
 	return
 }
 
-func (self *PACL) UnmarshalBinary(buf []byte) (err error) {
+func (s *PACL) UnmarshalBinary(buf []byte) (err error) {
 	r := bytes.NewReader(buf)
 	pacl, err := readPACL(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	*self = *pacl
+	*s = *pacl
 
 	return nil
 }
@@ -875,23 +879,23 @@ func (a ACE) Permissions() AcePermissions {
 	}
 }
 
-func (self *PACL) Permissions() PaclPermissions {
+func (s *PACL) Permissions() PaclPermissions {
 	var acePerms []AcePermissions
-	for _, item := range self.ACLS {
+	for _, item := range s.ACLS {
 		acePerms = append(acePerms, item.Permissions())
 	}
 	return PaclPermissions{
-		NumAce:  self.AceCount,
+		NumAce:  s.AceCount,
 		Entries: acePerms,
 	}
 }
 
-func (self *SID) ToString() (s string) {
-	return ConvertSIDtoStr(self)
+func (s *SID) ToString() string {
+	return ConvertSIDtoStr(s)
 }
 
-func (self *SID) GetAuthority() uint32 {
-	return binary.BigEndian.Uint32(self.Authority[2:])
+func (s *SID) GetAuthority() uint32 {
+	return binary.BigEndian.Uint32(s.Authority[2:])
 }
 
 // Write Uni-dimensional Conformant-varying Array of RPCUnicodeStrings
@@ -960,14 +964,14 @@ func WriteUniDimensionalConformanVaryingArray(w io.Writer, items []RPCUnicodeStr
 	return
 }
 
-func (self *Filetime) ToWriter(w io.Writer) (n int, err error) {
-	err = binary.Write(w, le, self.LowDateTime)
+func (s *Filetime) ToWriter(w io.Writer) (n int, err error) {
+	err = binary.Write(w, le, s.LowDateTime)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	n += 2
-	err = binary.Write(w, le, self.HighDateTime)
+	err = binary.Write(w, le, s.HighDateTime)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -976,13 +980,13 @@ func (self *Filetime) ToWriter(w io.Writer) (n int, err error) {
 	return
 }
 
-func (self *Filetime) FromReader(r *bytes.Reader) (err error) {
-	err = binary.Read(r, le, &self.LowDateTime)
+func (s *Filetime) FromReader(r *bytes.Reader) (err error) {
+	err = binary.Read(r, le, &s.LowDateTime)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.HighDateTime)
+	err = binary.Read(r, le, &s.HighDateTime)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -990,7 +994,7 @@ func (self *Filetime) FromReader(r *bytes.Reader) (err error) {
 	return
 }
 
-func (self *Filetime) ToString() string {
-	t := ConvertFromFiletime(self)
+func (s *Filetime) ToString() string {
+	t := ConvertFromFiletime(s)
 	return t.String()
 }

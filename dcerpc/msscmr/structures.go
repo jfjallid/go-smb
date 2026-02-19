@@ -381,7 +381,7 @@ type REnumServicesStatusWRes struct {
 	ReturnCode       uint32
 }
 
-func (self *ROpenSCManagerWReq) MarshalBinary() (res []byte, err error) {
+func (s *ROpenSCManagerWReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for ROpenSCManagerWReq")
 
 	var ret []byte
@@ -389,20 +389,20 @@ func (self *ROpenSCManagerWReq) MarshalBinary() (res []byte, err error) {
 	refId := uint32(1)
 
 	// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.MachineName, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.MachineName, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
 	}
 
 	// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.DatabaseName, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.DatabaseName, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -411,24 +411,24 @@ func (self *ROpenSCManagerWReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *ROpenSCManagerWReq) UnmarshalBinary(buf []byte) error {
+func (s *ROpenSCManagerWReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of ROpenSCManagerWReq")
 }
 
-func (self *ROpenSCManagerWRes) MarshalBinary() ([]byte, error) {
+func (s *ROpenSCManagerWRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of ROpenSCManagerWRes")
 }
 
-func (self *ROpenSCManagerWRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *ROpenSCManagerWRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for ROpenSCManagerWRes")
 
 	r := bytes.NewReader(buf)
-	err = binary.Read(r, le, &self.ContextHandle)
+	err = binary.Read(r, le, &s.ContextHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -437,30 +437,30 @@ func (self *ROpenSCManagerWRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *ROpenServiceWReq) MarshalBinary() (res []byte, err error) {
+func (s *ROpenServiceWReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for ROpenServiceWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	if len(self.SCContextHandle) != 20 {
+	if len(s.SCContextHandle) != 20 {
 		return nil, fmt.Errorf("Invalid size of SCContextHandle!")
 	}
 
-	_, err = w.Write(self.SCContextHandle[:20])
+	_, err = w.Write(s.SCContextHandle[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	// Pointer to a conformant and varying string, so include MaxCount
 	// Skip ReferentId ptr because this is not a unique ptr
-	_, err = msdtyp.WriteConformantVaryingString(w, self.ServiceName, true)
+	_, err = msdtyp.WriteConformantVaryingString(w, s.ServiceName, true)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -469,25 +469,25 @@ func (self *ROpenServiceWReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *ROpenServiceWReq) UnmarshalBinary(buf []byte) error {
+func (s *ROpenServiceWReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of ROpenServiceWReq")
 }
 
-func (self *ROpenServiceWRes) MarshalBinary() ([]byte, error) {
+func (s *ROpenServiceWRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of ROpenServiceWReq")
 }
 
-func (self *ROpenServiceWRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *ROpenServiceWRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for ROpenServiceWRes")
 
-	self.ContextHandle = make([]byte, 20)
+	s.ContextHandle = make([]byte, 20)
 	r := bytes.NewReader(buf)
-	err = binary.Read(r, le, &self.ContextHandle)
+	err = binary.Read(r, le, &s.ContextHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -496,17 +496,17 @@ func (self *ROpenServiceWRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *RCloseServiceHandleReq) MarshalBinary() (res []byte, err error) {
+func (s *RCloseServiceHandleReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for RCloseServiceHandleReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	if len(self.ServiceHandle) != 20 {
+	if len(s.ServiceHandle) != 20 {
 		return nil, fmt.Errorf("Invalid size of ServiceHandle!")
 	}
 
-	_, err = w.Write(self.ServiceHandle[:20])
+	_, err = w.Write(s.ServiceHandle[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -515,25 +515,25 @@ func (self *RCloseServiceHandleReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *RCloseServiceHandleReq) UnmarshalBinary(buf []byte) error {
+func (s *RCloseServiceHandleReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RCloseServiceHandleReq")
 }
 
-func (self *RCloseServiceHandleRes) MarshalBinary() ([]byte, error) {
+func (s *RCloseServiceHandleRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of RCloseServiceHandleRes")
 }
 
-func (self *RCloseServiceHandleRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *RCloseServiceHandleRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for RCloseServiceHandleRes")
 
-	self.ContextHandle = make([]byte, 20)
+	s.ContextHandle = make([]byte, 20)
 	r := bytes.NewReader(buf)
-	err = binary.Read(r, le, &self.ContextHandle)
+	err = binary.Read(r, le, &s.ContextHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -542,17 +542,17 @@ func (self *RCloseServiceHandleRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *RQueryServiceStatusReq) MarshalBinary() (res []byte, err error) {
+func (s *RQueryServiceStatusReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for RQueryServiceStatusReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	if len(self.ContextHandle) != 20 {
+	if len(s.ContextHandle) != 20 {
 		return nil, fmt.Errorf("Invalid size of ContextHandle!")
 	}
 
-	_, err = w.Write(self.ContextHandle[:20])
+	_, err = w.Write(s.ContextHandle[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -561,57 +561,57 @@ func (self *RQueryServiceStatusReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *RQueryServiceStatusReq) UnmarshalBinary(buf []byte) error {
+func (s *RQueryServiceStatusReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RQueryServiceStatusReq")
 }
 
-func (self *RQueryServiceStatusRes) MarshalBinary() ([]byte, error) {
+func (s *RQueryServiceStatusRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of RQueryServiceStatusRes")
 }
 
-func (self *RQueryServiceStatusRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *RQueryServiceStatusRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for RQueryServiceStatusRes")
 	r := bytes.NewReader(buf)
 
 	// Not sure why there is no RefId Ptr for the ServiceStatus struct ptr
 
-	self.ServiceStatus = &ServiceStatus{}
-	err = binary.Read(r, le, &self.ServiceStatus.ServiceType)
+	s.ServiceStatus = &ServiceStatus{}
+	err = binary.Read(r, le, &s.ServiceStatus.ServiceType)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ServiceStatus.CurrentState)
+	err = binary.Read(r, le, &s.ServiceStatus.CurrentState)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ServiceStatus.ControlsAccepted)
+	err = binary.Read(r, le, &s.ServiceStatus.ControlsAccepted)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ServiceStatus.Win32ExitCode)
+	err = binary.Read(r, le, &s.ServiceStatus.Win32ExitCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ServiceStatus.ServiceSpecificExitCode)
+	err = binary.Read(r, le, &s.ServiceStatus.ServiceSpecificExitCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ServiceStatus.CheckPoint)
+	err = binary.Read(r, le, &s.ServiceStatus.CheckPoint)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ServiceStatus.WaitHint)
+	err = binary.Read(r, le, &s.ServiceStatus.WaitHint)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -620,23 +620,23 @@ func (self *RQueryServiceStatusRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *RQueryServiceConfigWReq) MarshalBinary() (res []byte, err error) {
+func (s *RQueryServiceConfigWReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for RQueryServiceConfigWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	if len(self.ServiceHandle) != 20 {
+	if len(s.ServiceHandle) != 20 {
 		return nil, fmt.Errorf("Invalid size of ServiceHandle!")
 	}
 
-	_, err = w.Write(self.ServiceHandle[:20])
+	_, err = w.Write(s.ServiceHandle[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.BufSize)
+	err = binary.Write(w, le, s.BufSize)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -645,15 +645,15 @@ func (self *RQueryServiceConfigWReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *RQueryServiceConfigWReq) UnmarshalBinary(buf []byte) error {
+func (s *RQueryServiceConfigWReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RQueryServiceConfigWReq")
 }
 
-func (self *RQueryServiceConfigWRes) MarshalBinary() ([]byte, error) {
+func (s *RQueryServiceConfigWRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of RQueryServiceConfigWRes")
 }
 
-func (self *RQueryServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *RQueryServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for RQueryServiceConfigWRes")
 	if len(buf) < 44 {
 		return fmt.Errorf("Buffer to small for RQueryServiceConfigWRes")
@@ -661,7 +661,7 @@ func (self *RQueryServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 	r := bytes.NewReader(buf)
 
 	conf := QueryServiceConfigW{}
-	self.ServiceConfig = &conf
+	s.ServiceConfig = &conf
 
 	err = binary.Read(r, le, &conf.ServiceType)
 	if err != nil {
@@ -687,12 +687,12 @@ func (self *RQueryServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 			return
 		}
 
-		err = binary.Read(r, le, &self.BytesNeeded)
+		err = binary.Read(r, le, &s.BytesNeeded)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
-		err = binary.Read(r, le, &self.ErrorCode)
+		err = binary.Read(r, le, &s.ErrorCode)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -750,13 +750,13 @@ func (self *RQueryServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.BytesNeeded)
+	err = binary.Read(r, le, &s.BytesNeeded)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ErrorCode)
+	err = binary.Read(r, le, &s.ErrorCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -765,23 +765,23 @@ func (self *RQueryServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *RChangeServiceConfig2WReq) MarshalBinary() (res []byte, err error) {
+func (s *RChangeServiceConfig2WReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for RChangeServiceConfig2WReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	if len(self.ServiceHandle) != 20 {
+	if len(s.ServiceHandle) != 20 {
 		return nil, fmt.Errorf("Invalid size of ServiceHandle!")
 	}
 
-	_, err = w.Write(self.ServiceHandle[:20])
+	_, err = w.Write(s.ServiceHandle[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	buf, err := self.Info.MarshalBinary()
+	buf, err := s.Info.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -801,33 +801,33 @@ func (self *RChangeServiceConfig2WReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *RChangeServiceConfig2WReq) UnmarshalBinary(buf []byte) error {
+func (s *RChangeServiceConfig2WReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RChangeServiceConfig2WReq")
 }
 
-func (self *RQueryServiceConfig2WReq) MarshalBinary() (res []byte, err error) {
+func (s *RQueryServiceConfig2WReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for RQueryServiceConfig2WReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	if len(self.ServiceHandle) != 20 {
+	if len(s.ServiceHandle) != 20 {
 		return nil, fmt.Errorf("Invalid size of ServiceHandle!")
 	}
 
-	_, err = w.Write(self.ServiceHandle[:20])
+	_, err = w.Write(s.ServiceHandle[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.InfoLevel)
+	err = binary.Write(w, le, s.InfoLevel)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.BufSize)
+	err = binary.Write(w, le, s.BufSize)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -836,15 +836,15 @@ func (self *RQueryServiceConfig2WReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *RQueryServiceConfig2WReq) UnmarshalBinary(buf []byte) error {
+func (s *RQueryServiceConfig2WReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RQueryServiceConfig2WReq")
 }
 
-func (self *RQueryServiceConfig2WRes) MarshalBinary() ([]byte, error) {
+func (s *RQueryServiceConfig2WRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of RQueryServiceConfig2WRes")
 }
 
-func (self *RQueryServiceConfig2WRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *RQueryServiceConfig2WRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for RQueryServiceConfig2WRes")
 	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for RQueryServiceConfig2WRes")
@@ -858,13 +858,13 @@ func (self *RQueryServiceConfig2WRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.BytesNeeded)
+	err = binary.Read(r, le, &s.BytesNeeded)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ErrorCode)
+	err = binary.Read(r, le, &s.ErrorCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -886,8 +886,8 @@ func (self *RQueryServiceConfig2WRes) UnmarshalBinary(buf []byte) (err error) {
 		err = fmt.Errorf("RQueryServiceConfig2W response buffer is smaller than indicated size of payload")
 	}
 
-	self.Buffer = make([]byte, maxCount)
-	n, err := r.Read(self.Buffer)
+	s.Buffer = make([]byte, maxCount)
+	n, err := r.Read(s.Buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -900,74 +900,74 @@ func (self *RQueryServiceConfig2WRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
+func (s *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for RChangeServiceConfigWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	refId := uint32(1)
 
-	if len(self.ServiceHandle) != 20 {
+	if len(s.ServiceHandle) != 20 {
 		return nil, fmt.Errorf("Invalid size of ServiceHandle!")
 	}
 
-	_, err = w.Write(self.ServiceHandle[:20])
+	_, err = w.Write(s.ServiceHandle[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.ServiceType)
+	err = binary.Write(w, le, s.ServiceType)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.StartType)
+	err = binary.Write(w, le, s.StartType)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.ErrorControl)
+	err = binary.Write(w, le, s.ErrorControl)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.BinaryPathName, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.BinaryPathName, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.LoadOrderGroup, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.LoadOrderGroup, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.TagId != 0 {
+	if s.TagId != 0 {
 		err = binary.Write(w, le, refId)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
-		err = binary.Write(w, le, self.TagId)
+		err = binary.Write(w, le, s.TagId)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	} else {
-		err = binary.Write(w, le, self.TagId)
+		err = binary.Write(w, le, s.TagId)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	}
 
-	if self.Dependencies != "" {
-		uncDependencies := msdtyp.ToUnicode(self.Dependencies + "\x00")
+	if s.Dependencies != "" {
+		uncDependencies := msdtyp.ToUnicode(s.Dependencies + "\x00")
 		_, err = msdtyp.WriteConformantArrayPtr(w, uncDependencies, &refId)
 		if err != nil {
 			log.Errorln(err)
@@ -988,20 +988,20 @@ func (self *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
 		}
 	}
 
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.ServiceStartName, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.ServiceStartName, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.Password != nil {
-		_, err = msdtyp.WriteConformantArrayPtr(w, self.Password, &refId)
+	if s.Password != nil {
+		_, err = msdtyp.WriteConformantArrayPtr(w, s.Password, &refId)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 
-		err = binary.Write(w, le, uint32(len(self.Password)))
+		err = binary.Write(w, le, uint32(len(s.Password)))
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -1015,7 +1015,7 @@ func (self *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
 		}
 	}
 
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.DisplayName, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.DisplayName, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1024,35 +1024,35 @@ func (self *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *RChangeServiceConfigWReq) UnmarshalBinary(buf []byte) error {
+func (s *RChangeServiceConfigWReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RChangeServiceConfigWReq")
 }
 
-func (self *RChangeServiceConfigWRes) MarshalBinary() ([]byte, error) {
+func (s *RChangeServiceConfigWRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of RChangeServiceConfigWRes")
 }
 
-func (self *RChangeServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *RChangeServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for RChangeServiceConfigWRes")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer to small for RchangeServiceConfigWRes")
 	}
 	r := bytes.NewReader(buf)
 
-	err = binary.Read(r, le, &self.TagId)
+	err = binary.Read(r, le, &s.TagId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	if self.TagId > 0 {
+	if s.TagId > 0 {
 		// First 4 bytes was Referent ID when tag is non-zero
-		err = binary.Read(r, le, &self.TagId)
+		err = binary.Read(r, le, &s.TagId)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	}
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1061,23 +1061,23 @@ func (self *RChangeServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *RControlServiceReq) MarshalBinary() (res []byte, err error) {
+func (s *RControlServiceReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for RControlServiceReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	if len(self.ServiceHandle) != 20 {
+	if len(s.ServiceHandle) != 20 {
 		return nil, fmt.Errorf("Invalid size of ServiceHandle!")
 	}
 
-	_, err = w.Write(self.ServiceHandle[:20])
+	_, err = w.Write(s.ServiceHandle[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.Control)
+	err = binary.Write(w, le, s.Control)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1086,15 +1086,15 @@ func (self *RControlServiceReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *RControlServiceReq) UnmarshalBinary(buf []byte) error {
+func (s *RControlServiceReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RControlServiceReq")
 }
 
-func (self *RControlServiceRes) MarshalBinary() ([]byte, error) {
+func (s *RControlServiceRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of RControlServiceRes")
 }
 
-func (self *RControlServiceRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *RControlServiceRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for RControlServiceRes")
 
 	// Skip implementing the same decoding function twice
@@ -1104,23 +1104,23 @@ func (self *RControlServiceRes) UnmarshalBinary(buf []byte) (err error) {
 		log.Errorln(err)
 		return
 	}
-	self.ReturnValue = res.ReturnCode
-	self.ServiceStatus = res.ServiceStatus
+	s.ReturnValue = res.ReturnCode
+	s.ServiceStatus = res.ServiceStatus
 
 	return
 }
 
-func (self *RDeleteServiceReq) MarshalBinary() (res []byte, err error) {
+func (s *RDeleteServiceReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for RDeleteServiceReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	if len(self.ServiceHandle) != 20 {
+	if len(s.ServiceHandle) != 20 {
 		return nil, fmt.Errorf("Invalid size of ServiceHandle!")
 	}
 
-	_, err = w.Write(self.ServiceHandle[:20])
+	_, err = w.Write(s.ServiceHandle[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1129,7 +1129,7 @@ func (self *RDeleteServiceReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *RDeleteServiceReq) UnmarshalBinary(buf []byte) error {
+func (s *RDeleteServiceReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RDeleteServiceReq")
 }
 
@@ -1187,89 +1187,89 @@ func (s *RStartServiceWReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *RStartServiceWReq) UnmarshalBinary(buf []byte) error {
+func (s *RStartServiceWReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RStartServiceWReq")
 }
 
-func (self *RCreateServiceWReq) MarshalBinary() (res []byte, err error) {
+func (s *RCreateServiceWReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for RCreateServiceWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	refId := uint32(1)
 
-	if len(self.SCContextHandle) != 20 {
+	if len(s.SCContextHandle) != 20 {
 		return nil, fmt.Errorf("Invalid size of SCContextHandle!")
 	}
 
-	if self.ServiceName == "" {
+	if s.ServiceName == "" {
 		return nil, fmt.Errorf("Invalid ServiceName. Cannot be empty!")
 	}
 
-	_, err = w.Write(self.SCContextHandle[:20])
+	_, err = w.Write(s.SCContextHandle[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Skip ReferentId ptr because this is not a unique ptr
-	_, err = msdtyp.WriteConformantVaryingString(w, self.ServiceName, true)
+	_, err = msdtyp.WriteConformantVaryingString(w, s.ServiceName, true)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.DisplayName, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.DisplayName, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.ServiceType)
+	err = binary.Write(w, le, s.ServiceType)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.StartType)
+	err = binary.Write(w, le, s.StartType)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.ErrorControl)
+	err = binary.Write(w, le, s.ErrorControl)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Skip ReferentId ptr because this is not a unique ptr
-	_, err = msdtyp.WriteConformantVaryingString(w, self.BinaryPathName, true)
+	_, err = msdtyp.WriteConformantVaryingString(w, s.BinaryPathName, true)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.LoadOrderGroup, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.LoadOrderGroup, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.TagId)
+	err = binary.Write(w, le, s.TagId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.Dependencies != "" {
-		uncDependencies := msdtyp.ToUnicode(self.Dependencies + "\x00")
+	if s.Dependencies != "" {
+		uncDependencies := msdtyp.ToUnicode(s.Dependencies + "\x00")
 		_, err = msdtyp.WriteConformantArrayPtr(w, uncDependencies, &refId)
 		if err != nil {
 			log.Errorln(err)
@@ -1290,20 +1290,20 @@ func (self *RCreateServiceWReq) MarshalBinary() (res []byte, err error) {
 		}
 	}
 
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.ServiceStartName, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.ServiceStartName, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.Password != nil {
-		_, err = msdtyp.WriteConformantArrayPtr(w, self.Password, &refId)
+	if s.Password != nil {
+		_, err = msdtyp.WriteConformantArrayPtr(w, s.Password, &refId)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 
-		err = binary.Write(w, le, uint32(len(self.Password)))
+		err = binary.Write(w, le, uint32(len(s.Password)))
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -1320,35 +1320,35 @@ func (self *RCreateServiceWReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *RCreateServiceWReq) UnmarshalBinary(buf []byte) error {
+func (s *RCreateServiceWReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RCreateServiceWReq")
 }
 
-func (self *RCreateServiceWRes) MarshalBinary() ([]byte, error) {
+func (s *RCreateServiceWRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of RCreateServiceWRes")
 }
 
-func (self *RCreateServiceWRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *RCreateServiceWRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for RCreateServiceWRes")
 	if len(buf) < 28 {
 		return fmt.Errorf("Buffer to small for RchangeServiceConfigWRes")
 	}
 	r := bytes.NewReader(buf)
 
-	err = binary.Read(r, le, &self.TagId)
+	err = binary.Read(r, le, &s.TagId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	self.ContextHandle = make([]byte, 20)
-	err = binary.Read(r, le, &self.ContextHandle)
+	s.ContextHandle = make([]byte, 20)
+	err = binary.Read(r, le, &s.ContextHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1357,49 +1357,49 @@ func (self *RCreateServiceWRes) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *REnumServicesStatusWReq) MarshalBinary() (res []byte, err error) {
+func (s *REnumServicesStatusWReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for REnumServicesStatusWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	if len(self.SCContextHandle) != 20 {
+	if len(s.SCContextHandle) != 20 {
 		return nil, fmt.Errorf("Invalid size of SCContextHandle!")
 	}
 
-	if (self.ServiceType & 0x33) == 0 {
+	if (s.ServiceType & 0x33) == 0 {
 		return nil, fmt.Errorf("Invalid ServiceType. Must be one or a combination of values from MS-SCMR dwServiceType")
 	}
 
-	if (self.ServiceState > 0x3) || (self.ServiceState == 0) {
+	if (s.ServiceState > 0x3) || (s.ServiceState == 0) {
 		return nil, fmt.Errorf("Invalid ServiceState value")
 	}
 
-	_, err = w.Write(self.SCContextHandle[:20])
+	_, err = w.Write(s.SCContextHandle[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.ServiceType)
+	err = binary.Write(w, le, s.ServiceType)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.ServiceState)
+	err = binary.Write(w, le, s.ServiceState)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.BufSize)
+	err = binary.Write(w, le, s.BufSize)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.ResumeIndex)
+	err = binary.Write(w, le, s.ResumeIndex)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1408,15 +1408,15 @@ func (self *REnumServicesStatusWReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *REnumServicesStatusWReq) UnmarshalBinary(buf []byte) error {
+func (s *REnumServicesStatusWReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of REnumServicesStatusWReq")
 }
 
-func (self *REnumServicesStatusWRes) MarshalBinary() ([]byte, error) {
+func (s *REnumServicesStatusWRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of REnumServicesStatusWRes")
 }
 
-func (self *REnumServicesStatusWRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *REnumServicesStatusWRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for REnumServicesStatusWRes")
 	if len(buf) < 16 {
 		return fmt.Errorf("Buffer to small for REnumServicesStatusWRes")
@@ -1430,31 +1430,31 @@ func (self *REnumServicesStatusWRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.BytesNeeded)
+	err = binary.Read(r, le, &s.BytesNeeded)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ServicesReturned)
+	err = binary.Read(r, le, &s.ServicesReturned)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ResumeIndex)
+	err = binary.Read(r, le, &s.ResumeIndex)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
+	if s.ReturnCode > 0 {
 		// Likely no more data we care about in this packet
 		return
 	}
@@ -1478,8 +1478,8 @@ func (self *REnumServicesStatusWRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.Services = make([]EnumServiceStatusW, 0, self.ServicesReturned)
-	for i := 0; i < int(self.ServicesReturned); i++ {
+	s.Services = make([]EnumServiceStatusW, 0, s.ServicesReturned)
+	for i := 0; i < int(s.ServicesReturned); i++ {
 		service := EnumServiceStatusW{ServiceStatus: &ServiceStatus{}}
 		var offsetServiceName uint32
 		var offsetDisplayName uint32
@@ -1606,13 +1606,13 @@ func (self *REnumServicesStatusWRes) UnmarshalBinary(buf []byte) (err error) {
 			return
 		}
 
-		self.Services = append(self.Services, service)
+		s.Services = append(s.Services, service)
 	}
 
 	return nil
 }
 
-func (self *ConfigInfoW) MarshalBinary() (res []byte, err error) {
+func (s *ConfigInfoW) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for ConfigInfoW")
 
 	var ret []byte
@@ -1620,12 +1620,12 @@ func (self *ConfigInfoW) MarshalBinary() (res []byte, err error) {
 
 	// MS-SCMR Section 2.2.22 SC_RPC_CONFIG_INFOW
 	// Encode dwInfoLevel value
-	err = binary.Write(w, le, self.InfoLevel)
+	err = binary.Write(w, le, s.InfoLevel)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	buf, err := self.Data.MarshalBinary()
+	buf, err := s.Data.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1645,7 +1645,7 @@ func (self *ConfigInfoW) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *ServiceDescription) MarshalBinary() (res []byte, err error) {
+func (s *ServiceDescription) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for ServiceDescription")
 
 	// MS-SCMR Section 2.2.22 SC_RPC_CONFIG_INFOW
@@ -1661,7 +1661,7 @@ func (self *ServiceDescription) MarshalBinary() (res []byte, err error) {
 
 	// finally, encode the actual struct that was selected
 	// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.Description, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.Description, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err

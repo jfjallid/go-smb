@@ -185,8 +185,8 @@ func getFieldLengthByName(fieldName string, meta *Metadata) (uint64, error) {
 
 	field := parentvf.FieldByName(fieldName)
 	if !field.IsValid() {
-		fmt.Printf("Cannot determine length of field %s\n", fieldName)
-		fmt.Println(meta.Lens)
+		log.Errorf("Cannot determine length of field %s\n", fieldName)
+		log.Errorln(meta.Lens)
 		return 0, errors.New("Invalid field. Cannot determine length.")
 	}
 
@@ -491,17 +491,6 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 			if err != nil {
 				return nil, err
 			}
-			//if (valuev.Field(i).Kind() == reflect.Ptr) && (reflect.TypeOf(data).Kind() == reflect.Struct) {
-			//    fmt.Println(valuev.Field(i).Type())
-			//    fmt.Printf("Target Kind: %v, Data kind: %v\n", valuev.Field(i).Kind(), reflect.TypeOf(data).Kind())
-			//    //valuev.Field(i).Set(reflect.TypeOf(data))
-			//    t := reflect.ValueOf(data)
-			//    valuev.Field(i).Set(t)
-			//} else {
-			//    valuev.Field(i).Set(reflect.ValueOf(data))
-			//}
-			//fmt.Println(reflect.ValueOf(data))
-
 			// Handle nil results
 			if data == nil {
 				continue
@@ -729,7 +718,7 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 				}
 			} else {
 				err := fmt.Errorf("NOT IMPLEMENTED unmarshal of slice of structs missing Count tag")
-				fmt.Println(err)
+				log.Errorln(err)
 				return nil, err
 			}
 			list := reflect.MakeSlice(typev, 0, int(count))

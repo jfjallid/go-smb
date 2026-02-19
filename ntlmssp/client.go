@@ -43,7 +43,7 @@ import (
 
 var le = binary.LittleEndian
 
-var log = golog.Get("ntlmssp")
+var log = golog.Get("github.com/jfjallid/go-smb/ntlmssp")
 
 var version = []byte{
 	0: WINDOWS_MAJOR_VERSION_10,

@@ -499,12 +499,12 @@ type SamrGroupMember struct {
 	Attributes uint32
 }
 
-func (self *SamrCloseHandleReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrCloseHandleReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrCloseHandleReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
-	err = binary.Write(w, le, self.ServerHandle)
+	err = binary.Write(w, le, s.ServerHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -513,7 +513,7 @@ func (self *SamrCloseHandleReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrConnect5Req) MarshalBinary() (res []byte, err error) {
+func (s *SamrConnect5Req) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrConnect5Req")
 
 	var ret []byte
@@ -521,28 +521,28 @@ func (self *SamrConnect5Req) MarshalBinary() (res []byte, err error) {
 	refId := uint32(1)
 
 	// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.ServerName, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.ServerName, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	if self.ServerName != "" {
+	if s.ServerName != "" {
 		refId++
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.InVersion)
+	err = binary.Write(w, le, s.InVersion)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	buf, err := self.InRevisionInfo.MarshalBinary()
+	buf, err := s.InRevisionInfo.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -561,15 +561,15 @@ func (self *SamrConnect5Req) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrConnect5Req) UnmarshalBinary(buf []byte) error {
+func (s *SamrConnect5Req) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrConnect5Req")
 }
 
-func (self *SamrConnect5Res) MarshalBinary() ([]byte, error) {
+func (s *SamrConnect5Res) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrConnect5Res")
 }
 
-func (self *SamrConnect5Res) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrConnect5Res) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrConnect5Res")
 	if len(buf) < 40 {
 		return fmt.Errorf("Buffer to small for SamrConnect5Res")
@@ -583,23 +583,23 @@ func (self *SamrConnect5Res) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.ServerHandle = make([]byte, 20)
-	err = binary.Read(r, le, &self.ServerHandle)
+	s.ServerHandle = make([]byte, 20)
+	err = binary.Read(r, le, &s.ServerHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrConnect5 response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrConnect5 response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -614,19 +614,19 @@ func (self *SamrConnect5Res) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.OutVersion)
+	err = binary.Read(r, le, &s.OutVersion)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.OutVersion != 1 {
-		err = fmt.Errorf("Unknown OutVersion in SamrConnect5 response: %d", self.OutVersion)
+	if s.OutVersion != 1 {
+		err = fmt.Errorf("Unknown OutVersion in SamrConnect5 response: %d", s.OutVersion)
 		log.Errorln(err)
 		return
 	}
 
-	switch self.OutVersion {
+	switch s.OutVersion {
 	case 1:
 		var data SamprRevisionInfoV1
 		err = data.UnmarshalBinary(buf[4:])
@@ -634,9 +634,9 @@ func (self *SamrConnect5Res) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		self.OutRevisionInfo = &data
+		s.OutRevisionInfo = &data
 	default:
-		err = fmt.Errorf("Unknown Version %d in SamrConnect5 response structure", self.OutVersion)
+		err = fmt.Errorf("Unknown Version %d in SamrConnect5 response structure", s.OutVersion)
 		log.Errorln(err)
 		return
 	}
@@ -644,19 +644,19 @@ func (self *SamrConnect5Res) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *SamrQueryInformationUser2Req) MarshalBinary() (res []byte, err error) {
+func (s *SamrQueryInformationUser2Req) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrQueryInformationUser2Req")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.UserHandle)
+	err = binary.Write(w, le, s.UserHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.UserInformationClass)
+	err = binary.Write(w, le, s.UserInformationClass)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -665,15 +665,15 @@ func (self *SamrQueryInformationUser2Req) MarshalBinary() (res []byte, err error
 	return w.Bytes(), nil
 }
 
-func (self *SamrQueryInformationUser2Req) UnmarshalBinary(buf []byte) error {
+func (s *SamrQueryInformationUser2Req) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrQueryInformationUser2Req")
 }
 
-func (self *SamrQueryInformationUser2Res) MarshalBinary() ([]byte, error) {
+func (s *SamrQueryInformationUser2Res) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrQueryInformationUser2Res")
 }
 
-func (self *SamrQueryInformationUser2Res) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrQueryInformationUser2Res) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrQueryInformationUser2Res")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer to small for SamrQueryInformationUser2Res")
@@ -687,16 +687,16 @@ func (self *SamrQueryInformationUser2Res) UnmarshalBinary(buf []byte) (err error
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrQueryInformationUser2 response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrQueryInformationUser2 response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -736,7 +736,7 @@ func (self *SamrQueryInformationUser2Res) UnmarshalBinary(buf []byte) (err error
 			log.Errorln(err)
 			return
 		}
-		self.Buffer = &allInfo
+		s.Buffer = &allInfo
 
 	default:
 		err = fmt.Errorf("Unsupported InformationClass: %d", infoClass)
@@ -746,32 +746,32 @@ func (self *SamrQueryInformationUser2Res) UnmarshalBinary(buf []byte) (err error
 	return
 }
 
-func (self *SamrCreateUser2InDomainReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrCreateUser2InDomainReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrCreateUser2InDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	refId := uint32(1)
 
-	err = binary.Write(w, le, self.DomainHandle)
+	err = binary.Write(w, le, s.DomainHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.Name, &refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.Name, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.AccountType)
+	err = binary.Write(w, le, s.AccountType)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -780,15 +780,15 @@ func (self *SamrCreateUser2InDomainReq) MarshalBinary() (res []byte, err error) 
 	return w.Bytes(), nil
 }
 
-func (self *SamrCreateUser2InDomainReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrCreateUser2InDomainReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrCreateUser2InDomainReq")
 }
 
-func (self *SamrCreateUser2InDomainRes) MarshalBinary() ([]byte, error) {
+func (s *SamrCreateUser2InDomainRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrCreateUser2InDomainRes")
 }
 
-func (self *SamrCreateUser2InDomainRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrCreateUser2InDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrCreateUser2InDomainRes")
 	if len(buf) < 28 {
 		return fmt.Errorf("Buffer to small for SamrCreateUser2InDomainRes")
@@ -802,16 +802,16 @@ func (self *SamrCreateUser2InDomainRes) UnmarshalBinary(buf []byte) (err error) 
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrCreateUser2InDomain response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrCreateUser2InDomain response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -825,20 +825,20 @@ func (self *SamrCreateUser2InDomainRes) UnmarshalBinary(buf []byte) (err error) 
 		log.Errorln(err)
 		return
 	}
-	self.UserHandle = make([]byte, 20)
-	err = binary.Read(r, le, &self.UserHandle)
+	s.UserHandle = make([]byte, 20)
+	err = binary.Read(r, le, &s.UserHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.GrantedAccess)
+	err = binary.Read(r, le, &s.GrantedAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.RelativeId)
+	err = binary.Read(r, le, &s.RelativeId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -847,33 +847,33 @@ func (self *SamrCreateUser2InDomainRes) UnmarshalBinary(buf []byte) (err error) 
 	return
 }
 
-func (self *SamrUnicodeChangePasswordUser2Req) MarshalBinary() (res []byte, err error) {
+func (s *SamrUnicodeChangePasswordUser2Req) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrUnicodeChangePasswordUser2Req")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	refId := uint32(1)
 
-	if self.ServerName == "" {
+	if s.ServerName == "" {
 		err = binary.Write(w, le, uint32(0))
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	} else {
-		_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.ServerName, &refId)
+		_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.ServerName, &refId)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.UserName, &refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.UserName, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	if self.UserName != "" {
+	if s.UserName != "" {
 		refId++
 	}
 
@@ -885,11 +885,11 @@ func (self *SamrUnicodeChangePasswordUser2Req) MarshalBinary() (res []byte, err 
 	}
 	refId++
 
-	if self.NewPwEncWithOldNt == nil {
+	if s.NewPwEncWithOldNt == nil {
 		// Empty password
-		self.NewPwEncWithOldNt = make([]byte, 516)
+		s.NewPwEncWithOldNt = make([]byte, 516)
 	}
-	err = binary.Write(w, le, self.NewPwEncWithOldNt)
+	err = binary.Write(w, le, s.NewPwEncWithOldNt)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -902,16 +902,16 @@ func (self *SamrUnicodeChangePasswordUser2Req) MarshalBinary() (res []byte, err 
 		return
 	}
 	refId++
-	err = binary.Write(w, le, self.OldNtEncWithNewNt)
+	err = binary.Write(w, le, s.OldNtEncWithNewNt)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
 	}
 
-	if self.NewPwEncWithOldLm != nil {
-		self.LmPresent = 1
+	if s.NewPwEncWithOldLm != nil {
+		s.LmPresent = 1
 	}
-	err = binary.Write(w, le, self.LmPresent)
+	err = binary.Write(w, le, s.LmPresent)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -924,11 +924,11 @@ func (self *SamrUnicodeChangePasswordUser2Req) MarshalBinary() (res []byte, err 
 		return
 	}
 	refId++
-	if self.NewPwEncWithOldLm == nil {
+	if s.NewPwEncWithOldLm == nil {
 		// Empty password
-		self.NewPwEncWithOldLm = make([]byte, 516)
+		s.NewPwEncWithOldLm = make([]byte, 516)
 	}
-	err = binary.Write(w, le, self.NewPwEncWithOldLm)
+	err = binary.Write(w, le, s.NewPwEncWithOldLm)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -941,7 +941,7 @@ func (self *SamrUnicodeChangePasswordUser2Req) MarshalBinary() (res []byte, err 
 		return
 	}
 	refId++
-	err = binary.Write(w, le, self.OldLmEncWithNewLm)
+	err = binary.Write(w, le, s.OldLmEncWithNewLm)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -950,29 +950,29 @@ func (self *SamrUnicodeChangePasswordUser2Req) MarshalBinary() (res []byte, err 
 	return w.Bytes(), nil
 }
 
-func (self *SamrUnicodeChangePasswordUser2Req) UnmarshalBinary(buf []byte) error {
+func (s *SamrUnicodeChangePasswordUser2Req) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrUnicodeChangePasswordUser2Req")
 }
 
-func (self *SamrSetInformationUser2Req) MarshalBinary() (res []byte, err error) {
+func (s *SamrSetInformationUser2Req) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrSetInformationUser2Req")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.UserHandle)
+	err = binary.Write(w, le, s.UserHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.UserInformationClass)
+	err = binary.Write(w, le, s.UserInformationClass)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	buf, err := self.Buffer.MarshalBinary()
+	buf, err := s.Buffer.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -991,25 +991,25 @@ func (self *SamrSetInformationUser2Req) MarshalBinary() (res []byte, err error) 
 	return w.Bytes(), nil
 }
 
-func (self *SamrSetInformationUser2Req) UnmarshalBinary(buf []byte) error {
+func (s *SamrSetInformationUser2Req) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrSetInformationUser2Req")
 }
 
-func (self *SamrLookupDomainReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrLookupDomainReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrLookupDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	refId := uint32(1)
 
-	err = binary.Write(w, le, self.ServerHandle)
+	err = binary.Write(w, le, s.ServerHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	var n int
-	n, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.Name.S, &refId)
+	n, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.Name.S, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1017,7 +1017,7 @@ func (self *SamrLookupDomainReq) MarshalBinary() (res []byte, err error) {
 
 	res = w.Bytes()
 
-	encodedStringSize := 20 + len(self.Name.S)*2
+	encodedStringSize := 20 + len(s.Name.S)*2
 	padd := n - encodedStringSize
 	if padd < 0 {
 		err = fmt.Errorf("Failed to marshal all %d bytes to byte buffer. Only wrote %d bytes", encodedStringSize, n)
@@ -1032,15 +1032,15 @@ func (self *SamrLookupDomainReq) MarshalBinary() (res []byte, err error) {
 	return
 }
 
-func (self *SamrLookupDomainReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrLookupDomainReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrLookupDomainReq")
 }
 
-func (self *SamrLookupDomainRes) MarshalBinary() ([]byte, error) {
+func (s *SamrLookupDomainRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrLookupDomainRes")
 }
 
-func (self *SamrLookupDomainRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrLookupDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrLookupDomainRes")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer to small for SamrLookupDomainRes")
@@ -1054,16 +1054,16 @@ func (self *SamrLookupDomainRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrLookupDomain response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrLookupDomain response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -1084,7 +1084,7 @@ func (self *SamrLookupDomainRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.DomainId, err = msdtyp.ReadSID(r)
+	s.DomainId, err = msdtyp.ReadSID(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1093,25 +1093,25 @@ func (self *SamrLookupDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *SamrAddMemberToGroupReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrAddMemberToGroupReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrAddMemberToGroupReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.GroupHandle)
+	err = binary.Write(w, le, s.GroupHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.MemberId)
+	err = binary.Write(w, le, s.MemberId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.Attributes)
+	err = binary.Write(w, le, s.Attributes)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1122,23 +1122,23 @@ func (self *SamrAddMemberToGroupReq) MarshalBinary() (res []byte, err error) {
 	return
 }
 
-func (self *SamrAddMemberToGroupReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrAddMemberToGroupReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrAddMemberToGroupReq")
 }
 
-func (self *SamrRemoveMemberFromGroupReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrRemoveMemberFromGroupReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrRemoveMemberFromGroupReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.GroupHandle)
+	err = binary.Write(w, le, s.GroupHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.MemberId)
+	err = binary.Write(w, le, s.MemberId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1149,36 +1149,36 @@ func (self *SamrRemoveMemberFromGroupReq) MarshalBinary() (res []byte, err error
 	return
 }
 
-func (self *SamrRemoveMemberFromGroupReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrRemoveMemberFromGroupReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrRemoveMemberFromGroupReq")
 }
 
-func (self *SamrOpenDomainReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrOpenDomainReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrOpenDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.ServerHandle)
+	err = binary.Write(w, le, s.ServerHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	buf, err := self.DomainId.MarshalBinary()
+	buf, err := s.DomainId.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	// First write the number of sub authorities before the actual SID
 	// Probably since it is handled as an array by NDR?
-	err = binary.Write(w, le, uint32(self.DomainId.NumAuth))
+	err = binary.Write(w, le, uint32(s.DomainId.NumAuth))
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1192,15 +1192,15 @@ func (self *SamrOpenDomainReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrOpenDomainReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrOpenDomainReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrOpenDomainReq")
 }
 
-func (self *SamrOpenDomainRes) MarshalBinary() ([]byte, error) {
+func (s *SamrOpenDomainRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrOpenDomainRes")
 }
 
-func (self *SamrOpenDomainRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrOpenDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrOpenDomainRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for SamrOpenDomainRes")
@@ -1214,16 +1214,16 @@ func (self *SamrOpenDomainRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrOpenDomain response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrOpenDomain response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -1237,8 +1237,8 @@ func (self *SamrOpenDomainRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.ServerHandle = make([]byte, 20)
-	err = binary.Read(r, le, &self.ServerHandle)
+	s.ServerHandle = make([]byte, 20)
+	err = binary.Read(r, le, &s.ServerHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1247,25 +1247,25 @@ func (self *SamrOpenDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *SamrEnumerateGroupsInDomainReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrEnumerateGroupsInDomainReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrEnumerateGroupsInDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.DomainHandle)
+	err = binary.Write(w, le, s.DomainHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.EnumerationContext)
+	err = binary.Write(w, le, s.EnumerationContext)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.PreferredMaxLength)
+	err = binary.Write(w, le, s.PreferredMaxLength)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1274,22 +1274,22 @@ func (self *SamrEnumerateGroupsInDomainReq) MarshalBinary() (res []byte, err err
 	return w.Bytes(), nil
 }
 
-func (self *SamrEnumerateGroupsInDomainReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrEnumerateGroupsInDomainReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrEnumerateGroupsInDomainReq")
 }
 
-func (self *SamrEnumerateGroupsInDomainRes) MarshalBinary() ([]byte, error) {
+func (s *SamrEnumerateGroupsInDomainRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrEnumerateGroupsInDomainRes")
 }
 
-func (self *SamrEnumerateGroupsInDomainRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrEnumerateGroupsInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrEnumerateGroupsInDomainRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for SamrEnumerateGroupsInDomainRes")
 	}
 	r := bytes.NewReader(buf)
 
-	err = binary.Read(r, le, &self.EnumerationContext)
+	err = binary.Read(r, le, &s.EnumerationContext)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1302,23 +1302,23 @@ func (self *SamrEnumerateGroupsInDomainRes) UnmarshalBinary(buf []byte) (err err
 		return
 	}
 
-	err = binary.Read(r, le, &self.CountReturned)
+	err = binary.Read(r, le, &s.CountReturned)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.CountReturned == 0 {
+	if s.CountReturned == 0 {
 		return
 	}
 
-	err = self.Buffer.UnmarshalBinary(buf[4 : len(buf)-8])
+	err = s.Buffer.UnmarshalBinary(buf[4 : len(buf)-8])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1327,26 +1327,26 @@ func (self *SamrEnumerateGroupsInDomainRes) UnmarshalBinary(buf []byte) (err err
 	return
 }
 
-func (self *SamrCreateUserInDomainReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrCreateUserInDomainReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrCreateUserInDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	refId := uint32(1)
 
-	err = binary.Write(w, le, self.DomainHandle)
+	err = binary.Write(w, le, s.DomainHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.Name, &refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.Name, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1355,15 +1355,15 @@ func (self *SamrCreateUserInDomainReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrCreateUserInDomainReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrCreateUserInDomainReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrCreateUserInDomainReq")
 }
 
-func (self *SamrCreateUserInDomainRes) MarshalBinary() ([]byte, error) {
+func (s *SamrCreateUserInDomainRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrCreateUserInDomainRes")
 }
 
-func (self *SamrCreateUserInDomainRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrCreateUserInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrCreateUserInDomainRes")
 	if len(buf) < 28 {
 		return fmt.Errorf("Buffer to small for SamrCreateUserInDomainRes")
@@ -1377,16 +1377,16 @@ func (self *SamrCreateUserInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrCreateUserInDomain response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrCreateUserInDomain response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -1400,14 +1400,14 @@ func (self *SamrCreateUserInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 		log.Errorln(err)
 		return
 	}
-	self.UserHandle = make([]byte, 20)
-	err = binary.Read(r, le, &self.UserHandle)
+	s.UserHandle = make([]byte, 20)
+	err = binary.Read(r, le, &s.UserHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.RelativeId)
+	err = binary.Read(r, le, &s.RelativeId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1416,31 +1416,31 @@ func (self *SamrCreateUserInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *SamrEnumDomainUsersReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrEnumDomainUsersReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrEnumDomainUsersReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.DomainHandle)
+	err = binary.Write(w, le, s.DomainHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.ResumeHandle)
+	err = binary.Write(w, le, s.ResumeHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.AccountFlags)
+	err = binary.Write(w, le, s.AccountFlags)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.PreferredMaxLength)
+	err = binary.Write(w, le, s.PreferredMaxLength)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1449,22 +1449,22 @@ func (self *SamrEnumDomainUsersReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrEnumDomainUsersReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrEnumDomainUsersReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrEnumDomainUsersReq")
 }
 
-func (self *SamrEnumDomainUsersRes) MarshalBinary() ([]byte, error) {
+func (s *SamrEnumDomainUsersRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrEnumDomainUsersRes")
 }
 
-func (self *SamrEnumDomainUsersRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrEnumDomainUsersRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrEnumDomainUsersRes")
 	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for SamrEnumDomainUsersRes")
 	}
 	r := bytes.NewReader(buf)
 
-	err = binary.Read(r, le, &self.ResumeHandle)
+	err = binary.Read(r, le, &s.ResumeHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1476,24 +1476,24 @@ func (self *SamrEnumDomainUsersRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.CountReturned)
+	err = binary.Read(r, le, &s.CountReturned)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.CountReturned == 0 {
+	if s.CountReturned == 0 {
 		return
 	}
 
 	// Since we do not return directly for some errors, we need to keep track of the previous error
-	err = self.Buffer.UnmarshalBinary(buf[4 : len(buf)-8])
+	err = s.Buffer.UnmarshalBinary(buf[4 : len(buf)-8])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1502,25 +1502,25 @@ func (self *SamrEnumDomainUsersRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *SamrEnumAliasesInDomainReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrEnumAliasesInDomainReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrEnumAliasesInDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.DomainHandle)
+	err = binary.Write(w, le, s.DomainHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.EnumerationContext)
+	err = binary.Write(w, le, s.EnumerationContext)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.PreferredMaxLength)
+	err = binary.Write(w, le, s.PreferredMaxLength)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1529,22 +1529,22 @@ func (self *SamrEnumAliasesInDomainReq) MarshalBinary() (res []byte, err error) 
 	return w.Bytes(), nil
 }
 
-func (self *SamrEnumAliasesInDomainReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrEnumAliasesInDomainReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrEnumAliasesInDomainReq")
 }
 
-func (self *SamrEnumAliasesInDomainRes) MarshalBinary() ([]byte, error) {
+func (s *SamrEnumAliasesInDomainRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrEnumAliasesInDomainRes")
 }
 
-func (self *SamrEnumAliasesInDomainRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrEnumAliasesInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrEnumAliasesInDomainRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for SamrEnumAliasesInDomainRes")
 	}
 	r := bytes.NewReader(buf)
 
-	err = binary.Read(r, le, &self.EnumerationContext)
+	err = binary.Read(r, le, &s.EnumerationContext)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1557,23 +1557,23 @@ func (self *SamrEnumAliasesInDomainRes) UnmarshalBinary(buf []byte) (err error) 
 		return
 	}
 
-	err = binary.Read(r, le, &self.CountReturned)
+	err = binary.Read(r, le, &s.CountReturned)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.CountReturned == 0 {
+	if s.CountReturned == 0 {
 		return
 	}
 
-	err = self.Buffer.UnmarshalBinary(buf[4 : len(buf)-8])
+	err = s.Buffer.UnmarshalBinary(buf[4 : len(buf)-8])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1582,26 +1582,26 @@ func (self *SamrEnumAliasesInDomainRes) UnmarshalBinary(buf []byte) (err error) 
 	return
 }
 
-func (self *SamrAddMemberToAliasReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrAddMemberToAliasReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrAddMemberToAliasReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.AliasHandle)
+	err = binary.Write(w, le, s.AliasHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	buf, err := self.MemberId.MarshalBinary()
+	buf, err := s.MemberId.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	// First write the number of sub authorities before the actual SID
 	// Probably since it is handled as an array by NDR?
-	err = binary.Write(w, le, uint32(self.MemberId.NumAuth))
+	err = binary.Write(w, le, uint32(s.MemberId.NumAuth))
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1617,30 +1617,30 @@ func (self *SamrAddMemberToAliasReq) MarshalBinary() (res []byte, err error) {
 	return
 }
 
-func (self *SamrAddMemberToAliasReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrAddMemberToAliasReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrAddMemberToAliasReq")
 }
 
-func (self *SamrRemoveMemberFromAliasReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrRemoveMemberFromAliasReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrRemoveMemberFromAliasReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.AliasHandle)
+	err = binary.Write(w, le, s.AliasHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	buf, err := self.MemberId.MarshalBinary()
+	buf, err := s.MemberId.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	// First write the number of sub authorities before the actual SID
 	// Probably since it is handled as an array by NDR?
-	err = binary.Write(w, le, uint32(self.MemberId.NumAuth))
+	err = binary.Write(w, le, uint32(s.MemberId.NumAuth))
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1656,31 +1656,31 @@ func (self *SamrRemoveMemberFromAliasReq) MarshalBinary() (res []byte, err error
 	return
 }
 
-func (self *SamrRemoveMemberFromAliasReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrRemoveMemberFromAliasReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrRemoveMemberFromAliasReq")
 }
 
-func (self *SamrLookupNamesInDomainReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrLookupNamesInDomainReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrLookupNamesInDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	refId := uint32(1)
 
-	err = binary.Write(w, le, self.DomainHandle)
+	err = binary.Write(w, le, s.DomainHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.Count)
+	err = binary.Write(w, le, s.Count)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// DCERPC (NDR) 14.3.3.4 Uni-dimensional Conformant-varying Arrays
-	_, err = msdtyp.WriteUniDimensionalConformanVaryingArray(w, self.Names, 1000, &refId)
+	_, err = msdtyp.WriteUniDimensionalConformanVaryingArray(w, s.Names, 1000, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1689,15 +1689,15 @@ func (self *SamrLookupNamesInDomainReq) MarshalBinary() (res []byte, err error) 
 	return w.Bytes(), nil
 }
 
-func (self *SamrLookupNamesInDomainReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrLookupNamesInDomainReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrLookupNamesInDomainReq")
 }
 
-func (self *SamrLookupNamesInDomainRes) MarshalBinary() ([]byte, error) {
+func (s *SamrLookupNamesInDomainRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrLookupNamesInDomainRes")
 }
 
-func (self *SamrLookupNamesInDomainRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrLookupNamesInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrLookupNamesInDomainRes")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for SamrLookupNamesInDomainRes")
@@ -1711,13 +1711,13 @@ func (self *SamrLookupNamesInDomainRes) UnmarshalBinary(buf []byte) (err error) 
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if (self.ReturnCode > 0) && (self.ReturnCode != StatusSomeNotMapped) {
+	if (s.ReturnCode > 0) && (s.ReturnCode != StatusSomeNotMapped) {
 		return
 	}
 
@@ -1727,13 +1727,13 @@ func (self *SamrLookupNamesInDomainRes) UnmarshalBinary(buf []byte) (err error) 
 		return
 	}
 
-	err = self.RelativeIds.fromReader(r)
+	err = s.RelativeIds.fromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = self.Use.fromReader(r)
+	err = s.Use.fromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1742,19 +1742,19 @@ func (self *SamrLookupNamesInDomainRes) UnmarshalBinary(buf []byte) (err error) 
 	return
 }
 
-func (self *SamrLookupIdsInDomainReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrLookupIdsInDomainReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrLookupIdsInDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.DomainHandle)
+	err = binary.Write(w, le, s.DomainHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.Count)
+	err = binary.Write(w, le, s.Count)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1773,12 +1773,12 @@ func (self *SamrLookupIdsInDomainReq) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	err = binary.Write(w, le, uint32(len(self.RelativeIds))) // ActualCount
+	err = binary.Write(w, le, uint32(len(s.RelativeIds))) // ActualCount
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	for _, val := range self.RelativeIds {
+	for _, val := range s.RelativeIds {
 		err = binary.Write(w, le, val) // RID
 		if err != nil {
 			log.Errorln(err)
@@ -1789,15 +1789,15 @@ func (self *SamrLookupIdsInDomainReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrLookupIdsInDomainReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrLookupIdsInDomainReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrLookupIdsInDomainReq")
 }
 
-func (self *SamrLookupIdsInDomainRes) MarshalBinary() ([]byte, error) {
+func (s *SamrLookupIdsInDomainRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrLookupIdsInDomainRes")
 }
 
-func (self *SamrLookupIdsInDomainRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrLookupIdsInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrLookupIdsInDomainRes")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for SamrLookupIdsInDomainRes")
@@ -1811,13 +1811,13 @@ func (self *SamrLookupIdsInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if (self.ReturnCode > 0) && (self.ReturnCode != StatusSomeNotMapped) {
+	if (s.ReturnCode > 0) && (s.ReturnCode != StatusSomeNotMapped) {
 		return
 	}
 
@@ -1827,15 +1827,15 @@ func (self *SamrLookupIdsInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.Names.Count)
+	err = binary.Read(r, le, &s.Names.Count)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	if self.Names.Count == 0 {
+	if s.Names.Count == 0 {
 		return
 	}
-	self.Names.Elements, err = msdtyp.ReadRPCUnicodeStrArray(r, false)
+	s.Names.Elements, err = msdtyp.ReadRPCUnicodeStrArray(r, false)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1860,31 +1860,31 @@ func (self *SamrLookupIdsInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		self.Use = append(self.Use, use)
+		s.Use = append(s.Use, use)
 	}
 
 	return
 }
 
-func (self *SamrOpenGroupReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrOpenGroupReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrOpenGroupReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.DomainHandle)
+	err = binary.Write(w, le, s.DomainHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.GroupRID)
+	err = binary.Write(w, le, s.GroupRID)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1893,15 +1893,15 @@ func (self *SamrOpenGroupReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrOpenGroupReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrOpenGroupReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrOpenGroupReq")
 }
 
-func (self *SamrOpenGroupRes) MarshalBinary() ([]byte, error) {
+func (s *SamrOpenGroupRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrOpenGroupRes")
 }
 
-func (self *SamrOpenGroupRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrOpenGroupRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrOpenGroupRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for SamrOpenGroupRes")
@@ -1915,16 +1915,16 @@ func (self *SamrOpenGroupRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrOpenGroup response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrOpenGroup response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -1939,8 +1939,8 @@ func (self *SamrOpenGroupRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.GroupHandle = make([]byte, 20)
-	err = binary.Read(r, le, &self.GroupHandle)
+	s.GroupHandle = make([]byte, 20)
+	err = binary.Read(r, le, &s.GroupHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1949,25 +1949,25 @@ func (self *SamrOpenGroupRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *SamrOpenAliasReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrOpenAliasReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrOpenAliasReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.DomainHandle)
+	err = binary.Write(w, le, s.DomainHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.AliasId)
+	err = binary.Write(w, le, s.AliasId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1976,15 +1976,15 @@ func (self *SamrOpenAliasReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrOpenAliasReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrOpenAliasReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrOpenAliasReq")
 }
 
-func (self *SamrOpenAliasRes) MarshalBinary() ([]byte, error) {
+func (s *SamrOpenAliasRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrOpenAliasRes")
 }
 
-func (self *SamrOpenAliasRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrOpenAliasRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrOpenAliasRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for SamrOpenAliasRes")
@@ -1998,16 +1998,16 @@ func (self *SamrOpenAliasRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrOpenAlias response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrOpenAlias response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -2022,8 +2022,8 @@ func (self *SamrOpenAliasRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.AliasHandle = make([]byte, 20)
-	err = binary.Read(r, le, &self.AliasHandle)
+	s.AliasHandle = make([]byte, 20)
+	err = binary.Read(r, le, &s.AliasHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2032,13 +2032,13 @@ func (self *SamrOpenAliasRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *SamrGetMembersInAliasReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrGetMembersInAliasReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrGetMembersInAliasReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.AliasHandle)
+	err = binary.Write(w, le, s.AliasHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2047,15 +2047,15 @@ func (self *SamrGetMembersInAliasReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrGetMembersInAliasReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrGetMembersInAliasReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrGetMembersInAliasReq")
 }
 
-func (self *SamrGetMembersInAliasRes) MarshalBinary() ([]byte, error) {
+func (s *SamrGetMembersInAliasRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrGetMembersInAliasRes")
 }
 
-func (self *SamrGetMembersInAliasRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrGetMembersInAliasRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrGetMembersInAliasRes")
 	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for SamrGetMembersInAliasRes")
@@ -2069,16 +2069,16 @@ func (self *SamrGetMembersInAliasRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrGetMembersInAlias response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrGetMembersInAlias response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -2093,23 +2093,23 @@ func (self *SamrGetMembersInAliasRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.Members.Count)
+	err = binary.Read(r, le, &s.Members.Count)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	if self.Members.Count == 0 {
+	if s.Members.Count == 0 {
 		return
 	}
 
 	// Skip max count and ref id ptrs
-	_, err = r.Seek(int64(8+4*self.Members.Count), io.SeekCurrent)
+	_, err = r.Seek(int64(8+4*s.Members.Count), io.SeekCurrent)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	for i := 0; i < int(self.Members.Count); i++ {
+	for i := 0; i < int(s.Members.Count); i++ {
 		var sidInfo SamprSidInformation
 		// Skip count before each SID struct
 		_, err = r.Seek(4, io.SeekCurrent)
@@ -2122,30 +2122,30 @@ func (self *SamrGetMembersInAliasRes) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		self.Members.Sids = append(self.Members.Sids, sidInfo)
+		s.Members.Sids = append(s.Members.Sids, sidInfo)
 	}
 
 	return
 }
 
-func (self *SamrOpenUserReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrOpenUserReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrOpenUserReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.DomainHandle)
+	err = binary.Write(w, le, s.DomainHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.UserId)
+	err = binary.Write(w, le, s.UserId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2154,15 +2154,15 @@ func (self *SamrOpenUserReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrOpenUserReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrOpenUserReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrOpenUserReq")
 }
 
-func (self *SamrOpenUserRes) MarshalBinary() ([]byte, error) {
+func (s *SamrOpenUserRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrOpenUserRes")
 }
 
-func (self *SamrOpenUserRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrOpenUserRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrOpenUserRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for SamrOpenUserRes")
@@ -2176,16 +2176,16 @@ func (self *SamrOpenUserRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrOpenUser response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrOpenUser response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -2200,8 +2200,8 @@ func (self *SamrOpenUserRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.UserHandle = make([]byte, 20)
-	err = binary.Read(r, le, &self.UserHandle)
+	s.UserHandle = make([]byte, 20)
+	err = binary.Read(r, le, &s.UserHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2210,13 +2210,13 @@ func (self *SamrOpenUserRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *SamrDeleteUserReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrDeleteUserReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrDeleteUserReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.UserHandle)
+	err = binary.Write(w, le, s.UserHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2225,29 +2225,29 @@ func (self *SamrDeleteUserReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrDeleteUserReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrDeleteUserReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrDeleteUserReq")
 }
 
-func (self *SamrEnumDomainsReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrEnumDomainsReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrEnumDomainsReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.ServerHandle)
+	err = binary.Write(w, le, s.ServerHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.EnumerationContext)
+	err = binary.Write(w, le, s.EnumerationContext)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.PreferredMaxLength)
+	err = binary.Write(w, le, s.PreferredMaxLength)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2256,15 +2256,15 @@ func (self *SamrEnumDomainsReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrEnumDomainsReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrEnumDomainsReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrEnumDomainsReq")
 }
 
-func (self *SamrEnumDomainsRes) MarshalBinary() ([]byte, error) {
+func (s *SamrEnumDomainsRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrEnumDomainsRes")
 }
 
-func (self *SamrEnumDomainsRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrEnumDomainsRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrEnumDomainsRes")
 	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for SamrEnumDomainsRes")
@@ -2278,22 +2278,22 @@ func (self *SamrEnumDomainsRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.CountReturned)
+	err = binary.Read(r, le, &s.CountReturned)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrEnumDomains response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrEnumDomains response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -2302,13 +2302,13 @@ func (self *SamrEnumDomainsRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	if self.CountReturned == 0 {
+	if s.CountReturned == 0 {
 		err = fmt.Errorf("Received SamrEnumDomains response with 0 domains returned")
 		log.Errorln(err)
 		return
 	}
 
-	err = self.Buffer.UnmarshalBinary(buf[4 : len(buf)-8])
+	err = s.Buffer.UnmarshalBinary(buf[4 : len(buf)-8])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2317,7 +2317,7 @@ func (self *SamrEnumDomainsRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *SamprRevisionInfoV1) MarshalBinary() (res []byte, err error) {
+func (s *SamprRevisionInfoV1) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamprRevisionInfoV1")
 
 	var ret []byte
@@ -2331,13 +2331,13 @@ func (self *SamprRevisionInfoV1) MarshalBinary() (res []byte, err error) {
 		return nil, err
 	}
 
-	err = binary.Write(w, le, self.Revision)
+	err = binary.Write(w, le, s.Revision)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
 	}
 
-	err = binary.Write(w, le, self.SupportedFeatures)
+	err = binary.Write(w, le, s.SupportedFeatures)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -2346,7 +2346,7 @@ func (self *SamprRevisionInfoV1) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamprRevisionInfoV1) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamprRevisionInfoV1) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamprRevisionInfoV1")
 	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for SamprRevisionInfoV1")
@@ -2360,13 +2360,13 @@ func (self *SamprRevisionInfoV1) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.Revision)
+	err = binary.Read(r, le, &s.Revision)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.SupportedFeatures)
+	err = binary.Read(r, le, &s.SupportedFeatures)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2375,7 +2375,7 @@ func (self *SamprRevisionInfoV1) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *SamprEnumerationBuffer) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamprEnumerationBuffer) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamprEnumerationBuffer")
 	if len(buf) < 4 {
 		return fmt.Errorf("Buffer to small for SamprEnumerationBuffer")
@@ -2388,15 +2388,15 @@ func (self *SamprEnumerationBuffer) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.EntriesRead)
+	err = binary.Read(r, le, &s.EntriesRead)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.EntriesRead > 0 {
-		if len(buf) < int(16+(24*self.EntriesRead)) {
-			err = fmt.Errorf("SamprEnumerationBuffer is too small to contain %d entries", self.EntriesRead)
+	if s.EntriesRead > 0 {
+		if len(buf) < int(16+(24*s.EntriesRead)) {
+			err = fmt.Errorf("SamprEnumerationBuffer is too small to contain %d entries", s.EntriesRead)
 			log.Errorln(err)
 			return
 		}
@@ -2408,7 +2408,7 @@ func (self *SamprEnumerationBuffer) UnmarshalBinary(buf []byte) (err error) {
 		}
 	}
 
-	for i := 0; i < int(self.EntriesRead); i++ {
+	for i := 0; i < int(s.EntriesRead); i++ {
 		var item SamprRidEnumeration
 		err = binary.Read(r, le, &item.RelativeId)
 		if err != nil {
@@ -2421,11 +2421,11 @@ func (self *SamprEnumerationBuffer) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		self.Buffer = append(self.Buffer, item)
+		s.Buffer = append(s.Buffer, item)
 	}
 
-	for i := 0; i < int(self.EntriesRead); i++ {
-		self.Buffer[i].Name, err = msdtyp.ReadConformantVaryingString(r, true)
+	for i := 0; i < int(s.EntriesRead); i++ {
+		s.Buffer[i].Name, err = msdtyp.ReadConformantVaryingString(r, true)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -2435,19 +2435,19 @@ func (self *SamprEnumerationBuffer) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *SamrRidToSidReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrRidToSidReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrRidToSidReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.Handle)
+	err = binary.Write(w, le, s.Handle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.Rid)
+	err = binary.Write(w, le, s.Rid)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2456,15 +2456,15 @@ func (self *SamrRidToSidReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrRidToSidReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrRidToSidReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrRidToSidReq")
 }
 
-func (self *SamrRidToSidRes) MarshalBinary() ([]byte, error) {
+func (s *SamrRidToSidRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrRidToSidRes")
 }
 
-func (self *SamrRidToSidRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrRidToSidRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrRidToSidRes")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer to small for SamrRidToSidRes")
@@ -2478,16 +2478,16 @@ func (self *SamrRidToSidRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrRidToSid response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrRidToSid response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -2503,7 +2503,7 @@ func (self *SamrRidToSidRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.Sid, err = msdtyp.ReadSID(r)
+	s.Sid, err = msdtyp.ReadSID(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2512,13 +2512,13 @@ func (self *SamrRidToSidRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *SamrGetMembersInGroupReq) MarshalBinary() (res []byte, err error) {
+func (s *SamrGetMembersInGroupReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamrGetMembersInGroupReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.GroupHandle)
+	err = binary.Write(w, le, s.GroupHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2527,15 +2527,15 @@ func (self *SamrGetMembersInGroupReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamrGetMembersInGroupReq) UnmarshalBinary(buf []byte) error {
+func (s *SamrGetMembersInGroupReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of SamrGetMembersInGroupReq")
 }
 
-func (self *SamrGetMembersInGroupRes) MarshalBinary() ([]byte, error) {
+func (s *SamrGetMembersInGroupRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of SamrGetMembersInGroupRes")
 }
 
-func (self *SamrGetMembersInGroupRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *SamrGetMembersInGroupRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for SamrGetMembersInGroupRes")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for SamrGetMembersInGroupRes")
@@ -2549,16 +2549,16 @@ func (self *SamrGetMembersInGroupRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrGetMembersInGroup response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown Samr return code for SamrGetMembersInGroup response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -2573,7 +2573,7 @@ func (self *SamrGetMembersInGroupRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = self.Members.fromReader(r)
+	err = s.Members.fromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2582,7 +2582,7 @@ func (self *SamrGetMembersInGroupRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *SamprUserInternal4Information) MarshalBinary() (res []byte, err error) {
+func (s *SamprUserInternal4Information) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamprUserInternal4Information")
 
 	var ret []byte
@@ -2596,17 +2596,17 @@ func (self *SamprUserInternal4Information) MarshalBinary() (res []byte, err erro
 		return nil, err
 	}
 
-	err = self.I1.WriteSamprUserAllInformation(w, &refId)
+	err = s.I1.WriteSamprUserAllInformation(w, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
 	}
 
-	if self.UserPassword == nil {
+	if s.UserPassword == nil {
 		// Empty password
-		self.UserPassword = make([]byte, 516)
+		s.UserPassword = make([]byte, 516)
 	}
-	err = binary.Write(w, le, self.UserPassword)
+	err = binary.Write(w, le, s.UserPassword)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -2615,7 +2615,7 @@ func (self *SamprUserInternal4Information) MarshalBinary() (res []byte, err erro
 	return w.Bytes(), nil
 }
 
-func (self *SamprUserAllInformation) MarshalBinary() (res []byte, err error) {
+func (s *SamprUserAllInformation) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamprUserAllInformation")
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -2629,7 +2629,7 @@ func (self *SamprUserAllInformation) MarshalBinary() (res []byte, err error) {
 		return nil, err
 	}
 
-	err = self.WriteSamprUserAllInformation(w, &refId)
+	err = s.WriteSamprUserAllInformation(w, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -2638,99 +2638,99 @@ func (self *SamprUserAllInformation) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamprUserAllInformation) WriteSamprUserAllInformation(w io.Writer, refId *uint32) (err error) {
+func (s *SamprUserAllInformation) WriteSamprUserAllInformation(w io.Writer, refId *uint32) (err error) {
 	log.Debugln("In WriteSamprUserAllInformation")
 
-	_, err = self.LastLogon.ToWriter(w)
+	_, err = s.LastLogon.ToWriter(w)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = self.LastLogoff.ToWriter(w)
+	_, err = s.LastLogoff.ToWriter(w)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	_, err = self.PasswordLastSet.ToWriter(w)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	_, err = self.AccountExpires.ToWriter(w)
+	_, err = s.PasswordLastSet.ToWriter(w)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = self.PasswordCanChange.ToWriter(w)
+	_, err = s.AccountExpires.ToWriter(w)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = self.PasswordMustChange.ToWriter(w)
+	_, err = s.PasswordCanChange.ToWriter(w)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.Username, refId)
+	_, err = s.PasswordMustChange.ToWriter(w)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.Fullname, refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.Username, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.HomeDirectory, refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.Fullname, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.HomeDirectoryPath, refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.HomeDirectory, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.ScriptPath, refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.HomeDirectoryPath, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.ProfilePath, refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.ScriptPath, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.AdminComment, refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.ProfilePath, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.WorkStations, refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.AdminComment, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.UserComment, refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.WorkStations, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.Parameters, refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.UserComment, refId)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.Parameters, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2748,13 +2748,13 @@ func (self *SamprUserAllInformation) WriteSamprUserAllInformation(w io.Writer, r
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, self.PrivateData, refId)
+	_, err = msdtyp.WriteRPCUnicodeStrPtr(w, s.PrivateData, refId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.SecurityDescriptor == nil {
+	if s.SecurityDescriptor == nil {
 		err = binary.Write(w, le, uint64(0))
 		if err != nil {
 			log.Errorln(err)
@@ -2762,7 +2762,7 @@ func (self *SamprUserAllInformation) WriteSamprUserAllInformation(w io.Writer, r
 		}
 	} else {
 		var buf []byte
-		buf, err = self.SecurityDescriptor.MarshalBinary()
+		buf, err = s.SecurityDescriptor.MarshalBinary()
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -2775,31 +2775,31 @@ func (self *SamprUserAllInformation) WriteSamprUserAllInformation(w io.Writer, r
 		}
 	}
 
-	err = binary.Write(w, le, self.UserId)
+	err = binary.Write(w, le, s.UserId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.PrimaryGroupId)
+	err = binary.Write(w, le, s.PrimaryGroupId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.UserAccountControl)
+	err = binary.Write(w, le, s.UserAccountControl)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.WhichFields)
+	err = binary.Write(w, le, s.WhichFields)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	buf, err := self.LogonHours.MarshalBinary()
+	buf, err := s.LogonHours.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2810,47 +2810,47 @@ func (self *SamprUserAllInformation) WriteSamprUserAllInformation(w io.Writer, r
 		return
 	}
 
-	err = binary.Write(w, le, self.BadPasswordCount)
+	err = binary.Write(w, le, s.BadPasswordCount)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.LogonCount)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Write(w, le, self.CountryCode)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Write(w, le, self.CodePage)
+	err = binary.Write(w, le, s.LogonCount)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.LmPasswordPresent)
+	err = binary.Write(w, le, s.CountryCode)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Write(w, le, s.CodePage)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.NtPasswordPresent)
+	err = binary.Write(w, le, s.LmPasswordPresent)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.PasswordExpired)
+	err = binary.Write(w, le, s.NtPasswordPresent)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.PrivateDataSensitive)
+	err = binary.Write(w, le, s.PasswordExpired)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = binary.Write(w, le, s.PrivateDataSensitive)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2859,39 +2859,39 @@ func (self *SamprUserAllInformation) WriteSamprUserAllInformation(w io.Writer, r
 	return
 }
 
-func (self *SamprUserAllInformation) ReadSamprUserAllInformation(r *bytes.Reader) (err error) {
+func (s *SamprUserAllInformation) ReadSamprUserAllInformation(r *bytes.Reader) (err error) {
 	log.Debugln("In ReadSamprUserAllInformation")
 
-	err = self.LastLogon.FromReader(r)
+	err = s.LastLogon.FromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = self.LastLogoff.FromReader(r)
+	err = s.LastLogoff.FromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = self.PasswordLastSet.FromReader(r)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = self.AccountExpires.FromReader(r)
+	err = s.PasswordLastSet.FromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = self.PasswordCanChange.FromReader(r)
+	err = s.AccountExpires.FromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = self.PasswordMustChange.FromReader(r)
+	err = s.PasswordCanChange.FromReader(r)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	err = s.PasswordMustChange.FromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2912,25 +2912,25 @@ func (self *SamprUserAllInformation) ReadSamprUserAllInformation(r *bytes.Reader
 		return
 	}
 
-	err = binary.Read(r, le, &self.UserId)
+	err = binary.Read(r, le, &s.UserId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.PrimaryGroupId)
+	err = binary.Read(r, le, &s.PrimaryGroupId)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.UserAccountControl)
+	err = binary.Read(r, le, &s.UserAccountControl)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.WhichFields)
+	err = binary.Read(r, le, &s.WhichFields)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2941,7 +2941,7 @@ func (self *SamprUserAllInformation) ReadSamprUserAllInformation(r *bytes.Reader
 	// array (refId) and then the actual byte buffew with Max Count, Offset,
 	// Actual Count comes at the end of this structure, after the Conformant Varying
 	// Strings and all the fixed size fields.
-	err = binary.Read(r, le, &self.LogonHours.UnitsPerWeek)
+	err = binary.Read(r, le, &s.LogonHours.UnitsPerWeek)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -2953,113 +2953,113 @@ func (self *SamprUserAllInformation) ReadSamprUserAllInformation(r *bytes.Reader
 		return
 	}
 
-	err = binary.Read(r, le, &self.BadPasswordCount)
+	err = binary.Read(r, le, &s.BadPasswordCount)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.LogonCount)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Read(r, le, &self.CountryCode)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Read(r, le, &self.CodePage)
+	err = binary.Read(r, le, &s.LogonCount)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.LmPasswordPresent)
+	err = binary.Read(r, le, &s.CountryCode)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	err = binary.Read(r, le, &s.CodePage)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.NtPasswordPresent)
+	err = binary.Read(r, le, &s.LmPasswordPresent)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.PasswordExpired)
+	err = binary.Read(r, le, &s.NtPasswordPresent)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.PrivateDataSensitive)
+	err = binary.Read(r, le, &s.PasswordExpired)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	self.Username, err = msdtyp.ReadConformantVaryingString(r, false)
+	err = binary.Read(r, le, &s.PrivateDataSensitive)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	self.Fullname, err = msdtyp.ReadConformantVaryingString(r, false)
+	s.Username, err = msdtyp.ReadConformantVaryingString(r, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	self.HomeDirectory, err = msdtyp.ReadConformantVaryingString(r, false)
+	s.Fullname, err = msdtyp.ReadConformantVaryingString(r, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	self.HomeDirectoryPath, err = msdtyp.ReadConformantVaryingString(r, false)
+	s.HomeDirectory, err = msdtyp.ReadConformantVaryingString(r, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	self.ScriptPath, err = msdtyp.ReadConformantVaryingString(r, false)
+	s.HomeDirectoryPath, err = msdtyp.ReadConformantVaryingString(r, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	self.ProfilePath, err = msdtyp.ReadConformantVaryingString(r, false)
+	s.ScriptPath, err = msdtyp.ReadConformantVaryingString(r, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	self.AdminComment, err = msdtyp.ReadConformantVaryingString(r, false)
+	s.ProfilePath, err = msdtyp.ReadConformantVaryingString(r, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	self.WorkStations, err = msdtyp.ReadConformantVaryingString(r, false)
+	s.AdminComment, err = msdtyp.ReadConformantVaryingString(r, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	self.UserComment, err = msdtyp.ReadConformantVaryingString(r, false)
+	s.WorkStations, err = msdtyp.ReadConformantVaryingString(r, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	self.Parameters, err = msdtyp.ReadConformantVaryingString(r, false)
+	s.UserComment, err = msdtyp.ReadConformantVaryingString(r, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	self.LogonHours.LogonHours, _, err = msdtyp.ReadConformantVaryingArray(r)
+	s.Parameters, err = msdtyp.ReadConformantVaryingString(r, false)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	s.LogonHours.LogonHours, _, err = msdtyp.ReadConformantVaryingArray(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -3067,19 +3067,19 @@ func (self *SamprUserAllInformation) ReadSamprUserAllInformation(r *bytes.Reader
 	return
 }
 
-func (self *SamrLogonHours) MarshalBinary() (res []byte, err error) {
+func (s *SamrLogonHours) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for SamprLogonHours")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, uint32(self.UnitsPerWeek)) // Using 32bit value for alignment
+	err = binary.Write(w, le, uint32(s.UnitsPerWeek)) // Using 32bit value for alignment
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
 	}
 
-	if self.UnitsPerWeek == 0 {
+	if s.UnitsPerWeek == 0 {
 		// Write null ptr
 		err = binary.Write(w, le, uint32(0))
 		if err != nil {
@@ -3087,7 +3087,7 @@ func (self *SamrLogonHours) MarshalBinary() (res []byte, err error) {
 			return nil, err
 		}
 	} else {
-		err = binary.Write(w, le, self.LogonHours)
+		err = binary.Write(w, le, s.LogonHours)
 		if err != nil {
 			log.Errorln(err)
 			return nil, err
@@ -3097,7 +3097,7 @@ func (self *SamrLogonHours) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *SamprGetMembersBuffer) fromReader(r *bytes.Reader) (err error) {
+func (s *SamprGetMembersBuffer) fromReader(r *bytes.Reader) (err error) {
 	log.Debugln("In fromReader for SamprGetMembersBuffer")
 	// Skip ref id ptr
 	_, err = r.Seek(4, io.SeekCurrent)
@@ -3106,7 +3106,7 @@ func (self *SamprGetMembersBuffer) fromReader(r *bytes.Reader) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.MemberCount)
+	err = binary.Read(r, le, &s.MemberCount)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -3120,13 +3120,13 @@ func (self *SamprGetMembersBuffer) fromReader(r *bytes.Reader) (err error) {
 	}
 
 	var rid uint32
-	for i := 0; i < int(self.MemberCount); i++ {
+	for i := 0; i < int(s.MemberCount); i++ {
 		err = binary.Read(r, le, &rid)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
-		self.Members = append(self.Members, rid)
+		s.Members = append(s.Members, rid)
 	}
 	// Skip maxCount for Attributes
 	_, err = r.Seek(4, io.SeekCurrent)
@@ -3135,20 +3135,20 @@ func (self *SamprGetMembersBuffer) fromReader(r *bytes.Reader) (err error) {
 		return
 	}
 	var attribute uint32
-	for i := 0; i < int(self.MemberCount); i++ {
+	for i := 0; i < int(s.MemberCount); i++ {
 		err = binary.Read(r, le, &attribute)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
-		self.Attributes = append(self.Attributes, attribute)
+		s.Attributes = append(s.Attributes, attribute)
 	}
 
 	return
 }
 
-func (self *SamprULongArray) fromReader(r *bytes.Reader) (err error) {
-	err = binary.Read(r, le, &self.Count)
+func (s *SamprULongArray) fromReader(r *bytes.Reader) (err error) {
+	err = binary.Read(r, le, &s.Count)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -3159,9 +3159,9 @@ func (self *SamprULongArray) fromReader(r *bytes.Reader) (err error) {
 		log.Errorln(err)
 		return
 	}
-	self.Elements = make([]uint32, self.Count)
-	for i := 0; i < int(self.Count); i++ {
-		err = binary.Read(r, le, &self.Elements[i])
+	s.Elements = make([]uint32, s.Count)
+	for i := 0; i < int(s.Count); i++ {
+		err = binary.Read(r, le, &s.Elements[i])
 		if err != nil {
 			log.Errorln(err)
 			return

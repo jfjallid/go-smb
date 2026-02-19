@@ -79,14 +79,12 @@ func TestEnumWkstLoggedOnUsersRes(t *testing.T) {
 	err = resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	var resp2 NetWkstaUserEnumRes
 	err = resp2.UnmarshalBinary(pkt2)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if resp.TotalEntries != 7 {

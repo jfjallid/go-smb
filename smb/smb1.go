@@ -61,11 +61,11 @@ type SMB1NegotiateReq struct {
 	Dialects  []SMB1Dialect
 }
 
-func (self *SMB1NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+func (s *SMB1NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	log.Debugln("In MarshalBinary for SMB1NegotiateReq")
 	buf := make([]byte, 0, 46)
 	w := bytes.NewBuffer(buf)
-	hBuf, err := encoder.Marshal(self.Header)
+	hBuf, err := encoder.Marshal(s.Header)
 	if err != nil {
 		log.Debugln(err)
 		return nil, err
@@ -74,10 +74,10 @@ func (self *SMB1NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, err
 	w.Write(hBuf)
 
 	// WordCount
-	w.WriteByte(self.WordCount)
+	w.WriteByte(s.WordCount)
 
 	dialectsBuffer := make([]byte, 0, 11)
-	for _, item := range self.Dialects {
+	for _, item := range s.Dialects {
 		dialectsBuffer = append(dialectsBuffer, 0x2)
 		dialectsBuffer = append(dialectsBuffer, []byte(item.DialectString)...)
 	}
@@ -90,7 +90,7 @@ func (self *SMB1NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, err
 	return w.Bytes(), nil
 }
 
-func (self *SMB1NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (s *SMB1NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for SMB1NegotiateReq")
 }
 

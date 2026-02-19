@@ -60,7 +60,7 @@ func TestCCM(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if bytes.Compare(plaintext, msg) != 0 {
+	if !bytes.Equal(plaintext, msg) {
 		t.Fatal("Plaintext does not match original message")
 	}
 }

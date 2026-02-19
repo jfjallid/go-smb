@@ -46,7 +46,7 @@ func TestEncryptRC4(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(encPassword, pkt) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", pkt, encPassword)
 	}
 }
 
@@ -64,10 +64,9 @@ func TestSamrConnect5Req(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -79,11 +78,10 @@ func TestSamrConnect5Res(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(resp.ServerHandle, handle) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", handle, resp.ServerHandle)
 	}
 }
 
@@ -101,11 +99,10 @@ func TestSamrEnumDomainsReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -116,13 +113,12 @@ func TestSamrEnumDomainsRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if resp.CountReturned != 2 {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.CountReturned==2, got %v", resp.CountReturned)
 	}
 	if resp.Buffer.Buffer[0].Name != "FIFTH" {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.Buffer.Buffer[0].Name==FIFTH, got %v", resp.Buffer.Buffer[0].Name)
 	}
 }
 
@@ -139,10 +135,9 @@ func TestSamrLookupDomainReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -153,11 +148,10 @@ func TestSamrLookupDomainRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if resp.DomainId.ToString() != "S-1-5-32" {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.DomainId.ToString()==S-1-5-32, got %v", resp.DomainId.ToString())
 	}
 }
 
@@ -175,11 +169,10 @@ func TestSamrAddMemberToGroup(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -196,11 +189,10 @@ func TestSamrRemoveMemberFromGroup(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -219,7 +211,7 @@ func TestSamrGetMembersInGroupReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -233,13 +225,13 @@ func TestSamrGetMembersInGroupRes(t *testing.T) {
 	}
 
 	if res.Members.MemberCount != 5 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.Members.MemberCount==5, got %v", res.Members.MemberCount)
 	}
 	if res.Members.Members[0] != 500 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.Members.Members[0]==500, got %v", res.Members.Members[0])
 	}
 	if res.Members.Attributes[0] != 7 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.Members.Attributes[0]==7, got %v", res.Members.Attributes[0])
 	}
 }
 
@@ -258,11 +250,10 @@ func TestSamrOpenDomainReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -277,7 +268,7 @@ func TestSamrOpenDomainRes(t *testing.T) {
 	}
 
 	if !bytes.Equal(resp.ServerHandle, handle) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", handle, resp.ServerHandle)
 	}
 }
 
@@ -294,11 +285,10 @@ func TestSamrAddMemberToAliasReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -316,11 +306,10 @@ func TestSamrRemoveMemberFromAlias(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -337,11 +326,10 @@ func TestSamrLookupIdsInDomainReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -352,14 +340,13 @@ func TestSamrLookupIdsInDomainRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if resp.Names.Elements[0] != "test" {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.Names.Elements[0]==test, got %v", resp.Names.Elements[0])
 	}
 	if resp.Use[0] != 1 {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.Use[0]==1, got %v", resp.Use[0])
 	}
 }
 
@@ -377,11 +364,10 @@ func TestSamrOpenGroupReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -399,11 +385,10 @@ func TestSamrOpenAliasReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -415,14 +400,13 @@ func TestSamrGetMembersInAliasRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if resp.Members.Count != 2 {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.Members.Count==2, got %v", resp.Members.Count)
 	}
 	if resp.Members.Sids[0].SidPointer.ToString() != "S-1-5-21-3399550914-3019600464-3536316716-500" {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.Members.Sids[0].SidPointer.ToString()==S-1-5-21-3399550914-3019600464-3536316716-500, got %v", resp.Members.Sids[0].SidPointer.ToString())
 	}
 }
 
@@ -438,11 +422,10 @@ func TestSamrCloseHandleReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -459,10 +442,9 @@ func TestSamrRidToSidReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -474,11 +456,10 @@ func TestSamrRidToSidRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if resp.Sid.ToString() != "S-1-5-21-3399550914-3019600464-3536316716-1001" {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.Sid.ToString()==S-1-5-21-3399550914-3019600464-3536316716-1001, got %v", resp.Sid.ToString())
 	}
 }
 
@@ -496,10 +477,9 @@ func TestSamrCreateUserInDomainReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -512,13 +492,12 @@ func TestSamrCreateUserInDomainRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(resp.UserHandle, handle) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", handle, resp.UserHandle)
 	}
 	if resp.RelativeId != 1028 {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.RelativeId==1028, got %v", resp.RelativeId)
 	}
 }
 
@@ -536,10 +515,9 @@ func TestSamrEnumDomainUsersReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -551,17 +529,16 @@ func TestSamrEnumDomainUsersRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if resp.CountReturned != 5 {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.CountReturned==5, got %v", resp.CountReturned)
 	}
 	if resp.Buffer.Buffer[0].RelativeId != 500 {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.Buffer.Buffer[0].RelativeId==500, got %v", resp.Buffer.Buffer[0].RelativeId)
 	}
 	if resp.Buffer.Buffer[4].Name != "WDAGUtilityAccount" {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.Buffer.Buffer[4].Name==WDAGUtilityAccount, got %v", resp.Buffer.Buffer[4].Name)
 	}
 }
 
@@ -579,10 +556,9 @@ func TestSamrEnumerateGroupsInDomainReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -594,17 +570,16 @@ func TestSamrEnumerateGroupsInDomainRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if resp.CountReturned != 1 {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.CountReturned==1, got %v", resp.CountReturned)
 	}
 	if resp.Buffer.Buffer[0].RelativeId != 513 {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.Buffer.Buffer[0].RelativeId==513, got %v", resp.Buffer.Buffer[0].RelativeId)
 	}
 	if resp.Buffer.Buffer[0].Name != "None" {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.Buffer.Buffer[0].Name==None, got %v", resp.Buffer.Buffer[0].Name)
 	}
 }
 
@@ -622,7 +597,7 @@ func TestSamrGetUserInfo2Req(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -637,16 +612,16 @@ func TestSamrGetUserInfo2Res(t *testing.T) {
 	var info *SamprUserAllInformation
 	info = res.Buffer.(*SamprUserAllInformation)
 	if info.Username != "test3" {
-		t.Fatal("Fail")
+		t.Fatalf("expected info.Username==test3, got %v", info.Username)
 	}
 	if info.UserId != 1028 {
-		t.Fatal("Fail")
+		t.Fatalf("expected info.UserId==1028, got %v", info.UserId)
 	}
 	if info.PrimaryGroupId != 513 {
-		t.Fatal("Fail")
+		t.Fatalf("expected info.PrimaryGroupId==513, got %v", info.PrimaryGroupId)
 	}
 	if info.UserAccountControl != 0x210 {
-		t.Fatal("Fail")
+		t.Fatalf("expected info.UserAccountControl==0x210, got %v", info.UserAccountControl)
 	}
 }
 
@@ -680,11 +655,10 @@ func TestSamrSetUserInfo2Req(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -701,10 +675,9 @@ func TestSamrEnumAliasesInDomainReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -718,10 +691,10 @@ func TestSamrEnumAliasesInDomainRes(t *testing.T) {
 	}
 
 	if resp.CountReturned != 1 {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.CountReturned==1, got %v", resp.CountReturned)
 	}
 	if resp.Buffer.Buffer[0].Name != "SQLServer2005SQLBrowserUser$FIFTH" {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.Buffer.Buffer[0].Name==SQLServer2005SQLBrowserUser$FIFTH, got %v", resp.Buffer.Buffer[0].Name)
 	}
 }
 
@@ -739,10 +712,9 @@ func TestSamrOpenUserReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -755,11 +727,10 @@ func TestSamrOpenUserRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(handle, resp.UserHandle) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", resp.UserHandle, handle)
 	}
 }
 
@@ -773,9 +744,8 @@ func TestSamrDeleteUserReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }

@@ -262,19 +262,19 @@ type NetrpGetFileSecurityRes struct {
 	WindowsError       uint32
 }
 
-func (self *NetServerGetInfoRequest) MarshalBinary() ([]byte, error) {
+func (s *NetServerGetInfoRequest) MarshalBinary() ([]byte, error) {
 	log.Debugln("In MarshalBinary for NetServerGetInfoRequest")
 
 	var ret []byte
 	var err error
 	refId := uint32(1)
 	w := bytes.NewBuffer(ret)
-	if self.ServerName != "" {
+	if s.ServerName != "" {
 		// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
 		/*
 		   In each instance where a string should be encoded, check the IDL to see if it is a ptr so a referent ID is needed and if MaxLen should be encoded as well.
 		*/
-		_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.ServerName, &refId, true)
+		_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.ServerName, &refId, true)
 		if err != nil {
 			log.Errorln(err)
 			return nil, err
@@ -286,7 +286,7 @@ func (self *NetServerGetInfoRequest) MarshalBinary() ([]byte, error) {
 			return nil, err
 		}
 	}
-	err = binary.Write(w, le, self.Level)
+	err = binary.Write(w, le, s.Level)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -295,20 +295,20 @@ func (self *NetServerGetInfoRequest) MarshalBinary() ([]byte, error) {
 	return w.Bytes(), nil
 }
 
-func (self *NetServerGetInfoRequest) UnmarshalBinary(buf []byte) error {
+func (s *NetServerGetInfoRequest) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of NetServerGetInfoRequest")
 }
 
-func (self *NetServerGetInfoResponse) MarshalBinary() ([]byte, error) {
+func (s *NetServerGetInfoResponse) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshaBinary of NetServerGetInfoResponse")
 }
 
-func (self *NetServerGetInfoResponse) UnmarshalBinary(buf []byte) (err error) {
+func (s *NetServerGetInfoResponse) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for NetServerGetInfoResponse")
 
 	r := bytes.NewReader(buf)
-	self.Info = &NetServerInfo{}
-	err = binary.Read(r, le, &self.Info.Level)
+	s.Info = &NetServerInfo{}
+	err = binary.Read(r, le, &s.Info.Level)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -319,7 +319,7 @@ func (self *NetServerGetInfoResponse) UnmarshalBinary(buf []byte) (err error) {
 		log.Errorln(err)
 		return
 	}
-	switch self.Info.Level {
+	switch s.Info.Level {
 	case 100:
 		if len(buf[8:]) < 8 {
 			return fmt.Errorf("Buffer is too short to contain a NetServerInfo100 struct\n")
@@ -342,7 +342,7 @@ func (self *NetServerGetInfoResponse) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		self.Info.Pointer = &si
+		s.Info.Pointer = &si
 	case 101:
 		if len(buf[8:]) < 24 {
 			return fmt.Errorf("Buffer is too short to contain a NetServerInfo102 struct\n")
@@ -399,7 +399,7 @@ func (self *NetServerGetInfoResponse) UnmarshalBinary(buf []byte) (err error) {
 			return
 		}
 
-		self.Info.Pointer = &si
+		s.Info.Pointer = &si
 	case 102:
 		/*
 			Order of serialization:
@@ -511,10 +511,10 @@ func (self *NetServerGetInfoResponse) UnmarshalBinary(buf []byte) (err error) {
 			return
 		}
 
-		self.Info.Pointer = &si
+		s.Info.Pointer = &si
 	}
 
-	err = binary.Read(r, le, &self.WindowsError)
+	err = binary.Read(r, le, &s.WindowsError)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -522,14 +522,14 @@ func (self *NetServerGetInfoResponse) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
+func (s *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for NetSessionEnumRequest")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	refid := uint32(1)
-	if self.ServerName != "" {
-		_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.ServerName, &refid, true)
+	if s.ServerName != "" {
+		_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.ServerName, &refid, true)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -541,8 +541,8 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 			return
 		}
 	}
-	if self.ClientName != "" {
-		_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.ClientName, &refid, true)
+	if s.ClientName != "" {
+		_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.ClientName, &refid, true)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -555,8 +555,8 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 		}
 	}
 
-	if self.UserName != "" {
-		_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.UserName, &refid, true)
+	if s.UserName != "" {
+		_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.UserName, &refid, true)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -570,16 +570,16 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 	}
 
 	// Encode the level (union discriminator)
-	err = binary.Write(w, le, self.Info.Level)
+	err = binary.Write(w, le, s.Info.Level)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Encode the union of ptrs
-	switch self.Info.Level {
+	switch s.Info.Level {
 	case 0:
-		err = binary.Write(w, le, self.Info.Level) // Encode the level
+		err = binary.Write(w, le, s.Info.Level) // Encode the level
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -591,7 +591,7 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 		}
 		refid++
 
-		ptr := self.Info.SessionInfo.(SessionInfoContainer0)
+		ptr := s.Info.SessionInfo.(SessionInfoContainer0)
 		err = binary.Write(w, le, ptr.EntriesRead) // How many items in array (sessions)
 		if err != nil {
 			log.Errorln(err)
@@ -608,7 +608,7 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 		}
 
 	case 10:
-		err = binary.Write(w, le, self.Info.Level) // Encode the level
+		err = binary.Write(w, le, s.Info.Level) // Encode the level
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -620,7 +620,7 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 		}
 		refid++
 
-		ptr := self.Info.SessionInfo.(SessionInfoContainer10)
+		ptr := s.Info.SessionInfo.(SessionInfoContainer10)
 		err = binary.Write(w, le, ptr.EntriesRead) // How many items in array (sessions)
 		if err != nil {
 			log.Errorln(err)
@@ -703,7 +703,7 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 		}
 	case 502:
 		refid := uint32(1)
-		err = binary.Write(w, le, self.Info.Level) // Encode the level
+		err = binary.Write(w, le, s.Info.Level) // Encode the level
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -715,7 +715,7 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 		}
 		refid++
 
-		ptr := self.Info.SessionInfo.(SessionInfoContainer502)
+		ptr := s.Info.SessionInfo.(SessionInfoContainer502)
 		err = binary.Write(w, le, ptr.EntriesRead) // How many items in array (sessions)
 		if err != nil {
 			log.Errorln(err)
@@ -731,10 +731,10 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 			return nil, fmt.Errorf("Not yet implemented support for specifying NetSession502 array items")
 		}
 	default:
-		return nil, fmt.Errorf("Not implemented marshal of level %d\n", self.Info.Level)
+		return nil, fmt.Errorf("Not implemented marshal of level %d\n", s.Info.Level)
 	}
 
-	err = binary.Write(w, le, self.PreferredMaxLength)
+	err = binary.Write(w, le, s.PreferredMaxLength)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -746,7 +746,7 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.ResumeHandle)
+	err = binary.Write(w, le, s.ResumeHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -755,15 +755,15 @@ func (self *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *NetSessionEnumRequest) UnmarshalBinary(buf []byte) error {
+func (s *NetSessionEnumRequest) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of NetSessionEnumRequest")
 }
 
-func (self *NetSessionEnumResponse) MarshalBinary() ([]byte, error) {
+func (s *NetSessionEnumResponse) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshaBinary of NetSessionEnumResponse")
 }
 
-func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
+func (s *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for NetSessionEnumResponse")
 
 	r := bytes.NewReader(buf)
@@ -774,7 +774,7 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 	// Decode the level of the SessionEnum Union
-	err = binary.Read(r, le, &self.Info.Level)
+	err = binary.Read(r, le, &s.Info.Level)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -785,10 +785,10 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 		log.Errorln(err)
 		return
 	}
-	switch self.Info.Level {
+	switch s.Info.Level {
 	case 0:
 		container := SessionInfoContainer0{}
-		self.Info.SessionInfo = &container
+		s.Info.SessionInfo = &container
 		err = binary.Read(r, le, &container.EntriesRead)
 		if err != nil {
 			log.Errorln(err)
@@ -828,7 +828,7 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 		}
 	case 10:
 		container := SessionInfoContainer10{}
-		self.Info.SessionInfo = &container
+		s.Info.SessionInfo = &container
 		err = binary.Read(r, le, &container.EntriesRead)
 		if err != nil {
 			log.Errorln(err)
@@ -885,7 +885,7 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 		}
 	case 502:
 		container := SessionInfoContainer502{}
-		self.Info.SessionInfo = &container
+		s.Info.SessionInfo = &container
 		err = binary.Read(r, le, &container.EntriesRead)
 		if err != nil {
 			log.Errorln(err)
@@ -976,10 +976,10 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 		}
 
 	default:
-		return fmt.Errorf("Not implemented UnmarshalBinary for level %d\n", self.Info.Level)
+		return fmt.Errorf("Not implemented UnmarshalBinary for level %d\n", s.Info.Level)
 	}
 
-	err = binary.Read(r, le, &self.TotalEntries)
+	err = binary.Read(r, le, &s.TotalEntries)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -992,48 +992,48 @@ func (self *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ResumeHandle)
+	err = binary.Read(r, le, &s.ResumeHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.WindowsError)
+	err = binary.Read(r, le, &s.WindowsError)
 	return nil
 }
 
-func (self *NetrpGetFileSecurityReq) Marshal() (b []byte, err error) {
+func (s *NetrpGetFileSecurityReq) Marshal() (b []byte, err error) {
 	enc := ndr.NewEncoder(bytes.NewBuffer(([]byte{})), false)
 	enc.SetEndianness(binary.LittleEndian)
-	b, err = enc.Encode(self)
+	b, err = enc.Encode(s)
 	if err != nil {
 		err = fmt.Errorf("error marshaling NetrpGetFileSecurityReq: %v", err)
 	}
 	return
 }
 
-func (self *NetrpGetFileSecurityReq) Unmarshal(b []byte) (err error) {
+func (s *NetrpGetFileSecurityReq) Unmarshal(b []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
-	err = dec.Decode(self)
+	err = dec.Decode(s)
 	if err != nil {
 		err = fmt.Errorf("error unmarshaling NetrpGetFileSecurityReq: %v", err)
 	}
 	return
 }
 
-func (self *NetrpGetFileSecurityRes) Marshal() (b []byte, err error) {
+func (s *NetrpGetFileSecurityRes) Marshal() (b []byte, err error) {
 	enc := ndr.NewEncoder(bytes.NewBuffer(([]byte{})), false)
 	enc.SetEndianness(binary.LittleEndian)
-	b, err = enc.Encode(self)
+	b, err = enc.Encode(s)
 	if err != nil {
 		err = fmt.Errorf("error marshaling NetrpGetFileSecurityRes: %v", err)
 	}
 	return
 }
 
-func (self *NetrpGetFileSecurityRes) Unmarshal(b []byte) (err error) {
+func (s *NetrpGetFileSecurityRes) Unmarshal(b []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
-	err = dec.Decode(self)
+	err = dec.Decode(s)
 	if err != nil {
 		err = fmt.Errorf("error unmarshaling NetrpGetFileSecurityRes: %v", err)
 	}

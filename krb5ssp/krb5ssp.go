@@ -87,19 +87,19 @@ func NewClient(client *client.Client) *Client {
 	return &Client{Client: client}
 }
 
-func (self *KRB5Token) MarshalBinary() (res []byte, err error) {
+func (t *KRB5Token) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for KRB5Token")
-	res, err = asn1.Marshal(self.Oid)
+	res, err = asn1.Marshal(t.Oid)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	res = le.AppendUint16(res, self.TokenId)
+	res = le.AppendUint16(res, t.TokenId)
 
-	switch self.TokenId {
+	switch t.TokenId {
 	case TokenIdKrb5APReq:
-		buf, err := self.APReq.Marshal()
+		buf, err := t.APReq.Marshal()
 		if err != nil {
 			log.Errorln(err)
 			return nil, err
@@ -131,17 +131,17 @@ func (self *KRB5Token) MarshalBinary() (res []byte, err error) {
 	return
 }
 
-func (self *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
+func (t *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for KRB5Token")
 
-	rest, err := asn1.UnmarshalWithParams(buf, &self.Oid, "application,explicit,tag:0")
+	rest, err := asn1.UnmarshalWithParams(buf, &t.Oid, "application,explicit,tag:0")
 	if err != nil {
 		log.Errorf("Failed to unmarshal KRB5Token OID: %v\n", err)
 		return
 	}
 
-	if !self.Oid.Equal(gss.KerberosSSPMechTypeOid) {
-		err = fmt.Errorf("KRB5Token OID is %s and not %s as expected", self.Oid.String(), gss.KerberosSSPMechTypeOid.String())
+	if !t.Oid.Equal(gss.KerberosSSPMechTypeOid) {
+		err = fmt.Errorf("KRB5Token OID is %s and not %s as expected", t.Oid.String(), gss.KerberosSSPMechTypeOid.String())
 		log.Errorln(err)
 		return
 	}
@@ -151,8 +151,8 @@ func (self *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.TokenId = le.Uint16(rest[0:2])
-	switch self.TokenId {
+	t.TokenId = le.Uint16(rest[0:2])
+	switch t.TokenId {
 	case TokenIdKrb5APReq:
 		err = fmt.Errorf("Unmarshal of KRB5Token APReq not yet implemented!")
 		log.Errorln(err)
@@ -164,7 +164,7 @@ func (self *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		self.APRep = rep
+		t.APRep = rep
 	case TokenIdKrb5Error:
 		krb5err := messages.KRBError{}
 		err = krb5err.Unmarshal(rest[2:])
@@ -172,9 +172,9 @@ func (self *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		self.KRBError = krb5err
+		t.KRBError = krb5err
 	default:
-		err = fmt.Errorf("Unmarshal av KRB5Token failed with unknown TokenId of: %d\n", self.TokenId)
+		err = fmt.Errorf("Unmarshal av KRB5Token failed with unknown TokenId of: %d\n", t.TokenId)
 		log.Errorln(err)
 		return
 	}

@@ -49,11 +49,10 @@ func TestLsarCloseHandleReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -71,11 +70,10 @@ func TestLsarQueryInformationPolicyReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -87,15 +85,14 @@ func TestLsarQueryInformationPolicyRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	var info *LsaprPolicyPrimaryDomInfo
 	info = resp.PolicyInformation.(*LsaprPolicyPrimaryDomInfo)
 	if info.Name != "SKYNET" {
-		t.Fatal("Fail")
+		t.Fatalf("expected info.Name==SKYNET, got %v", info.Name)
 	}
 	if info.Sid.ToString() != "S-1-5-21-1023064509-695355555-2046574917" {
-		t.Fatal("Fail")
+		t.Fatalf("expected info.Sid.ToString()==S-1-5-21-1023064509-695355555-2046574917, got %v", info.Sid.ToString())
 	}
 	return
 }
@@ -152,7 +149,7 @@ func TestLsarEnumerateAccountsReq(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 func TestLsarEnumerateAccountsRes(t *testing.T) {
@@ -162,13 +159,12 @@ func TestLsarEnumerateAccountsRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if resp.EnumerationBuffer.Entries != 20 {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.EnumerationBuffer.Entries==20, got %v", resp.EnumerationBuffer.Entries)
 	}
 	if resp.EnumerationBuffer.Information[1].Sid.ToString() != "S-1-5-80-592940576-1656185091-296729330-4026955537-2205062631" {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.EnumerationBuffer.Information[1].Sid.ToString()==S-1-5-80-592940576-1656185091-296729330-4026955537-2205062631, got %v", resp.EnumerationBuffer.Information[1].Sid.ToString())
 	}
 }
 
@@ -188,10 +184,9 @@ func TestLsarOpenAccountReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -203,10 +198,9 @@ func TestLsarOpenAccountRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(resp.AccountHandle, handle) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", handle, resp.AccountHandle)
 	}
 }
 
@@ -222,11 +216,10 @@ func TestLsarGetSystemAccessAccountReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -237,10 +230,9 @@ func TestLsarGetSystemAccessAccountRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if (resp.SystemAccess & SeInteractiveLogonRight) != SeInteractiveLogonRight {
-		t.Fatal("Fail")
+		t.Fatalf("expected (resp.SystemAccess & SeInteractiveLogonRight)==SeInteractiveLogonRight, got %v", (resp.SystemAccess & SeInteractiveLogonRight))
 	}
 }
 
@@ -257,11 +249,10 @@ func TestLsarSetSystemAccessAccountReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -279,10 +270,9 @@ func TestLsarEnumerateAccountRightsReq(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -293,13 +283,12 @@ func TestLsarEnumerateAccountRightsRes(t *testing.T) {
 	err := resp.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if resp.UserRights.Entries != 1 {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.UserRights.Entries==1, got %v", resp.UserRights.Entries)
 	}
 	if resp.UserRights.UserRights[0] != "SeBackupPrivilege" {
-		t.Fatal("Fail")
+		t.Fatalf("expected resp.UserRights.UserRights[0]==SeBackupPrivilege, got %v", resp.UserRights.UserRights[0])
 	}
 }
 
@@ -320,7 +309,7 @@ func TestLsarAddAccountRightsReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -342,7 +331,7 @@ func TestLsarRemoveAccountRightsReq(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -365,9 +354,8 @@ func TestLsarOpenPolicy2Req(t *testing.T) {
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }

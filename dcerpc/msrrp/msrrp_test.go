@@ -28,6 +28,8 @@ import (
 	"fmt"
 
 	"testing"
+
+	"github.com/jfjallid/go-smb/msdtyp"
 )
 
 // Possible to define an init function that is run before all tests?
@@ -53,7 +55,7 @@ func TestEnumKeyReq(t *testing.T) {
 		ClassIn: RRPUnicodeStr{
 			MaxLength: 512,
 		},
-		LastWriteTime: &PFiletime{1, 2},
+		LastWriteTime: &msdtyp.PFiletime{LowDateTime: 1, HighDateTime: 2},
 	}
 
 	buf, err := req.MarshalBinary()
@@ -64,7 +66,7 @@ func TestEnumKeyReq(t *testing.T) {
 	if !bytes.Equal(pkt, buf) {
 		fmt.Printf("%x\n", pkt)
 		fmt.Printf("%x\n", buf)
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -83,13 +85,13 @@ func TestEnumKeyRes(t *testing.T) {
 		t.Fatal("fail")
 	}
 	if res.LastWriteTime.LowDateTime != binary.LittleEndian.Uint32([]byte{0x19, 0x7a, 0xca, 0x0a}) {
-		t.Error("Fail")
+		t.Errorf("expected res.LastWriteTime.LowDateTime==binary.LittleEndian.Uint32([]byte{0x19, 0x7a, 0xca, 0x0a}), got %v", res.LastWriteTime.LowDateTime)
 	}
 	if res.LastWriteTime.HighDateTime != binary.LittleEndian.Uint32([]byte{0x70, 0x3c, 0xd9, 0x01}) {
-		t.Error("Fail")
+		t.Errorf("expected res.LastWriteTime.HighDateTime==binary.LittleEndian.Uint32([]byte{0x70, 0x3c, 0xd9, 0x01}), got %v", res.LastWriteTime.HighDateTime)
 	}
 	if res.ReturnCode != 0 {
-		t.Error("Fail")
+		t.Errorf("expected res.ReturnCode==0, got %v", res.ReturnCode)
 	}
 }
 
@@ -123,7 +125,7 @@ func TestEnumValueReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -143,22 +145,22 @@ func TestEnumValueRes(t *testing.T) {
 		t.Fatal("fail")
 	}
 	if res.Type != 3 {
-		t.Error("Fail")
+		t.Errorf("expected res.Type==3, got %v", res.Type)
 	}
 	nl1 := make([]byte, 168)
 	nl1[40] = 4
 	nl1[42] = 1
 	if !bytes.Equal(res.Data, nl1) {
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", nl1, res.Data)
 	}
 	if res.DataLen != 168 {
-		t.Error("Fail")
+		t.Errorf("expected res.DataLen==168, got %v", res.DataLen)
 	}
 	if res.MaxLen != 168 {
-		t.Error("Fail")
+		t.Errorf("expected res.MaxLen==168, got %v", res.MaxLen)
 	}
 	if res.ReturnCode != 0 {
-		t.Error("Fail")
+		t.Errorf("expected res.ReturnCode==0, got %v", res.ReturnCode)
 	}
 }
 
@@ -185,18 +187,18 @@ func TestSetKeySecurityReq(t *testing.T) {
 		PermKeySetValue |
 		PermKeyQueryValue
 
-	sAce, err := NewAce(systemSIDStr, systemMask, AccessAllowedAceType, ContainerInheritAce|InheritedAce)
+	sAce, err := NewAce(systemSIDStr, systemMask, msdtyp.AccessAllowedAceType, msdtyp.ContainerInheritAce|msdtyp.InheritedAce)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	adminMask := PermWriteDacl | PermReadControl
-	aAce, err := NewAce(adminSIDStr, adminMask, AccessAllowedAceType, ContainerInheritAce|InheritedAce)
+	aAce, err := NewAce(adminSIDStr, adminMask, msdtyp.AccessAllowedAceType, msdtyp.ContainerInheritAce|msdtyp.InheritedAce)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	sd, err := NewSecurityDescriptor(SecurityDescriptorFlagSR, nil, nil, NewACL([]ACE{*sAce, *aAce}), nil)
+	sd, err := NewSecurityDescriptor(msdtyp.SecurityDescriptorFlagSR, nil, nil, NewACL([]msdtyp.ACE{*sAce, *aAce}), nil)
 
 	req := BaseRegSetKeySecurityReq{
 		HKey:                hKey,
@@ -212,7 +214,7 @@ func TestSetKeySecurityReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -222,15 +224,15 @@ func TestSetKeySecurityRes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var res ReturnCode
+	var res msdtyp.ReturnCode
 
 	err = res.UnmarshalBinary(pkt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if res.uint32 != 0 {
-		t.Error("Fail")
+	if res.Value() != 0 {
+		t.Errorf("expected res.Value()==0, got %v", res.Value())
 	}
 }
 
@@ -259,7 +261,7 @@ func TestGetKeySecurityReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -285,69 +287,69 @@ func TestGetKeySecurityRes(t *testing.T) {
 
 	sd := *res.SecurityDescriptorOut.SecurityDescriptor
 
-	if sd.Control != SecurityDescriptorFlagSR|SecurityDescriptorFlagDP {
-		t.Error("Fail")
+	if sd.Control != msdtyp.SecurityDescriptorFlagSR|msdtyp.SecurityDescriptorFlagDP {
+		t.Errorf("expected sd.Control==msdtyp.SecurityDescriptorFlagSR|msdtyp.SecurityDescriptorFlagDP, got %v", sd.Control)
 	}
 	if !bytes.Equal(sd.OwnerSid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Error("Fail")
 	}
 	if sd.OwnerSid.SubAuthorities[0] != 32 {
-		t.Error("Fail")
+		t.Errorf("expected sd.OwnerSid.SubAuthorities[0]==32, got %v", sd.OwnerSid.SubAuthorities[0])
 	}
 	if sd.OwnerSid.SubAuthorities[1] != 544 {
-		t.Error("Fail")
+		t.Errorf("expected sd.OwnerSid.SubAuthorities[1]==544, got %v", sd.OwnerSid.SubAuthorities[1])
 	}
 
 	if !bytes.Equal(sd.GroupSid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Error("Fail")
 	}
 	if sd.GroupSid.SubAuthorities[0] != 18 {
-		t.Error("Fail")
+		t.Errorf("expected sd.GroupSid.SubAuthorities[0]==18, got %v", sd.GroupSid.SubAuthorities[0])
 	}
 
 	if sd.Dacl.AclSize != 52 {
-		t.Error("Fail")
+		t.Errorf("expected sd.Dacl.AclSize==52, got %v", sd.Dacl.AclSize)
 	}
 
 	if sd.Dacl.AceCount != 2 {
-		t.Error("Fail")
+		t.Errorf("expected sd.Dacl.AceCount==2, got %v", sd.Dacl.AceCount)
 	}
 	acls := sd.Dacl.ACLS
 
 	if acls[0].Mask != binary.LittleEndian.Uint32([]byte{0x3f, 0x00, 0x0f, 0x00}) {
-		t.Error("Fail")
+		t.Errorf("expected acls[0].Mask==binary.LittleEndian.Uint32([]byte{0x3f, 0x00, 0x0f, 0x00}), got %v", acls[0].Mask)
 	}
 	if acls[0].Header.Flags != 0x12 {
-		t.Error("Fail")
+		t.Errorf("expected acls[0].Header.Flags==0x12, got %v", acls[0].Header.Flags)
 	}
 	if !bytes.Equal(acls[0].Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Error("Fail")
 	}
 
 	if acls[0].Sid.SubAuthorities[0] != 18 {
-		t.Error("Fail")
+		t.Errorf("expected acls[0].Sid.SubAuthorities[0]==18, got %v", acls[0].Sid.SubAuthorities[0])
 	}
 
 	if acls[1].Mask != PermWriteDacl|PermReadControl {
-		t.Error("Fail")
+		t.Errorf("expected acls[1].Mask==PermWriteDacl|PermReadControl, got %v", acls[1].Mask)
 	}
 	if acls[1].Header.Flags != 0x12 {
-		t.Error("Fail")
+		t.Errorf("expected acls[1].Header.Flags==0x12, got %v", acls[1].Header.Flags)
 	}
 	if !bytes.Equal(acls[1].Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Error("Fail")
 	}
 
 	if acls[1].Sid.SubAuthorities[0] != 32 {
-		t.Error("Fail")
+		t.Errorf("expected acls[1].Sid.SubAuthorities[0]==32, got %v", acls[1].Sid.SubAuthorities[0])
 	}
 
 	if acls[1].Sid.SubAuthorities[1] != 544 {
-		t.Error("Fail")
+		t.Errorf("expected acls[1].Sid.SubAuthorities[1]==544, got %v", acls[1].Sid.SubAuthorities[1])
 	}
 
 	if res.ReturnCode != 0 {
-		t.Error("Fail")
+		t.Errorf("expected res.ReturnCode==0, got %v", res.ReturnCode)
 	}
 }
 
@@ -379,7 +381,7 @@ func TestOpenKeyReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -401,11 +403,11 @@ func TestOpenKeyRes(t *testing.T) {
 	}
 
 	if !bytes.Equal(res.HKey, handle) {
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", handle, res.HKey)
 	}
 
 	if res.ReturnCode != 0 {
-		t.Error("Fail")
+		t.Errorf("expected res.ReturnCode==0, got %v", res.ReturnCode)
 	}
 }
 
@@ -434,7 +436,7 @@ func TestQueryInfoKeyReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -452,38 +454,38 @@ func TestQueryInfoKeyRes(t *testing.T) {
 	}
 
 	if res.ClassOut.S != "0148322c\x00" {
-		t.Error("Fail")
+		t.Errorf("expected res.ClassOut.S==0148322c\x00, got %v", res.ClassOut.S)
 	}
 
 	if res.SubKeys != 0 {
-		t.Error("Fail")
+		t.Errorf("expected res.SubKeys==0, got %v", res.SubKeys)
 	}
 	if res.MaxSubKeyLen != 0 {
-		t.Error("Fail")
+		t.Errorf("expected res.MaxSubKeyLen==0, got %v", res.MaxSubKeyLen)
 	}
 	if res.MaxClassLen != 0 {
-		t.Error("Fail")
+		t.Errorf("expected res.MaxClassLen==0, got %v", res.MaxClassLen)
 	}
 	if res.Values != 1 {
-		t.Error("Fail")
+		t.Errorf("expected res.Values==1, got %v", res.Values)
 	}
 	if res.MaxValueNameLen != 12 {
-		t.Error("Fail")
+		t.Errorf("expected res.MaxValueNameLen==12, got %v", res.MaxValueNameLen)
 	}
 	if res.MaxValueLen != 6 {
-		t.Error("Fail")
+		t.Errorf("expected res.MaxValueLen==6, got %v", res.MaxValueLen)
 	}
 	if res.SecurityDescriptor != 240 {
-		t.Error("Fail")
+		t.Errorf("expected res.SecurityDescriptor==240, got %v", res.SecurityDescriptor)
 	}
 	if res.LastWriteTime.LowDateTime != binary.LittleEndian.Uint32([]byte{0x7d, 0x5c, 0xa5, 0xa2}) {
-		t.Error("Fail")
+		t.Errorf("expected res.LastWriteTime.LowDateTime==binary.LittleEndian.Uint32([]byte{0x7d, 0x5c, 0xa5, 0xa2}), got %v", res.LastWriteTime.LowDateTime)
 	}
 	if res.LastWriteTime.HighDateTime != binary.LittleEndian.Uint32([]byte{0x9b, 0xcd, 0xd8, 0x01}) {
-		t.Error("Fail")
+		t.Errorf("expected res.LastWriteTime.HighDateTime==binary.LittleEndian.Uint32([]byte{0x9b, 0xcd, 0xd8, 0x01}), got %v", res.LastWriteTime.HighDateTime)
 	}
 	if res.ReturnCode != 0 {
-		t.Error("Fail")
+		t.Errorf("expected res.ReturnCode==0, got %v", res.ReturnCode)
 	}
 }
 
@@ -517,7 +519,7 @@ func TestQueryValueReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -535,22 +537,22 @@ func TestQueryValueRes(t *testing.T) {
 	}
 
 	if res.Type != 1 {
-		t.Error("Fail")
+		t.Errorf("expected res.Type==1, got %v", res.Type)
 	}
 
-	name, err := FromUnicode(res.Data)
+	name, err := msdtyp.FromUnicode(res.Data)
 	if !bytes.Equal(name, []byte(".\\Administrator\x00")) {
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", name, []byte(".\\Administrator\x00"))
 	}
 
 	if res.DataLen != 32 {
-		t.Error("Fail")
+		t.Errorf("expected res.DataLen==32, got %v", res.DataLen)
 	}
 	if res.MaxLen != 32 {
-		t.Error("Fail")
+		t.Errorf("expected res.MaxLen==32, got %v", res.MaxLen)
 	}
 	if res.ReturnCode != 0 {
-		t.Error("Fail")
+		t.Errorf("expected res.ReturnCode==0, got %v", res.ReturnCode)
 	}
 }
 
@@ -569,24 +571,23 @@ func TestSaveKeyReq(t *testing.T) {
 	name := "C:\\windows\\temp\\sUFmxyV.log"
 	adminSIDStr := "S-1-5-32-544"
 	adminMask := PermGenericRead | PermGenericWrite | PermWriteDacl | PermDelete
-	aAce, err := NewAce(adminSIDStr, adminMask, AccessAllowedAceType, ContainerInheritAce)
+	aAce, err := NewAce(adminSIDStr, adminMask, msdtyp.AccessAllowedAceType, msdtyp.ContainerInheritAce)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ownerSid, err := convertStrToSID(adminSIDStr)
+	ownerSid, err := msdtyp.ConvertStrToSID(adminSIDStr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	acl := NewACL([]ACE{*aAce})
+	acl := NewACL([]msdtyp.ACE{*aAce})
 
-	sd, err := NewSecurityDescriptor(SecurityDescriptorFlagSR, ownerSid, nil, acl, nil)
+	sd, err := NewSecurityDescriptor(msdtyp.SecurityDescriptorFlagSR, ownerSid, nil, acl, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sdbuf, err := sd.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 	sdbufLen := uint32(len(sdbuf))
 	rd := RpcSecurityDescriptor{
@@ -616,7 +617,7 @@ func TestSaveKeyReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Error("Fail")
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -627,13 +628,13 @@ func TestSaveKeyRes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var res ReturnCode
+	var res msdtyp.ReturnCode
 	err = res.UnmarshalBinary(resPkt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if res.uint32 != 0 {
-		t.Error("Fail")
+	if res.Value() != 0 {
+		t.Errorf("expected res.Value()==0, got %v", res.Value())
 	}
 }

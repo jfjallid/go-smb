@@ -99,15 +99,15 @@ func (c *Connection) SetInitiator(initiator gss.Mechanism) error {
 }
 
 /*Retrieve packets from the write channel and put them to the wire.*/
-func (conn *Connection) runSender() {
+func (c *Connection) runSender() {
 	for {
 		select {
-		case <-conn.wdone:
+		case <-c.wdone:
 			return
-		case pkt := <-conn.write:
-			_, err := conn.conn.Write(pkt)
+		case pkt := <-c.write:
+			_, err := c.conn.Write(pkt)
 
-			conn.werr <- err
+			c.werr <- err
 		}
 	}
 }
@@ -249,7 +249,7 @@ func (c *Connection) runReceiver() {
 				// from outstandingRequests
 			} else {
 				if err = encoder.Unmarshal(data[:64], &h); err != nil {
-					fmt.Println("Skip: Failed to decode header of packet")
+					log.Errorln("Skip: Failed to decode header of packet")
 					continue
 				}
 				// Check structure size
@@ -262,7 +262,7 @@ func (c *Connection) runReceiver() {
 
 		rr, ok := c.outstandingRequests.pop(h.MessageID)
 		if !ok {
-			fmt.Printf("Message Id (%d) not found in outstanding packets!\n", h.MessageID)
+			log.Errorf("Message Id (%d) not found in outstanding packets!\n", h.MessageID)
 			continue
 		}
 		if h.Status == StatusPending {

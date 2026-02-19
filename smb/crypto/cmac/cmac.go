@@ -69,53 +69,53 @@ func New(key []byte) (hash.Hash, error) {
 	}, nil
 }
 
-func (self *cmac) Write(data []byte) (int, error) {
+func (s *cmac) Write(data []byte) (int, error) {
 	// Step 6 in RFC 4493
 	// XOR every byte with same position in previous block
 	// and for each complete block we encrypt it and start over
 	for _, b := range data {
-		if self.pos >= len(self.x) {
-			self.c.Encrypt(self.x, self.x)
-			self.pos = 0
+		if s.pos >= len(s.x) {
+			s.c.Encrypt(s.x, s.x)
+			s.pos = 0
 		}
-		self.x[self.pos] ^= b
-		self.pos++
+		s.x[s.pos] ^= b
+		s.pos++
 	}
 	return len(data), nil
 }
 
-func (self *cmac) Sum(buf []byte) []byte {
-	last := make([]byte, len(self.x))
-	copy(last, self.x[:self.pos])
-	copy(self.digest, self.x)
+func (s *cmac) Sum(buf []byte) []byte {
+	last := make([]byte, len(s.x))
+	copy(last, s.x[:s.pos])
+	copy(s.digest, s.x)
 
 	// Step 4
-	if self.pos >= len(self.x) {
-		self.digest = xor128(last, self.k1)
+	if s.pos >= len(s.x) {
+		s.digest = xor128(last, s.k1)
 	} else {
 		// Padding(M_n)
 		// Only the highest bit (0x80 bit) will have effect on xor since rest of the padding is 0
-		self.digest[self.pos] ^= 0x80
-		self.digest = xor128(self.digest, self.k2)
+		s.digest[s.pos] ^= 0x80
+		s.digest = xor128(s.digest, s.k2)
 	}
 
-	self.c.Encrypt(self.digest, self.digest)
-	return append(buf, self.digest[:self.c.BlockSize()]...)
+	s.c.Encrypt(s.digest, s.digest)
+	return append(buf, s.digest[:s.c.BlockSize()]...)
 }
 
-func (self *cmac) Size() int {
-	return len(self.digest)
+func (s *cmac) Size() int {
+	return len(s.digest)
 }
 
-func (self *cmac) BlockSize() int {
-	return self.c.BlockSize()
+func (s *cmac) BlockSize() int {
+	return s.c.BlockSize()
 }
 
-func (self *cmac) Reset() {
-	for i := range self.x {
-		self.x[i] = 0
+func (s *cmac) Reset() {
+	for i := range s.x {
+		s.x[i] = 0
 	}
-	self.pos = 0
+	s.pos = 0
 }
 
 func aesCmac(k, m []byte, length int) ([]byte, error) {

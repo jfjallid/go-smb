@@ -244,114 +244,114 @@ type NameTranslations struct {
 	ReturnCode        uint32
 }
 
-func (self *LsarGetUserNameReq) Marshal() (b []byte, err error) {
+func (s *LsarGetUserNameReq) Marshal() (b []byte, err error) {
 	enc := ndr.NewEncoder(bytes.NewBuffer(([]byte{})), false)
 	enc.SetEndianness(binary.LittleEndian)
-	b, err = enc.Encode(self)
+	b, err = enc.Encode(s)
 	if err != nil {
 		err = fmt.Errorf("error marshaling LsarGetUserNameReq: %v", err)
 	}
 	return
 }
 
-func (self *LsarGetUserNameReq) Unmarshal(b []byte) (err error) {
+func (s *LsarGetUserNameReq) Unmarshal(b []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
-	err = dec.Decode(self)
+	err = dec.Decode(s)
 	if err != nil {
 		err = fmt.Errorf("error unmarshaling LsarGetUserNameReq: %v", err)
 	}
 	return
 }
 
-func (self *LsarGetUserNameRes) Marshal() (b []byte, err error) {
+func (s *LsarGetUserNameRes) Marshal() (b []byte, err error) {
 	enc := ndr.NewEncoder(bytes.NewBuffer(([]byte{})), false)
 	enc.SetEndianness(binary.LittleEndian)
-	b, err = enc.Encode(self)
+	b, err = enc.Encode(s)
 	if err != nil {
 		err = fmt.Errorf("error marshaling LsarGetUserNameRes: %v", err)
 	}
 	return
 }
 
-func (self *LsarGetUserNameRes) Unmarshal(b []byte) (err error) {
+func (s *LsarGetUserNameRes) Unmarshal(b []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
-	err = dec.Decode(self)
+	err = dec.Decode(s)
 	if err != nil {
 		err = fmt.Errorf("error unmarshaling LsarGetUserNameRes: %v", err)
 	}
 	return
 }
 
-func (self *LsarLookupSids2Req) Marshal() (b []byte, err error) {
+func (s *LsarLookupSids2Req) Marshal() (b []byte, err error) {
 	enc := ndr.NewEncoder(bytes.NewBuffer(([]byte{})), false)
 	enc.SetEndianness(binary.LittleEndian)
-	b, err = enc.Encode(self)
+	b, err = enc.Encode(s)
 	if err != nil {
 		err = fmt.Errorf("error marshaling LsarLookupSids2Req: %v", err)
 	}
 	return
 }
 
-func (self *LsarLookupSids2Req) Unmarshal(b []byte) (err error) {
+func (s *LsarLookupSids2Req) Unmarshal(b []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
-	err = dec.Decode(self)
+	err = dec.Decode(s)
 	if err != nil {
 		err = fmt.Errorf("error unmarshaling LsarLookupSids2Req: %v", err)
 	}
 	return
 }
 
-func (self *LsarLookupSids2Res) Marshal() (b []byte, err error) {
+func (s *LsarLookupSids2Res) Marshal() (b []byte, err error) {
 	enc := ndr.NewEncoder(bytes.NewBuffer(([]byte{})), false)
 	enc.SetEndianness(binary.LittleEndian)
-	b, err = enc.Encode(self)
+	b, err = enc.Encode(s)
 	if err != nil {
 		err = fmt.Errorf("error marshaling LsarLookupSids2Res: %v", err)
 	}
 	return
 }
 
-func (self *LsarLookupSids2Res) Unmarshal(b []byte) (err error) {
+func (s *LsarLookupSids2Res) Unmarshal(b []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
-	err = dec.Decode(self)
+	err = dec.Decode(s)
 	if err != nil {
 		err = fmt.Errorf("error unmarshaling LsarLookupSids2Res: %v", err)
 	}
 	return
 }
 
-func (self *LsarLookupNames3Req) Marshal() (b []byte, err error) {
+func (s *LsarLookupNames3Req) Marshal() (b []byte, err error) {
 	enc := ndr.NewEncoder(bytes.NewBuffer(([]byte{})), false)
 	enc.SetEndianness(binary.LittleEndian)
-	b, err = enc.Encode(self)
+	b, err = enc.Encode(s)
 	if err != nil {
 		err = fmt.Errorf("error marshaling LsarLookupNames3Req: %v", err)
 	}
 	return
 }
 
-func (self *LsarLookupNames3Req) Unmarshal(b []byte) (err error) {
+func (s *LsarLookupNames3Req) Unmarshal(b []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
-	err = dec.Decode(self)
+	err = dec.Decode(s)
 	if err != nil {
 		err = fmt.Errorf("error unmarshaling LsarLookupNames3Req: %v", err)
 	}
 	return
 }
 
-func (self *LsarLookupNames3Res) Marshal() (b []byte, err error) {
+func (s *LsarLookupNames3Res) Marshal() (b []byte, err error) {
 	enc := ndr.NewEncoder(bytes.NewBuffer(([]byte{})), false)
 	enc.SetEndianness(binary.LittleEndian)
-	b, err = enc.Encode(self)
+	b, err = enc.Encode(s)
 	if err != nil {
 		err = fmt.Errorf("error marshaling LsarLookupNames3Res: %v", err)
 	}
 	return
 }
 
-func (self *LsarLookupNames3Res) Unmarshal(b []byte) (err error) {
+func (s *LsarLookupNames3Res) Unmarshal(b []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
-	err = dec.Decode(self)
+	err = dec.Decode(s)
 	if err != nil {
 		err = fmt.Errorf("error unmarshaling LsarLookupNames3Res: %v", err)
 	}

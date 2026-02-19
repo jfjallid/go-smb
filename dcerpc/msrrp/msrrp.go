@@ -294,15 +294,15 @@ func (r *RPCCon) CloseKeyHandle(hKey []byte) (err error) {
 		return
 	}
 
-	res := ReturnCode{}
+	res := msdtyp.ReturnCode{}
 	err = res.UnmarshalBinary(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if res.uint32 != ErrorSuccess {
-		err = ReturnCodeMap[res.uint32]
+	if res.Value() != ErrorSuccess {
+		err = ReturnCodeMap[res.Value()]
 		log.Errorln(err)
 	}
 
@@ -443,7 +443,7 @@ func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 		ClassIn: RRPUnicodeStr{
 			MaxLength: 256,
 		},
-		LastWriteTime: &PFiletime{1, 2},
+		LastWriteTime: &msdtyp.PFiletime{LowDateTime: 1, HighDateTime: 2},
 	}
 
 	log.Debugf("Trying to enumerate subkey (%d) for key handle (0x%x)\n", index, hKey)
@@ -918,15 +918,15 @@ func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err err
 		return
 	}
 
-	res := ReturnCode{}
+	res := msdtyp.ReturnCode{}
 	err = res.UnmarshalBinary(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if res.uint32 != ErrorSuccess {
-		err = ReturnCodeMap[res.uint32]
+	if res.Value() != ErrorSuccess {
+		err = ReturnCodeMap[res.Value()]
 	}
 
 	return
@@ -1016,15 +1016,15 @@ func (r *RPCCon) SetKeySecurity(hKey []byte, sd *msdtyp.SecurityDescriptor) (err
 		return
 	}
 
-	res := ReturnCode{}
+	res := msdtyp.ReturnCode{}
 	err = res.UnmarshalBinary(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if res.uint32 != ErrorSuccess {
-		err = ReturnCodeMap[res.uint32]
+	if res.Value() != ErrorSuccess {
+		err = ReturnCodeMap[res.Value()]
 	}
 	log.Debugln("Successfully changed the SecurityDescriptor")
 	return

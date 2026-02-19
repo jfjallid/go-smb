@@ -206,31 +206,31 @@ type LsaprUserRightSet struct {
 	UserRights []string // Use ReadRPCUnicodeStrArray/WriteRPCUnicodeStrArray
 }
 
-func (self *SecurityQualityOfService) MarshalBinary() (res []byte, err error) {
+func (s *SecurityQualityOfService) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarSecurityQualityOfService")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.Length)
+	err = binary.Write(w, le, s.Length)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.ImpersonationLevel)
+	err = binary.Write(w, le, s.ImpersonationLevel)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.ContextTrackingMode)
+	err = binary.Write(w, le, s.ContextTrackingMode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.EffectiveOnly)
+	err = binary.Write(w, le, s.EffectiveOnly)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -239,13 +239,13 @@ func (self *SecurityQualityOfService) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *LsaprObjectAttributes) MarshalBinary() (res []byte, err error) {
+func (s *LsaprObjectAttributes) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarObjectAttributes")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.Length)
+	err = binary.Write(w, le, s.Length)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -263,7 +263,7 @@ func (self *LsaprObjectAttributes) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	err = binary.Write(w, le, self.Attributes)
+	err = binary.Write(w, le, s.Attributes)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -282,7 +282,7 @@ func (self *LsaprObjectAttributes) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	buf, err := self.SecurityQualityOfService.MarshalBinary()
+	buf, err := s.SecurityQualityOfService.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -295,31 +295,31 @@ func (self *LsaprObjectAttributes) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *LsaprAccountEnumBuffer) UnmarshalBinary(buf []byte) (err error) {
+func (s *LsaprAccountEnumBuffer) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for LsaprAccountEnumBufferRes")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for LsaprAccountEnumBufferRes")
 	}
 	r := bytes.NewReader(buf)
 
-	err = binary.Read(r, le, &self.Entries)
+	err = binary.Read(r, le, &s.Entries)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.Entries == 0 {
+	if s.Entries == 0 {
 		return
 	}
 
 	// skip ref id, max count nested ref id ptr for each SID structure
-	_, err = r.Seek(8+int64(self.Entries*4), io.SeekCurrent)
+	_, err = r.Seek(8+int64(s.Entries*4), io.SeekCurrent)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	for i := 0; i < int(self.Entries); i++ {
+	for i := 0; i < int(s.Entries); i++ {
 		var sid *msdtyp.SID
 		// Skip count
 		_, err = r.Seek(4, io.SeekCurrent)
@@ -332,27 +332,27 @@ func (self *LsaprAccountEnumBuffer) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		self.Information = append(self.Information, LsaprAccountInformation{Sid: sid})
+		s.Information = append(s.Information, LsaprAccountInformation{Sid: sid})
 	}
 
 	return
 }
 
-func (self *LsaprUserRightSet) fromReader(r *bytes.Reader) (err error) {
+func (s *LsaprUserRightSet) fromReader(r *bytes.Reader) (err error) {
 	log.Debugln("In fromReader for LsaprUserRightSet")
 
-	err = binary.Read(r, le, &self.Entries)
+	err = binary.Read(r, le, &s.Entries)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.Entries == 0 {
+	if s.Entries == 0 {
 		// Maybe read more from the reader if empty list?
 		return
 	}
 
-	self.UserRights, err = msdtyp.ReadRPCUnicodeStrArray(r, false)
+	s.UserRights, err = msdtyp.ReadRPCUnicodeStrArray(r, false)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -361,18 +361,18 @@ func (self *LsaprUserRightSet) fromReader(r *bytes.Reader) (err error) {
 	return
 }
 
-func (self *LsaprUserRightSet) toWriter(w io.Writer, refId *uint32) (err error) {
+func (s *LsaprUserRightSet) toWriter(w io.Writer, refId *uint32) (err error) {
 	log.Debugln("In toWriter for LsaprUserRightSet")
 
-	self.Entries = uint32(len(self.UserRights))
+	s.Entries = uint32(len(s.UserRights))
 
-	err = binary.Write(w, le, &self.Entries)
+	err = binary.Write(w, le, &s.Entries)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	_, err = msdtyp.WriteRPCUnicodeStrArray(w, self.UserRights, refId, false)
+	_, err = msdtyp.WriteRPCUnicodeStrArray(w, s.UserRights, refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -381,7 +381,7 @@ func (self *LsaprUserRightSet) toWriter(w io.Writer, refId *uint32) (err error) 
 	return
 }
 
-func (self *LsaprPolicyPrimaryDomInfo) fromReader(r *bytes.Reader) (err error) {
+func (s *LsaprPolicyPrimaryDomInfo) fromReader(r *bytes.Reader) (err error) {
 	log.Debugln("In fromReader for LsaprPolicyPrimaryDomInfo")
 
 	var count, maxCount uint16
@@ -402,7 +402,7 @@ func (self *LsaprPolicyPrimaryDomInfo) fromReader(r *bytes.Reader) (err error) {
 		log.Errorln(err)
 		return
 	}
-	self.Name, err = msdtyp.ReadConformantVaryingString(r, false)
+	s.Name, err = msdtyp.ReadConformantVaryingString(r, false)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -414,7 +414,7 @@ func (self *LsaprPolicyPrimaryDomInfo) fromReader(r *bytes.Reader) (err error) {
 		log.Errorln(err)
 		return
 	}
-	self.Sid, err = msdtyp.ReadSID(r)
+	s.Sid, err = msdtyp.ReadSID(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -423,10 +423,10 @@ func (self *LsaprPolicyPrimaryDomInfo) fromReader(r *bytes.Reader) (err error) {
 	return
 }
 
-func (self *LsaprPolicyPrimaryDomInfo) toWriter(w io.Writer, refId *uint32) (err error) {
+func (s *LsaprPolicyPrimaryDomInfo) toWriter(w io.Writer, refId *uint32) (err error) {
 	log.Debugln("In toWriter for LsaprPolicyPrimaryInformation")
 
-	offset, count, paddlen, unc := msdtyp.NewUnicodeStr(self.Name, false)
+	offset, count, paddlen, unc := msdtyp.NewUnicodeStr(s.Name, false)
 	maxCount := count + 1
 
 	// First write len and size of unicode string for name field
@@ -485,13 +485,13 @@ func (self *LsaprPolicyPrimaryDomInfo) toWriter(w io.Writer, refId *uint32) (err
 		}
 	}
 
-	sidBuf, err := self.Sid.MarshalBinary()
+	sidBuf, err := s.Sid.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	// Write SID sub authority count
-	err = binary.Write(w, le, uint32(self.Sid.NumAuth))
+	err = binary.Write(w, le, uint32(s.Sid.NumAuth))
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -506,12 +506,12 @@ func (self *LsaprPolicyPrimaryDomInfo) toWriter(w io.Writer, refId *uint32) (err
 	return
 }
 
-func (self *LsaprPolicyPrimaryDomInfo) MarshalBinary() (res []byte, err error) {
+func (s *LsaprPolicyPrimaryDomInfo) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsaprPolicyPrimaryDomInfo")
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	refId := uint32(1)
-	err = self.toWriter(w, &refId)
+	err = s.toWriter(w, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -520,19 +520,19 @@ func (self *LsaprPolicyPrimaryDomInfo) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *LsaprPolicyPrimaryDomInfo) UnmarshalBinary(buf []byte) (err error) {
+func (s *LsaprPolicyPrimaryDomInfo) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for LsaprPolicyPrimaryDomInfo")
 	r := bytes.NewReader(buf)
-	return self.fromReader(r)
+	return s.fromReader(r)
 }
 
-func (self *LsarCloseReq) MarshalBinary() (res []byte, err error) {
+func (s *LsarCloseReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarCloseReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.ObjectHandle)
+	err = binary.Write(w, le, s.ObjectHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -541,22 +541,22 @@ func (self *LsarCloseReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *LsarCloseReq) UnmarshalBinary(buf []byte) error {
+func (s *LsarCloseReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarCloseReq")
 }
 
-func (self *LsarQueryInformationPolicyReq) MarshalBinary() (res []byte, err error) {
+func (s *LsarQueryInformationPolicyReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarQueryInformationPolicyReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.PolicyHandle)
+	err = binary.Write(w, le, s.PolicyHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.InformationClass)
+	err = binary.Write(w, le, s.InformationClass)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -565,15 +565,15 @@ func (self *LsarQueryInformationPolicyReq) MarshalBinary() (res []byte, err erro
 	return w.Bytes(), nil
 }
 
-func (self *LsarQueryInformationPolicyReq) UnmarshalBinary(buf []byte) error {
+func (s *LsarQueryInformationPolicyReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarQueryInformationPolicyReq")
 }
 
-func (self *LsarQueryInformationPolicyRes) MarshalBinary() ([]byte, error) {
+func (s *LsarQueryInformationPolicyRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarQueryInformationPolicyRes")
 }
 
-func (self *LsarQueryInformationPolicyRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *LsarQueryInformationPolicyRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for LsarQueryInformationPolicyRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for LsarQueryInformationPolicyRes")
@@ -586,16 +586,16 @@ func (self *LsarQueryInformationPolicyRes) UnmarshalBinary(buf []byte) (err erro
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarQueryInformationPolicy response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown LSAD return code for LsarQueryInformationPolicy response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -627,31 +627,31 @@ func (self *LsarQueryInformationPolicyRes) UnmarshalBinary(buf []byte) (err erro
 			log.Errorln(err)
 			return
 		}
-		self.PolicyInformation = &info
+		s.PolicyInformation = &info
 	}
 
 	return
 }
 
-func (self *LsarCreateAccountReq) MarshalBinary() (res []byte, err error) {
+func (s *LsarCreateAccountReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarCreateAccountReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.PolicyHandle)
+	err = binary.Write(w, le, s.PolicyHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	buf, err := self.AccountSid.MarshalBinary()
+	buf, err := s.AccountSid.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	// First write the number of sub authorities before the actual SID
-	err = binary.Write(w, le, uint32(self.AccountSid.NumAuth))
+	err = binary.Write(w, le, uint32(s.AccountSid.NumAuth))
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -662,7 +662,7 @@ func (self *LsarCreateAccountReq) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -671,15 +671,15 @@ func (self *LsarCreateAccountReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *LsarCreateAccountReq) UnmarshalBinary(buf []byte) error {
+func (s *LsarCreateAccountReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarCreateAccountReq")
 }
 
-func (self *LsarCreateAccountRes) MarshalBinary() ([]byte, error) {
+func (s *LsarCreateAccountRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarCreateAccountRes")
 }
 
-func (self *LsarCreateAccountRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *LsarCreateAccountRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for LsarCreateAccountRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for LsarCreateAccountRes")
@@ -692,16 +692,16 @@ func (self *LsarCreateAccountRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarCreateAccount response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown LSAD return code for LsarCreateAccount response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -716,8 +716,8 @@ func (self *LsarCreateAccountRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.AccountHandle = make([]byte, 20)
-	err = binary.Read(r, le, &self.AccountHandle)
+	s.AccountHandle = make([]byte, 20)
+	err = binary.Read(r, le, &s.AccountHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -726,24 +726,24 @@ func (self *LsarCreateAccountRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *LsarEnumerateAccountsReq) MarshalBinary() (res []byte, err error) {
+func (s *LsarEnumerateAccountsReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarEnumerateAccountsReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.PolicyHandle)
+	err = binary.Write(w, le, s.PolicyHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.EnumerationContext)
+	err = binary.Write(w, le, s.EnumerationContext)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.PreferredMaxLength)
+	err = binary.Write(w, le, s.PreferredMaxLength)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -752,21 +752,21 @@ func (self *LsarEnumerateAccountsReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *LsarEnumerateAccountsReq) UnmarshalBinary(buf []byte) error {
+func (s *LsarEnumerateAccountsReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarEnumerateAccountsReq")
 }
 
-func (self *LsarEnumerateAccountsRes) MarshalBinary() ([]byte, error) {
+func (s *LsarEnumerateAccountsRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarEnumerateAccountsRes")
 }
 
-func (self *LsarEnumerateAccountsRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *LsarEnumerateAccountsRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for LsarEnumerateAccountsRes")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for LsarEnumerateAccountsRes")
 	}
 	r := bytes.NewReader(buf)
-	err = binary.Read(r, le, &self.EnumerationContext)
+	err = binary.Read(r, le, &s.EnumerationContext)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -779,16 +779,16 @@ func (self *LsarEnumerateAccountsRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarEnumerateAccounts response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown LSAD return code for LsarEnumerateAccounts response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -804,29 +804,29 @@ func (self *LsarEnumerateAccountsRes) UnmarshalBinary(buf []byte) (err error) {
 		log.Errorln(err)
 		return
 	}
-	self.EnumerationBuffer = &res
+	s.EnumerationBuffer = &res
 	return
 }
 
-func (self *LsarOpenAccountReq) MarshalBinary() (res []byte, err error) {
+func (s *LsarOpenAccountReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarOpenAccountReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.PolicyHandle)
+	err = binary.Write(w, le, s.PolicyHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// First write number of subauthorities
-	err = binary.Write(w, le, uint32(self.AccountSid.NumAuth))
+	err = binary.Write(w, le, uint32(s.AccountSid.NumAuth))
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	buf, err := self.AccountSid.MarshalBinary()
+	buf, err := s.AccountSid.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -837,7 +837,7 @@ func (self *LsarOpenAccountReq) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -846,15 +846,15 @@ func (self *LsarOpenAccountReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *LsarOpenAccountReq) UnmarshalBinary(buf []byte) error {
+func (s *LsarOpenAccountReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarOpenAccountReq")
 }
 
-func (self *LsarOpenAccountRes) MarshalBinary() ([]byte, error) {
+func (s *LsarOpenAccountRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarOpenAccountRes")
 }
 
-func (self *LsarOpenAccountRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *LsarOpenAccountRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for LsarOpenAccountRes")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for LsarOpenAccountRes")
@@ -867,16 +867,16 @@ func (self *LsarOpenAccountRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarOpenAccount response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown LSAD return code for LsarOpenAccount response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -891,8 +891,8 @@ func (self *LsarOpenAccountRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.AccountHandle = make([]byte, 20)
-	err = binary.Read(r, le, &self.AccountHandle)
+	s.AccountHandle = make([]byte, 20)
+	err = binary.Read(r, le, &s.AccountHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -900,13 +900,13 @@ func (self *LsarOpenAccountRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *LsarGetSystemAccessAccountReq) MarshalBinary() (res []byte, err error) {
+func (s *LsarGetSystemAccessAccountReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarGetSystemAccessAccountReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.AccountHandle)
+	err = binary.Write(w, le, s.AccountHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -915,28 +915,28 @@ func (self *LsarGetSystemAccessAccountReq) MarshalBinary() (res []byte, err erro
 	return w.Bytes(), nil
 }
 
-func (self *LsarGetSystemAccessAccountReq) UnmarshalBinary(buf []byte) error {
+func (s *LsarGetSystemAccessAccountReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarGetSystemAccessAccountReq")
 }
 
-func (self *LsarGetSystemAccessAccountRes) MarshalBinary() ([]byte, error) {
+func (s *LsarGetSystemAccessAccountRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarGetSystemAccessAccountRes")
 }
 
-func (self *LsarGetSystemAccessAccountRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *LsarGetSystemAccessAccountRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for LsarGetSystemAccessAccountRes")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer to small for LsarGetSystemAccessAccountRes")
 	}
 	r := bytes.NewReader(buf)
 
-	err = binary.Read(r, le, &self.SystemAccess)
+	err = binary.Read(r, le, &s.SystemAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -945,18 +945,18 @@ func (self *LsarGetSystemAccessAccountRes) UnmarshalBinary(buf []byte) (err erro
 	return
 }
 
-func (self *LsarSetSystemAccessAccountReq) MarshalBinary() (res []byte, err error) {
+func (s *LsarSetSystemAccessAccountReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarSetSystemAccessAccountReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.AccountHandle)
+	err = binary.Write(w, le, s.AccountHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.SystemAccess)
+	err = binary.Write(w, le, s.SystemAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -965,29 +965,29 @@ func (self *LsarSetSystemAccessAccountReq) MarshalBinary() (res []byte, err erro
 	return w.Bytes(), nil
 }
 
-func (self *LsarSetSystemAccessAccountReq) UnmarshalBinary(buf []byte) error {
+func (s *LsarSetSystemAccessAccountReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarSetSystemAccessAccountReq")
 }
 
-func (self *LsarEnumerateAccountRightsReq) MarshalBinary() (res []byte, err error) {
+func (s *LsarEnumerateAccountRightsReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarEnumerateAccountRightsReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.PolicyHandle)
+	err = binary.Write(w, le, s.PolicyHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// First write number of subauthorities
-	err = binary.Write(w, le, uint32(self.AccountSid.NumAuth))
+	err = binary.Write(w, le, uint32(s.AccountSid.NumAuth))
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	buf, err := self.AccountSid.MarshalBinary()
+	buf, err := s.AccountSid.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1001,15 +1001,15 @@ func (self *LsarEnumerateAccountRightsReq) MarshalBinary() (res []byte, err erro
 	return w.Bytes(), nil
 }
 
-func (self *LsarEnumerateAccountRightsReq) UnmarshalBinary(buf []byte) error {
+func (s *LsarEnumerateAccountRightsReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarEnumerateAccountRightsReq")
 }
 
-func (self *LsarEnumerateAccountRightsRes) MarshalBinary() ([]byte, error) {
+func (s *LsarEnumerateAccountRightsRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarEnumerateAccountRightsRes")
 }
 
-func (self *LsarEnumerateAccountRightsRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *LsarEnumerateAccountRightsRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for LsarEnumerateAccountRightsRes")
 	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for LsarEnumerateAccountRightsRes")
@@ -1022,13 +1022,13 @@ func (self *LsarEnumerateAccountRightsRes) UnmarshalBinary(buf []byte) (err erro
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
+	if s.ReturnCode > 0 {
 		return
 	}
 
@@ -1038,7 +1038,7 @@ func (self *LsarEnumerateAccountRightsRes) UnmarshalBinary(buf []byte) (err erro
 		return
 	}
 
-	err = self.UserRights.fromReader(r)
+	err = s.UserRights.fromReader(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1046,26 +1046,26 @@ func (self *LsarEnumerateAccountRightsRes) UnmarshalBinary(buf []byte) (err erro
 	return
 }
 
-func (self *LsarAddAccountRightsReq) MarshalBinary() (res []byte, err error) {
+func (s *LsarAddAccountRightsReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarAddAccountRightsReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	var refId uint32 = 1
 
-	err = binary.Write(w, le, self.PolicyHandle)
+	err = binary.Write(w, le, s.PolicyHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// First write number of subauthorities
-	err = binary.Write(w, le, uint32(self.AccountSid.NumAuth))
+	err = binary.Write(w, le, uint32(s.AccountSid.NumAuth))
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	buf, err := self.AccountSid.MarshalBinary()
+	buf, err := s.AccountSid.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1076,7 +1076,7 @@ func (self *LsarAddAccountRightsReq) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	err = self.UserRights.toWriter(w, &refId)
+	err = s.UserRights.toWriter(w, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1085,30 +1085,30 @@ func (self *LsarAddAccountRightsReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *LsarAddAccountRightsReq) UnmarshalBinary(buf []byte) error {
+func (s *LsarAddAccountRightsReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarAddAccountRightsReq")
 }
 
-func (self *LsarRemoveAccountRightsReq) MarshalBinary() (res []byte, err error) {
+func (s *LsarRemoveAccountRightsReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarRemoveAccountRightsReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	var refId uint32 = 1
 
-	err = binary.Write(w, le, self.PolicyHandle)
+	err = binary.Write(w, le, s.PolicyHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// First write number of subauthorities
-	err = binary.Write(w, le, uint32(self.AccountSid.NumAuth))
+	err = binary.Write(w, le, uint32(s.AccountSid.NumAuth))
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	buf, err := self.AccountSid.MarshalBinary()
+	buf, err := s.AccountSid.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1120,7 +1120,7 @@ func (self *LsarRemoveAccountRightsReq) MarshalBinary() (res []byte, err error) 
 	}
 
 	allRights := uint32(0)
-	if self.AllRights {
+	if s.AllRights {
 		allRights = 1
 	}
 	err = binary.Write(w, le, allRights)
@@ -1129,7 +1129,7 @@ func (self *LsarRemoveAccountRightsReq) MarshalBinary() (res []byte, err error) 
 		return
 	}
 
-	err = self.UserRights.toWriter(w, &refId)
+	err = s.UserRights.toWriter(w, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1138,11 +1138,11 @@ func (self *LsarRemoveAccountRightsReq) MarshalBinary() (res []byte, err error) 
 	return w.Bytes(), nil
 }
 
-func (self *LsarRemoveAccountRightsReq) UnmarshalBinary(buf []byte) error {
+func (s *LsarRemoveAccountRightsReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarRemoveAccountRightsReq")
 }
 
-func (self *LsarOpenPolicy2Req) MarshalBinary() (res []byte, err error) {
+func (s *LsarOpenPolicy2Req) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for LsarOpenPolicy2Req")
 
 	var ret []byte
@@ -1150,16 +1150,16 @@ func (self *LsarOpenPolicy2Req) MarshalBinary() (res []byte, err error) {
 	refId := uint32(1)
 
 	// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.SystemName, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.SystemName, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	if self.SystemName != "" {
+	if s.SystemName != "" {
 		refId++
 	}
 
-	buf, err := self.ObjectAttributes.MarshalBinary()
+	buf, err := s.ObjectAttributes.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1170,7 +1170,7 @@ func (self *LsarOpenPolicy2Req) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1179,15 +1179,15 @@ func (self *LsarOpenPolicy2Req) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *LsarOpenPolicy2Req) UnmarshalBinary(buf []byte) error {
+func (s *LsarOpenPolicy2Req) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarOpenPolicy2Req")
 }
 
-func (self *LsarOpenPolicy2Res) MarshalBinary() ([]byte, error) {
+func (s *LsarOpenPolicy2Res) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarOpenPolicy2Res")
 }
 
-func (self *LsarOpenPolicy2Res) UnmarshalBinary(buf []byte) (err error) {
+func (s *LsarOpenPolicy2Res) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for LsarOpenPolicy2Res")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for LsarOpenPolicy2Res")
@@ -1201,16 +1201,16 @@ func (self *LsarOpenPolicy2Res) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarOpenPolicy response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown LSAD return code for LsarOpenPolicy response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -1225,8 +1225,8 @@ func (self *LsarOpenPolicy2Res) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.PolicyHandle = make([]byte, 20)
-	err = binary.Read(r, le, &self.PolicyHandle)
+	s.PolicyHandle = make([]byte, 20)
+	err = binary.Read(r, le, &s.PolicyHandle)
 	if err != nil {
 		log.Errorln(err)
 		return

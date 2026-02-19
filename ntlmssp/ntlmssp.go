@@ -25,7 +25,6 @@ package ntlmssp
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 
 	"github.com/jfjallid/go-smb/smb/encoder"
@@ -187,32 +186,32 @@ type Authenticate struct {
 	EncryptedRandomSessionKey             []byte
 }
 
-func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+func (s *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	w := bytes.NewBuffer(make([]byte, 0, 64))
 	le := binary.LittleEndian
 	offset := 64 // Start of payload bytes
-	if self.Version != 0 {
+	if s.Version != 0 {
 		offset += 8
 	}
-	if len(self.MIC) != 0 {
+	if len(s.MIC) != 0 {
 		offset += 16
 	}
 
 	// Encode header signature
-	err := binary.Write(w, le, self.Header.Signature[:8])
+	err := binary.Write(w, le, s.Header.Signature[:8])
 	if err != nil {
 		log.Debugln(err)
 		return nil, err
 	}
 
 	// Encode header message type
-	err = binary.Write(w, le, self.Header.MessageType)
+	err = binary.Write(w, le, s.Header.MessageType)
 	if err != nil {
 		log.Debugln(err)
 		return nil, err
 	}
 
-	if len(self.LmChallengeResponse) == 0 {
+	if len(s.LmChallengeResponse) == 0 {
 		// Anonymous auth attempt
 		// Encode empty LM ChallengeResponse
 		buf := make([]byte, 8)
@@ -224,25 +223,25 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 		}
 	} else {
 		// Encode LM ChallengeResponse
-		err = binary.Write(w, le, uint16(len(self.LmChallengeResponse)))
+		err = binary.Write(w, le, uint16(len(s.LmChallengeResponse)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
-		err = binary.Write(w, le, uint16(len(self.LmChallengeResponse)))
+		err = binary.Write(w, le, uint16(len(s.LmChallengeResponse)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 
-		lmBufferOffset := offset + len(self.DomainName) + len(self.UserName) + len(self.Workstation) + len(self.EncryptedRandomSessionKey)
+		lmBufferOffset := offset + len(s.DomainName) + len(s.UserName) + len(s.Workstation) + len(s.EncryptedRandomSessionKey)
 		err = binary.Write(w, le, uint32(lmBufferOffset))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 	}
-	if len(self.NtChallengeResponse) == 0 {
+	if len(s.NtChallengeResponse) == 0 {
 		// Anonymous auth attempt
 		// Encode empty NT ChallengeResponse
 		buf := make([]byte, 8)
@@ -254,17 +253,17 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 		}
 	} else {
 		// Encode NT ChallengeResponse
-		err = binary.Write(w, le, uint16(len(self.NtChallengeResponse)))
+		err = binary.Write(w, le, uint16(len(s.NtChallengeResponse)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
-		err = binary.Write(w, le, uint16(len(self.NtChallengeResponse)))
+		err = binary.Write(w, le, uint16(len(s.NtChallengeResponse)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
-		ntBufferOffset := offset + len(self.DomainName) + len(self.UserName) + len(self.Workstation) + len(self.EncryptedRandomSessionKey) + len(self.LmChallengeResponse)
+		ntBufferOffset := offset + len(s.DomainName) + len(s.UserName) + len(s.Workstation) + len(s.EncryptedRandomSessionKey) + len(s.LmChallengeResponse)
 		err = binary.Write(w, le, uint32(ntBufferOffset))
 		if err != nil {
 			log.Debugln(err)
@@ -273,7 +272,7 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 	}
 
 	// Encode DomainName
-	if len(self.DomainName) == 0 {
+	if len(s.DomainName) == 0 {
 		buf := make([]byte, 8)
 		buf[4] = byte(offset)
 		err = binary.Write(w, le, buf)
@@ -282,13 +281,13 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 			return nil, err
 		}
 	} else {
-		err = binary.Write(w, le, uint16(len(self.DomainName)))
+		err = binary.Write(w, le, uint16(len(s.DomainName)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 
-		err = binary.Write(w, le, uint16(len(self.DomainName)))
+		err = binary.Write(w, le, uint16(len(s.DomainName)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
@@ -302,7 +301,7 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 	}
 
 	// Encode UserName
-	if len(self.UserName) == 0 {
+	if len(s.UserName) == 0 {
 		buf := make([]byte, 8)
 		buf[4] = byte(offset)
 		err = binary.Write(w, le, buf)
@@ -311,19 +310,19 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 			return nil, err
 		}
 	} else {
-		err = binary.Write(w, le, uint16(len(self.UserName)))
+		err = binary.Write(w, le, uint16(len(s.UserName)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 
-		err = binary.Write(w, le, uint16(len(self.UserName)))
+		err = binary.Write(w, le, uint16(len(s.UserName)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 
-		err = binary.Write(w, le, uint32(offset+len(self.DomainName)))
+		err = binary.Write(w, le, uint32(offset+len(s.DomainName)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
@@ -331,7 +330,7 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 	}
 
 	// Encode Workstation
-	if len(self.Workstation) == 0 {
+	if len(s.Workstation) == 0 {
 		buf := make([]byte, 8)
 		buf[4] = byte(offset)
 		err = binary.Write(w, le, buf)
@@ -340,19 +339,19 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 			return nil, err
 		}
 	} else {
-		err = binary.Write(w, le, uint16(len(self.Workstation)))
+		err = binary.Write(w, le, uint16(len(s.Workstation)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 
-		err = binary.Write(w, le, uint16(len(self.Workstation)))
+		err = binary.Write(w, le, uint16(len(s.Workstation)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 
-		err = binary.Write(w, le, uint32(offset+len(self.DomainName)+len(self.UserName)))
+		err = binary.Write(w, le, uint32(offset+len(s.DomainName)+len(s.UserName)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
@@ -360,7 +359,7 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 	}
 
 	// Encode EncryptedRandomSessionKey
-	if len(self.EncryptedRandomSessionKey) == 0 {
+	if len(s.EncryptedRandomSessionKey) == 0 {
 		buf := make([]byte, 8)
 		buf[4] = byte(offset)
 		err = binary.Write(w, le, buf)
@@ -369,19 +368,19 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 			return nil, err
 		}
 	} else {
-		err = binary.Write(w, le, uint16(len(self.EncryptedRandomSessionKey)))
+		err = binary.Write(w, le, uint16(len(s.EncryptedRandomSessionKey)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 
-		err = binary.Write(w, le, uint16(len(self.EncryptedRandomSessionKey)))
+		err = binary.Write(w, le, uint16(len(s.EncryptedRandomSessionKey)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 
-		err = binary.Write(w, le, uint32(offset+len(self.DomainName)+len(self.UserName)+len(self.Workstation)))
+		err = binary.Write(w, le, uint32(offset+len(s.DomainName)+len(s.UserName)+len(s.Workstation)))
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
@@ -389,23 +388,23 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 	}
 
 	// Encode NegotiateFlags
-	err = binary.Write(w, le, self.NegotiateFlags)
+	err = binary.Write(w, le, s.NegotiateFlags)
 	if err != nil {
 		log.Debugln(err)
 		return nil, err
 	}
 
 	// Encode Version (Specific for SMB 3.1.1? So skip if 0)
-	if self.Version != 0 {
-		err = binary.Write(w, le, self.Version)
+	if s.Version != 0 {
+		err = binary.Write(w, le, s.Version)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 	}
 	// Encode MIC (Specific for SMB 3.1.1? So skip of empty)
-	if len(self.MIC) != 0 {
-		err = binary.Write(w, le, self.MIC[:16])
+	if len(s.MIC) != 0 {
+		err = binary.Write(w, le, s.MIC[:16])
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
@@ -413,48 +412,48 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 	}
 
 	// Encode the payload buffers
-	if len(self.DomainName) != 0 {
-		err = binary.Write(w, le, self.DomainName)
+	if len(s.DomainName) != 0 {
+		err = binary.Write(w, le, s.DomainName)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 	}
 
-	if len(self.UserName) != 0 {
-		err = binary.Write(w, le, self.UserName)
+	if len(s.UserName) != 0 {
+		err = binary.Write(w, le, s.UserName)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 	}
 
-	if len(self.Workstation) != 0 {
-		err = binary.Write(w, le, self.Workstation)
+	if len(s.Workstation) != 0 {
+		err = binary.Write(w, le, s.Workstation)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 	}
 
-	if len(self.EncryptedRandomSessionKey) != 0 {
-		err = binary.Write(w, le, self.EncryptedRandomSessionKey)
+	if len(s.EncryptedRandomSessionKey) != 0 {
+		err = binary.Write(w, le, s.EncryptedRandomSessionKey)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 	}
 
-	if len(self.LmChallengeResponse) != 0 {
-		err = binary.Write(w, le, self.LmChallengeResponse)
+	if len(s.LmChallengeResponse) != 0 {
+		err = binary.Write(w, le, s.LmChallengeResponse)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
 		}
 	}
 
-	if len(self.NtChallengeResponse) != 0 {
-		err = binary.Write(w, le, self.NtChallengeResponse)
+	if len(s.NtChallengeResponse) != 0 {
+		err = binary.Write(w, le, s.NtChallengeResponse)
 		if err != nil {
 			log.Debugln(err)
 			return nil, err
@@ -464,7 +463,7 @@ func (self *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 	return w.Bytes(), nil
 }
 
-func (self *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (s *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	log.Debugln("In UnmarshalBinary for Authenticate")
 	baseSize := 64
 	bufLen := len(buf)
@@ -474,71 +473,71 @@ func (self *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) er
 		return err
 	}
 
-	self.Signature = buf[:8]
-	self.MessageType = binary.LittleEndian.Uint32(buf[8:12])
-	self.LmChallengeResponseLen = binary.LittleEndian.Uint16(buf[12:14])
-	self.LmChallengeResponseMaxLen = binary.LittleEndian.Uint16(buf[14:16])
-	self.LmChallengeResponseBufferOffset = binary.LittleEndian.Uint32(buf[16:20])
-	self.NtChallengeResponseLen = binary.LittleEndian.Uint16(buf[20:22])
-	self.NtChallengeResponseMaxLen = binary.LittleEndian.Uint16(buf[22:24])
-	self.NtChallengResponseBufferOffset = binary.LittleEndian.Uint32(buf[24:28])
-	self.DomainNameLen = binary.LittleEndian.Uint16(buf[28:30])
-	self.DomainNameMaxLen = binary.LittleEndian.Uint16(buf[30:32])
-	self.DomainNameBufferOffset = binary.LittleEndian.Uint32(buf[32:36])
-	self.UserNameLen = binary.LittleEndian.Uint16(buf[36:38])
-	self.UserNameMaxLen = binary.LittleEndian.Uint16(buf[38:40])
-	self.UserNameBufferOffset = binary.LittleEndian.Uint32(buf[40:44])
-	self.WorkstationLen = binary.LittleEndian.Uint16(buf[44:46])
-	self.WorkstationMaxLen = binary.LittleEndian.Uint16(buf[46:48])
-	self.WorkstationBufferOffset = binary.LittleEndian.Uint32(buf[48:52])
-	self.EncryptedRandomSessionKeyLen = binary.LittleEndian.Uint16(buf[52:54])
-	self.EncryptedRandomSessionKeyMaxLen = binary.LittleEndian.Uint16(buf[54:56])
-	self.EncryptedRandomSessionKeyBufferOffset = binary.LittleEndian.Uint32(buf[56:60])
-	self.NegotiateFlags = binary.LittleEndian.Uint32(buf[60:64])
+	s.Signature = buf[:8]
+	s.MessageType = binary.LittleEndian.Uint32(buf[8:12])
+	s.LmChallengeResponseLen = binary.LittleEndian.Uint16(buf[12:14])
+	s.LmChallengeResponseMaxLen = binary.LittleEndian.Uint16(buf[14:16])
+	s.LmChallengeResponseBufferOffset = binary.LittleEndian.Uint32(buf[16:20])
+	s.NtChallengeResponseLen = binary.LittleEndian.Uint16(buf[20:22])
+	s.NtChallengeResponseMaxLen = binary.LittleEndian.Uint16(buf[22:24])
+	s.NtChallengResponseBufferOffset = binary.LittleEndian.Uint32(buf[24:28])
+	s.DomainNameLen = binary.LittleEndian.Uint16(buf[28:30])
+	s.DomainNameMaxLen = binary.LittleEndian.Uint16(buf[30:32])
+	s.DomainNameBufferOffset = binary.LittleEndian.Uint32(buf[32:36])
+	s.UserNameLen = binary.LittleEndian.Uint16(buf[36:38])
+	s.UserNameMaxLen = binary.LittleEndian.Uint16(buf[38:40])
+	s.UserNameBufferOffset = binary.LittleEndian.Uint32(buf[40:44])
+	s.WorkstationLen = binary.LittleEndian.Uint16(buf[44:46])
+	s.WorkstationMaxLen = binary.LittleEndian.Uint16(buf[46:48])
+	s.WorkstationBufferOffset = binary.LittleEndian.Uint32(buf[48:52])
+	s.EncryptedRandomSessionKeyLen = binary.LittleEndian.Uint16(buf[52:54])
+	s.EncryptedRandomSessionKeyMaxLen = binary.LittleEndian.Uint16(buf[54:56])
+	s.EncryptedRandomSessionKeyBufferOffset = binary.LittleEndian.Uint32(buf[56:60])
+	s.NegotiateFlags = binary.LittleEndian.Uint32(buf[60:64])
 
 	offset := 64
 
-	extraBytes := int(self.LmChallengeResponseLen +
-		self.NtChallengeResponseLen +
-		self.DomainNameLen +
-		self.UserNameLen +
-		self.WorkstationLen +
-		self.EncryptedRandomSessionKeyLen)
+	extraBytes := int(s.LmChallengeResponseLen +
+		s.NtChallengeResponseLen +
+		s.DomainNameLen +
+		s.UserNameLen +
+		s.WorkstationLen +
+		s.EncryptedRandomSessionKeyLen)
 
 	// Sanity check that none of the offsets + lengths points outside buffer
-	if (self.LmChallengeResponseBufferOffset + uint32(self.LmChallengeResponseLen)) > uint32(bufLen) {
+	if (s.LmChallengeResponseBufferOffset + uint32(s.LmChallengeResponseLen)) > uint32(bufLen) {
 		err := fmt.Errorf("Custom length field offset is outside buffer")
 		log.Errorln(err)
 		return err
 	}
-	if (self.NtChallengResponseBufferOffset + uint32(self.NtChallengeResponseLen)) > uint32(bufLen) {
+	if (s.NtChallengResponseBufferOffset + uint32(s.NtChallengeResponseLen)) > uint32(bufLen) {
 		err := fmt.Errorf("Custom length field offset is outside buffer")
 		log.Errorln(err)
 		return err
 	}
-	if (self.DomainNameBufferOffset + uint32(self.DomainNameLen)) > uint32(bufLen) {
+	if (s.DomainNameBufferOffset + uint32(s.DomainNameLen)) > uint32(bufLen) {
 		err := fmt.Errorf("Custom length field offset is outside buffer")
 		log.Errorln(err)
 		return err
 	}
-	if (self.UserNameBufferOffset + uint32(self.UserNameLen)) > uint32(bufLen) {
+	if (s.UserNameBufferOffset + uint32(s.UserNameLen)) > uint32(bufLen) {
 		err := fmt.Errorf("Custom length field offset is outside buffer")
 		log.Errorln(err)
 		return err
 	}
-	if (self.WorkstationBufferOffset + uint32(self.WorkstationLen)) > uint32(bufLen) {
+	if (s.WorkstationBufferOffset + uint32(s.WorkstationLen)) > uint32(bufLen) {
 		err := fmt.Errorf("Custom length field offset is outside buffer")
 		log.Errorln(err)
 		return err
 	}
-	if (self.EncryptedRandomSessionKeyBufferOffset + uint32(self.EncryptedRandomSessionKeyLen)) > uint32(bufLen) {
+	if (s.EncryptedRandomSessionKeyBufferOffset + uint32(s.EncryptedRandomSessionKeyLen)) > uint32(bufLen) {
 		err := fmt.Errorf("Custom length field offset is outside buffer")
 		log.Errorln(err)
 		return err
 	}
 
 	unmarshalVersion := false
-	if (self.NegotiateFlags & FlgNegVersion) == FlgNegVersion {
+	if (s.NegotiateFlags & FlgNegVersion) == FlgNegVersion {
 		// Also unmarshal version, so 8 bytes more
 		unmarshalVersion = true
 		extraBytes += 8
@@ -550,33 +549,33 @@ func (self *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) er
 	}
 
 	if unmarshalVersion {
-		self.Version = binary.LittleEndian.Uint64(buf[offset : offset+8])
+		s.Version = binary.LittleEndian.Uint64(buf[offset : offset+8])
 		offset += 8
 	}
 
 	if bufLen >= baseSize+extraBytes+16 {
 		// Also unmarshal MIC
-		self.MIC = buf[offset : offset+16]
+		s.MIC = buf[offset : offset+16]
 		offset += 16
 	}
 
-	if self.LmChallengeResponseLen > 0 {
-		self.LmChallengeResponse = buf[self.LmChallengeResponseBufferOffset : self.LmChallengeResponseBufferOffset+uint32(self.LmChallengeResponseLen)]
+	if s.LmChallengeResponseLen > 0 {
+		s.LmChallengeResponse = buf[s.LmChallengeResponseBufferOffset : s.LmChallengeResponseBufferOffset+uint32(s.LmChallengeResponseLen)]
 	}
-	if self.NtChallengeResponseLen > 0 {
-		self.NtChallengeResponse = buf[self.NtChallengResponseBufferOffset : self.NtChallengResponseBufferOffset+uint32(self.NtChallengeResponseLen)]
+	if s.NtChallengeResponseLen > 0 {
+		s.NtChallengeResponse = buf[s.NtChallengResponseBufferOffset : s.NtChallengResponseBufferOffset+uint32(s.NtChallengeResponseLen)]
 	}
-	if self.DomainNameLen > 0 {
-		self.DomainName = buf[self.DomainNameBufferOffset : self.DomainNameBufferOffset+uint32(self.DomainNameLen)]
+	if s.DomainNameLen > 0 {
+		s.DomainName = buf[s.DomainNameBufferOffset : s.DomainNameBufferOffset+uint32(s.DomainNameLen)]
 	}
-	if self.UserNameLen > 0 {
-		self.UserName = buf[self.UserNameBufferOffset : self.UserNameBufferOffset+uint32(self.UserNameLen)]
+	if s.UserNameLen > 0 {
+		s.UserName = buf[s.UserNameBufferOffset : s.UserNameBufferOffset+uint32(s.UserNameLen)]
 	}
-	if self.WorkstationLen > 0 {
-		self.Workstation = buf[self.WorkstationBufferOffset : self.WorkstationBufferOffset+uint32(self.WorkstationLen)]
+	if s.WorkstationLen > 0 {
+		s.Workstation = buf[s.WorkstationBufferOffset : s.WorkstationBufferOffset+uint32(s.WorkstationLen)]
 	}
-	if self.EncryptedRandomSessionKeyLen > 0 {
-		self.EncryptedRandomSessionKey = buf[self.EncryptedRandomSessionKeyBufferOffset : self.EncryptedRandomSessionKeyBufferOffset+uint32(self.EncryptedRandomSessionKeyLen)]
+	if s.EncryptedRandomSessionKeyLen > 0 {
+		s.EncryptedRandomSessionKey = buf[s.EncryptedRandomSessionKeyBufferOffset : s.EncryptedRandomSessionKeyBufferOffset+uint32(s.EncryptedRandomSessionKeyLen)]
 	}
 
 	return nil
@@ -611,47 +610,6 @@ func NewChallenge() Challenge {
 	}
 }
 
-//type MessageSignature struct {
-//    Version     uint32
-//    RandomPad   []byte `smb:"fixed:4"`
-//    Checksum    []byte `smb:"fixed:4"`
-//    SeqNum      uint32
-//}
-//
-//func (self *MessageSignature) Bytes() []byte {
-//    ret := make([]byte, 16)
-//    binary.LittleEndian.PutUint32(ret, 0x00000001) // Must always be 1
-//
-//    w := bytes.NewBuffer(make([]byte, 0))
-//    binary.Write(w, binary.LittleEndian, self.RandomPad)
-//    copy(ret[4:8], w.Bytes()[:4])
-//
-//    w = bytes.NewBuffer(make([]byte, 0))
-//    binary.Write(w, binary.LittleEndian, self.Checksum)
-//    copy(ret[8:12], w.Bytes()[:4])
-//
-//    binary.LittleEndian.PutUint32(ret[12:], self.SeqNum)
-//    return ret
-//}
-//
-//type MessageSignatureExt struct {
-//    Version     uint32
-//    Checksum    []byte `smb:"fixed:8"`
-//    SeqNum      uint32
-//}
-//
-//func (self *MessageSignatureExt) Bytes() []byte {
-//    ret := make([]byte, 16)
-//    binary.LittleEndian.PutUint32(ret, 0x00000001) // Must always be 1
-//
-//    w := bytes.NewBuffer(make([]byte, 0))
-//    binary.Write(w, binary.LittleEndian, self.Checksum)
-//    copy(ret[4:12], w.Bytes()[:8])
-//
-//    binary.LittleEndian.PutUint32(ret[12:], self.SeqNum)
-//    return ret
-//}
-
 type AvPair struct {
 	AvID  uint16
 	AvLen uint16 `smb:"len:Value"`
@@ -682,11 +640,11 @@ func (s *AvPairSlice) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error 
 	slice := []AvPair{}
 	l, ok := meta.Lens[meta.CurrField]
 	if !ok {
-		return errors.New(fmt.Sprintf("Cannot unmarshal field '%s'. Missing length\n", meta.CurrField))
+		return fmt.Errorf("Cannot unmarshal field '%s'. Missing length", meta.CurrField)
 	}
 	o, ok := meta.Offsets[meta.CurrField]
 	if !ok {
-		return errors.New(fmt.Sprintf("Cannot unmarshal field '%s'. Missing offset\n", meta.CurrField))
+		return fmt.Errorf("Cannot unmarshal field '%s'. Missing offset", meta.CurrField)
 	}
 	for i := l; i > 0; {
 		var avPair AvPair

@@ -335,19 +335,19 @@ func newUserPassword(pass string) (res *SamprUserPassword, err error) {
 	return
 }
 
-func (self *SamprUserPassword) EncryptRC4(key []byte) (res []byte, err error) {
+func (s *SamprUserPassword) EncryptRC4(key []byte) (res []byte, err error) {
 	log.Debugln("In EncryptRC4 for SamrUserPassword")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.Buffer)
+	err = binary.Write(w, le, s.Buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.Length)
+	err = binary.Write(w, le, s.Length)
 	if err != nil {
 		log.Errorln(err)
 		return

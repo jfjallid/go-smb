@@ -112,7 +112,7 @@ type NetWkstaUserEnumRes struct {
 	ReturnCode   uint32
 }
 
-func (self *NetWkstaUserEnumReq) MarshalBinary() (res []byte, err error) {
+func (s *NetWkstaUserEnumReq) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for NetWkstaUserEnumReq")
 
 	var ret []byte
@@ -120,16 +120,16 @@ func (self *NetWkstaUserEnumReq) MarshalBinary() (res []byte, err error) {
 	refId := uint32(1)
 
 	// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, self.ServerName, &refId, true)
+	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.ServerName, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	if self.ServerName != "" {
+	if s.ServerName != "" {
 		refId++
 	}
 
-	buf, err := self.UserInfo.MarshalBinary()
+	buf, err := s.UserInfo.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -145,13 +145,13 @@ func (self *NetWkstaUserEnumReq) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	err = binary.Write(w, le, self.PreferredMaximumLength)
+	err = binary.Write(w, le, s.PreferredMaximumLength)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.ResumeHandle)
+	err = binary.Write(w, le, s.ResumeHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -160,15 +160,15 @@ func (self *NetWkstaUserEnumReq) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *NetWkstaUserEnumReq) UnmarshalBinary(buf []byte) error {
+func (s *NetWkstaUserEnumReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of NetWkstaUserEnumReq")
 }
 
-func (self *NetWkstaUserEnumRes) MarshalBinary() ([]byte, error) {
+func (s *NetWkstaUserEnumRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of NetWkstaUserEnumRes")
 }
 
-func (self *NetWkstaUserEnumRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *NetWkstaUserEnumRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for NetWkstaUserEnumRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for NetWkstaUserEnumRes")
@@ -182,19 +182,19 @@ func (self *NetWkstaUserEnumRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.TotalEntries)
+	err = binary.Read(r, le, &s.TotalEntries)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ResumeHandle)
+	err = binary.Read(r, le, &s.ResumeHandle)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -202,10 +202,10 @@ func (self *NetWkstaUserEnumRes) UnmarshalBinary(buf []byte) (err error) {
 
 	// Server could return partial data even with the ErrorMoreData response
 	// But skipping parse of that since I always request the max number of entries back
-	if self.ReturnCode > 0 {
-		status, found := ResponseCodeMap[self.ReturnCode]
+	if s.ReturnCode > 0 {
+		status, found := ResponseCodeMap[s.ReturnCode]
 		if !found {
-			err = fmt.Errorf("Received unknown WKST return code for NetWkstaEnum response: 0x%x\n", self.ReturnCode)
+			err = fmt.Errorf("Received unknown WKST return code for NetWkstaEnum response: 0x%x\n", s.ReturnCode)
 			log.Errorln(err)
 			return
 		}
@@ -214,7 +214,7 @@ func (self *NetWkstaUserEnumRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = self.UserInfo.UnmarshalBinary(buf[:len(buf)-12])
+	err = s.UserInfo.UnmarshalBinary(buf[:len(buf)-12])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -223,21 +223,21 @@ func (self *NetWkstaUserEnumRes) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *WkstaUserEnum) MarshalBinary() (res []byte, err error) {
+func (s *WkstaUserEnum) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for WkstaUserEnum")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 
-	err = binary.Write(w, le, self.Level)
+	err = binary.Write(w, le, s.Level)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
 	}
 
-	if self.Data != nil {
+	if s.Data != nil {
 		var buf []byte
-		buf, err = self.Data.MarshalBinary()
+		buf, err = s.Data.MarshalBinary()
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -264,19 +264,19 @@ func (self *WkstaUserEnum) MarshalBinary() (res []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *WkstaUserEnum) UnmarshalBinary(buf []byte) (err error) {
+func (s *WkstaUserEnum) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for WkstaUserEnum")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for WkstaUserEnum")
 	}
 	r := bytes.NewReader(buf)
 
-	err = binary.Read(r, le, &self.Level)
+	err = binary.Read(r, le, &s.Level)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	switch self.Level {
+	switch s.Level {
 	case WkstaUserEnumInfoLevel0:
 		var data WkstaUserInfo0Container
 		err = data.UnmarshalBinary(buf[4:])
@@ -284,7 +284,7 @@ func (self *WkstaUserEnum) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		self.Data = &data
+		s.Data = &data
 	case WkstaUserEnumInfoLevel1:
 		var data WkstaUserInfo1Container
 		err = data.UnmarshalBinary(buf[4:])
@@ -292,9 +292,9 @@ func (self *WkstaUserEnum) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		self.Data = &data
+		s.Data = &data
 	default:
-		err = fmt.Errorf("Unknown Level %d in WkstaUserEnum response structure", self.Level)
+		err = fmt.Errorf("Unknown Level %d in WkstaUserEnum response structure", s.Level)
 		log.Errorln(err)
 		return
 	}
@@ -302,7 +302,7 @@ func (self *WkstaUserEnum) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func (self *WkstaUserInfo0Container) MarshalBinary() (res []byte, err error) {
+func (s *WkstaUserInfo0Container) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for WkstaUserInfo0Container")
 
 	var ret []byte
@@ -322,7 +322,7 @@ func (self *WkstaUserInfo0Container) MarshalBinary() (res []byte, err error) {
 		return nil, err
 	}
 
-	err = binary.Write(w, le, self.EntriesRead)
+	err = binary.Write(w, le, s.EntriesRead)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -335,14 +335,14 @@ func (self *WkstaUserInfo0Container) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	if self.EntriesRead > 0 {
+	if s.EntriesRead > 0 {
 		return nil, fmt.Errorf("Not implemented support for specifying WkstaUserInfo0 array items")
 	}
 
 	return w.Bytes(), nil
 }
 
-func (self *WkstaUserInfo0Container) UnmarshalBinary(buf []byte) (err error) {
+func (s *WkstaUserInfo0Container) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for WkstaUserInfo0Container")
 	if len(buf) < 16 {
 		return fmt.Errorf("Buffer to small for WkstaUserInfo0Container")
@@ -356,38 +356,38 @@ func (self *WkstaUserInfo0Container) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.EntriesRead)
+	err = binary.Read(r, le, &s.EntriesRead)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Skip ref id ptr, max count and all the ref id ptrs for the array items
-	if self.EntriesRead > 0 {
-		_, err = r.Seek(8+int64(self.EntriesRead*4), io.SeekCurrent)
+	if s.EntriesRead > 0 {
+		_, err = r.Seek(8+int64(s.EntriesRead*4), io.SeekCurrent)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	}
-	for i := 0; i < int(self.EntriesRead); i++ {
-		s := ""
+	for i := 0; i < int(s.EntriesRead); i++ {
+		str := ""
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
-		s, err = msdtyp.ReadConformantVaryingString(r, true)
+		str, err = msdtyp.ReadConformantVaryingString(r, true)
 		if err != nil {
 			log.Errorf("Error trying to read string for entry %d: %v\n", i, err)
 			return
 		}
-		self.Buffer = append(self.Buffer, WkstaUserInfo0{Username: s})
+		s.Buffer = append(s.Buffer, WkstaUserInfo0{Username: str})
 	}
 
 	return nil
 }
 
-func (self *WkstaUserInfo1Container) MarshalBinary() (res []byte, err error) {
+func (s *WkstaUserInfo1Container) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for WkstaUserInfo1Container")
 
 	var ret []byte
@@ -407,7 +407,7 @@ func (self *WkstaUserInfo1Container) MarshalBinary() (res []byte, err error) {
 		return nil, err
 	}
 
-	err = binary.Write(w, le, self.EntriesRead)
+	err = binary.Write(w, le, s.EntriesRead)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -420,14 +420,14 @@ func (self *WkstaUserInfo1Container) MarshalBinary() (res []byte, err error) {
 		return
 	}
 
-	if self.EntriesRead > 0 {
+	if s.EntriesRead > 0 {
 		return nil, fmt.Errorf("Not implemented support for specifying WkstaUserInfo1 array items")
 	}
 
 	return w.Bytes(), nil
 }
 
-func (self *WkstaUserInfo1Container) UnmarshalBinary(buf []byte) (err error) {
+func (s *WkstaUserInfo1Container) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for WkstaUserInfo1Container")
 	if len(buf) < 16 {
 		return fmt.Errorf("Buffer to small for WkstaUserInfo1Container")
@@ -441,21 +441,21 @@ func (self *WkstaUserInfo1Container) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.EntriesRead)
+	err = binary.Read(r, le, &s.EntriesRead)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Skip ref id ptr, max count and all the ref id ptrs for the array items
-	if self.EntriesRead > 0 {
-		_, err = r.Seek(8+int64(self.EntriesRead*4*4), io.SeekCurrent)
+	if s.EntriesRead > 0 {
+		_, err = r.Seek(8+int64(s.EntriesRead*4*4), io.SeekCurrent)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	}
-	for i := 0; i < int(self.EntriesRead); i++ {
+	for i := 0; i < int(s.EntriesRead); i++ {
 		s0 := ""
 		s0, err = msdtyp.ReadConformantVaryingString(r, true)
 		if err != nil {
@@ -480,7 +480,7 @@ func (self *WkstaUserInfo1Container) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorf("Error trying to read string for entry %d: %v\n", i, err)
 			return
 		}
-		self.Buffer = append(self.Buffer, WkstaUserInfo1{Username: s0, LogonDomain: s1, OtherDomains: s2, LogonServer: s3})
+		s.Buffer = append(s.Buffer, WkstaUserInfo1{Username: s0, LogonDomain: s1, OtherDomains: s2, LogonServer: s3})
 	}
 
 	return nil

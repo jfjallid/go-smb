@@ -25,6 +25,8 @@ import (
 	"bytes"
 	"encoding/hex"
 	"testing"
+
+	"github.com/jfjallid/go-smb/msdtyp"
 )
 
 func TestSID(t *testing.T) {
@@ -33,7 +35,7 @@ func TestSID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sid := SID{
+	sid := msdtyp.SID{
 		Revision:       0x1,
 		NumAuth:        2,
 		Authority:      []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
@@ -44,11 +46,11 @@ func TestSID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Compare(sidBytes, correctSidBytes) != 0 {
+	if !bytes.Equal(sidBytes, correctSidBytes) {
 		t.Fatal("Marshalled bytes of sid structure does not match correct serialization")
 	}
 
-	sid2 := SID{}
+	sid2 := msdtyp.SID{}
 
 	err = sid2.UnmarshalBinary(correctSidBytes)
 	if err != nil {
@@ -61,7 +63,7 @@ func TestSID(t *testing.T) {
 	if sid2.NumAuth != 2 {
 		t.Fail()
 	}
-	if bytes.Compare(sid2.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) != 0 {
+	if !bytes.Equal(sid2.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Fail()
 	}
 	if sid2.SubAuthorities[0] != 32 {
@@ -77,14 +79,14 @@ func TestACE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sid := SID{
+	sid := msdtyp.SID{
 		Revision:       0x1,
 		NumAuth:        2,
 		Authority:      []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
 		SubAuthorities: []uint32{32, 544},
 	}
-	ace := ACE{
-		Header: ACEHeader{
+	ace := msdtyp.ACE{
+		Header: msdtyp.ACEHeader{
 			Type:  0,
 			Flags: 0x2,
 			Size:  24,
@@ -96,11 +98,11 @@ func TestACE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Compare(aceBytes, correctAceBytes) != 0 {
+	if !bytes.Equal(aceBytes, correctAceBytes) {
 		t.Fail()
 	}
 
-	ace2 := ACE{}
+	ace2 := msdtyp.ACE{}
 
 	err = ace2.UnmarshalBinary(correctAceBytes)
 	if err != nil {
@@ -126,7 +128,7 @@ func TestACE(t *testing.T) {
 	if ace2.Sid.NumAuth != 2 {
 		t.Fail()
 	}
-	if bytes.Compare(ace2.Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) != 0 {
+	if !bytes.Equal(ace2.Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Fail()
 	}
 	if ace2.Sid.SubAuthorities[0] != 32 {
@@ -141,14 +143,14 @@ func TestACE(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	otherAce := ACE{
-		Header: ACEHeader{
+	otherAce := msdtyp.ACE{
+		Header: msdtyp.ACEHeader{
 			Type:  0,
 			Flags: 0x12,
 			Size:  24,
 		},
 		Mask: 0x00060000,
-		Sid: SID{
+		Sid: msdtyp.SID{
 			Revision:       0x1,
 			NumAuth:        2,
 			Authority:      []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
@@ -161,11 +163,11 @@ func TestACE(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if bytes.Compare(otherAceBytes, otherAceCorrectBytes) != 0 {
+	if !bytes.Equal(otherAceBytes, otherAceCorrectBytes) {
 		t.Fail()
 	}
 
-	ace3 := ACE{}
+	ace3 := msdtyp.ACE{}
 	err = ace3.UnmarshalBinary(otherAceCorrectBytes)
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +192,7 @@ func TestACE(t *testing.T) {
 	if ace3.Sid.NumAuth != 2 {
 		t.Fail()
 	}
-	if bytes.Compare(ace3.Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) != 0 {
+	if !bytes.Equal(ace3.Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Fail()
 	}
 	if ace3.Sid.SubAuthorities[0] != 32 {
@@ -205,14 +207,14 @@ func TestACE(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	otherAce2 := ACE{
-		Header: ACEHeader{
+	otherAce2 := msdtyp.ACE{
+		Header: msdtyp.ACEHeader{
 			Type:  0,
 			Flags: 0x12,
 			Size:  20,
 		},
 		Mask: 0x000f003f,
-		Sid: SID{
+		Sid: msdtyp.SID{
 			Revision:       0x1,
 			NumAuth:        1,
 			Authority:      []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
@@ -225,11 +227,11 @@ func TestACE(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if bytes.Compare(otherAceBytes2, otherAceCorrectBytes2) != 0 {
+	if !bytes.Equal(otherAceBytes2, otherAceCorrectBytes2) {
 		t.Fail()
 	}
 
-	ace3 = ACE{}
+	ace3 = msdtyp.ACE{}
 	err = ace3.UnmarshalBinary(otherAceCorrectBytes2)
 	if err != nil {
 		t.Fatal(err)
@@ -254,7 +256,7 @@ func TestACE(t *testing.T) {
 	if ace3.Sid.NumAuth != 1 {
 		t.Fail()
 	}
-	if bytes.Compare(ace3.Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) != 0 {
+	if !bytes.Equal(ace3.Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Fail()
 	}
 	if ace3.Sid.SubAuthorities[0] != 18 {
@@ -267,14 +269,14 @@ func TestPACL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	standardAce := ACE{
-		Header: ACEHeader{
+	standardAce := msdtyp.ACE{
+		Header: msdtyp.ACEHeader{
 			Type:  0,
 			Flags: 0x2,
 			Size:  24,
 		},
 		Mask: 0x00060009,
-		Sid: SID{
+		Sid: msdtyp.SID{
 			Revision:       0x1,
 			NumAuth:        2,
 			Authority:      []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
@@ -282,19 +284,19 @@ func TestPACL(t *testing.T) {
 		},
 	}
 
-	pacl := PACL{
+	pacl := msdtyp.PACL{
 		AclRevision: 2,
 		AclSize:     196,
 		AceCount:    8,
-		ACLS: []ACE{
+		ACLS: []msdtyp.ACE{
 			standardAce,
 			standardAce,
 			standardAce,
 			standardAce,
 			standardAce,
 			standardAce,
-			ACE{
-				Header: ACEHeader{
+			msdtyp.ACE{
+				Header: msdtyp.ACEHeader{
 					Type:  0,
 					Flags: 0x12,
 					Size:  24,
@@ -302,14 +304,14 @@ func TestPACL(t *testing.T) {
 				Mask: 0x00060000,
 				Sid:  standardAce.Sid,
 			},
-			ACE{
-				Header: ACEHeader{
+			msdtyp.ACE{
+				Header: msdtyp.ACEHeader{
 					Type:  0,
 					Flags: 0x12,
 					Size:  20,
 				},
 				Mask: 0x000f003f,
-				Sid: SID{
+				Sid: msdtyp.SID{
 					Revision:       1,
 					NumAuth:        1,
 					Authority:      []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
@@ -323,11 +325,11 @@ func TestPACL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Compare(paclBytes, correctPaclBytes) != 0 {
+	if !bytes.Equal(paclBytes, correctPaclBytes) {
 		t.Fatal("Marshalled bytes did not match correct serialization")
 	}
 
-	pacl2 := PACL{}
+	pacl2 := msdtyp.PACL{}
 	err = pacl2.UnmarshalBinary(correctPaclBytes)
 	if err != nil {
 		t.Fatal(err)

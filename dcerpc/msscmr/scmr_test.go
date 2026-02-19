@@ -49,7 +49,7 @@ func TestOpenSCManagerReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -71,11 +71,11 @@ func TestOpenSCManagerRes(t *testing.T) {
 	}
 
 	if !bytes.Equal(res.ContextHandle[:], handle) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", handle, res.ContextHandle[:])
 	}
 
 	if res.ReturnCode != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ReturnCode==0, got %v", res.ReturnCode)
 	}
 }
 
@@ -102,7 +102,7 @@ func TestOpenServiceReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -124,11 +124,11 @@ func TestOpenServiceRes(t *testing.T) {
 	}
 
 	if !bytes.Equal(res.ContextHandle, handle) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", handle, res.ContextHandle)
 	}
 
 	if res.ReturnCode != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ReturnCode==0, got %v", res.ReturnCode)
 	}
 }
 
@@ -151,7 +151,7 @@ func TestQueryServiceStatusReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -169,35 +169,35 @@ func TestQueryServiceStatusRes(t *testing.T) {
 	}
 
 	if res.ServiceStatus.ServiceType != ServiceWin32OwnProcess|ServiceWin32ShareProcess {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.ServiceType==ServiceWin32OwnProcess|ServiceWin32ShareProcess, got %v", res.ServiceStatus.ServiceType)
 	}
 
 	if res.ServiceStatus.CurrentState != ServiceRunning {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.CurrentState==ServiceRunning, got %v", res.ServiceStatus.CurrentState)
 	}
 
 	if res.ServiceStatus.ControlsAccepted != ServiceControlStop {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.ControlsAccepted==ServiceControlStop, got %v", res.ServiceStatus.ControlsAccepted)
 	}
 
 	if res.ServiceStatus.Win32ExitCode != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.Win32ExitCode==0, got %v", res.ServiceStatus.Win32ExitCode)
 	}
 
 	if res.ServiceStatus.ServiceSpecificExitCode != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.ServiceSpecificExitCode==0, got %v", res.ServiceStatus.ServiceSpecificExitCode)
 	}
 
 	if res.ServiceStatus.CheckPoint != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.CheckPoint==0, got %v", res.ServiceStatus.CheckPoint)
 	}
 
 	if res.ServiceStatus.WaitHint != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.WaitHint==0, got %v", res.ServiceStatus.WaitHint)
 	}
 
 	if res.ReturnCode != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ReturnCode==0, got %v", res.ReturnCode)
 	}
 }
 
@@ -224,7 +224,7 @@ func TestStartServiceReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -250,7 +250,7 @@ func TestControlServiceReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -268,35 +268,35 @@ func TestControlServiceRes(t *testing.T) {
 	}
 
 	if res.ServiceStatus.ServiceType != ServiceWin32OwnProcess|ServiceWin32ShareProcess {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.ServiceType==ServiceWin32OwnProcess|ServiceWin32ShareProcess, got %v", res.ServiceStatus.ServiceType)
 	}
 
 	if res.ServiceStatus.CurrentState != ServiceStopPending {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.CurrentState==ServiceStopPending, got %v", res.ServiceStatus.CurrentState)
 	}
 
 	if res.ServiceStatus.ControlsAccepted != ServiceControlStop {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.ControlsAccepted==ServiceControlStop, got %v", res.ServiceStatus.ControlsAccepted)
 	}
 
 	if res.ServiceStatus.Win32ExitCode != 0x042a {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.Win32ExitCode==0x042a, got %v", res.ServiceStatus.Win32ExitCode)
 	}
 
 	if res.ServiceStatus.ServiceSpecificExitCode != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.ServiceSpecificExitCode==0, got %v", res.ServiceStatus.ServiceSpecificExitCode)
 	}
 
 	if res.ServiceStatus.CheckPoint != 3 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.CheckPoint==3, got %v", res.ServiceStatus.CheckPoint)
 	}
 
 	if res.ServiceStatus.WaitHint != 0x0bb8 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceStatus.WaitHint==0x0bb8, got %v", res.ServiceStatus.WaitHint)
 	}
 
 	if res.ReturnValue != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ReturnValue==0, got %v", res.ReturnValue)
 	}
 }
 
@@ -322,7 +322,7 @@ func TestQueryServiceConfig(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -340,47 +340,47 @@ func TestQueryServiceConfigRes(t *testing.T) {
 	}
 
 	if res.ErrorCode != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ErrorCode==0, got %v", res.ErrorCode)
 	}
 
 	if res.BytesNeeded != 0x0102 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.BytesNeeded==0x0102, got %v", res.BytesNeeded)
 	}
 
 	if res.ServiceConfig.ServiceType != ServiceWin32ShareProcess {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceConfig.ServiceType==ServiceWin32ShareProcess, got %v", res.ServiceConfig.ServiceType)
 	}
 
 	if res.ServiceConfig.StartType != ServiceDemandStart {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceConfig.StartType==ServiceDemandStart, got %v", res.ServiceConfig.StartType)
 	}
 
 	if res.ServiceConfig.ErrorControl != ServiceErrorIgnore {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceConfig.ErrorControl==ServiceErrorIgnore, got %v", res.ServiceConfig.ErrorControl)
 	}
 
 	if res.ServiceConfig.BinaryPathName != "C:\\Windows\\System32\\svchost.exe -k rdxgroup" {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceConfig.BinaryPathName==C:\\Windows\\System32\\svchost.exe -k rdxgroup, got %v", res.ServiceConfig.BinaryPathName)
 	}
 
 	if res.ServiceConfig.LoadOrderGroup != "" {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceConfig.LoadOrderGroup==, got %v", res.ServiceConfig.LoadOrderGroup)
 	}
 
 	if res.ServiceConfig.TagId != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceConfig.TagId==0, got %v", res.ServiceConfig.TagId)
 	}
 
 	if res.ServiceConfig.Dependencies != "/" {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceConfig.Dependencies==/, got %v", res.ServiceConfig.Dependencies)
 	}
 
 	if res.ServiceConfig.ServiceStartName != "LocalSystem" {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceConfig.ServiceStartName==LocalSystem, got %v", res.ServiceConfig.ServiceStartName)
 	}
 
 	if res.ServiceConfig.DisplayName != "Retail Demo Service" {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ServiceConfig.DisplayName==Retail Demo Service, got %v", res.ServiceConfig.DisplayName)
 	}
 }
 
@@ -428,7 +428,7 @@ func TestChangeServiceConfigReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -446,11 +446,11 @@ func TestChangeServiceConfigRes(t *testing.T) {
 	}
 
 	if res.TagId != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.TagId==0, got %v", res.TagId)
 	}
 
 	if res.ReturnCode != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ReturnCode==0, got %v", res.ReturnCode)
 	}
 }
 
@@ -474,7 +474,7 @@ func TestCloseServiceHandleReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -495,7 +495,7 @@ func TestCloseServiceHandleRes(t *testing.T) {
 	}
 
 	if res.ReturnCode != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ReturnCode==0, got %v", res.ReturnCode)
 	}
 }
 
@@ -535,7 +535,7 @@ func TestRCreateServiceReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }
 
@@ -558,15 +558,15 @@ func TestCreateServiceRes(t *testing.T) {
 	}
 
 	if res.TagId != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.TagId==0, got %v", res.TagId)
 	}
 
 	if res.ReturnCode != 0 {
-		t.Fatal("Fail")
+		t.Fatalf("expected res.ReturnCode==0, got %v", res.ReturnCode)
 	}
 
 	if !bytes.Equal(res.ContextHandle, handle) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", handle, res.ContextHandle)
 	}
 }
 
@@ -592,6 +592,6 @@ func TestDeleteServiceReq(t *testing.T) {
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
 }

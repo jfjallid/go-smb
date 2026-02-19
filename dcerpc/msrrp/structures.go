@@ -35,21 +35,6 @@ var (
 	be = binary.BigEndian
 )
 
-type ReturnCode struct {
-	uint32
-}
-
-// MS-DTYP FILETIME
-type Filetime struct {
-	LowDateTime  uint32
-	HighDateTime uint32
-}
-
-type PFiletime struct {
-	LowDateTime  uint32
-	HighDateTime uint32
-}
-
 // Shared struct, not all fields are used for every response type
 type KeyInfo struct {
 	KeyName         string
@@ -84,21 +69,6 @@ type OpenKeyRes struct {
 // Opnum 5
 type BaseRegCloseKeyReq struct {
 	HKey []byte
-}
-
-// MS-DTYP 2.3.10
-/*
-typedef struct _RPC_UNICODE_STRING {
-  unsigned short Length;
-  unsigned short MaximumLength;
-  [size_is(MaximumLength/2), length_is(Length/2)]
-    WCHAR* Buffer;
-} RPC_UNICODE_STRING,
- *PRPC_UNICODE_STRING;
-*/
-type RPCUnicodeStr struct {
-	MaxLength uint16
-	S         string // Must NOT be null terminated
 }
 
 type RRPUnicodeStr struct {
@@ -154,13 +124,13 @@ type BaseRegEnumKeyReq struct {
 	Index         uint32
 	NameIn        RRPUnicodeStr
 	ClassIn       RRPUnicodeStr
-	LastWriteTime *PFiletime
+	LastWriteTime *msdtyp.PFiletime
 }
 
 type BaseRegEnumKeyRes struct {
 	NameOut       RRPUnicodeStr
 	ClassOut      RRPUnicodeStr
-	LastWriteTime PFiletime
+	LastWriteTime msdtyp.PFiletime
 	ReturnCode    uint32
 }
 
@@ -194,7 +164,7 @@ type BaseRegEnumValueRes struct {
 	 * be null-terminated. However, of course Microsoft's implementation of SMB
 	 * null terminates the names...
 	 */
-	NameOut    RPCUnicodeStr // Cannot be null terminated?
+	NameOut    msdtyp.RPCUnicodeStr // Cannot be null terminated?
 	Type       uint32
 	Data       []byte
 	DataLen    uint32
@@ -229,7 +199,7 @@ type BaseRegQueryInfoKeyReq struct {
 }
 
 type BaseRegQueryInfoKeyRes struct {
-	ClassOut           RPCUnicodeStr
+	ClassOut           msdtyp.RPCUnicodeStr
 	SubKeys            uint32
 	MaxSubKeyLen       uint32
 	MaxClassLen        uint32
@@ -237,7 +207,7 @@ type BaseRegQueryInfoKeyRes struct {
 	MaxValueNameLen    uint32
 	MaxValueLen        uint32
 	SecurityDescriptor uint32
-	LastWriteTime      Filetime
+	LastWriteTime      msdtyp.Filetime
 	ReturnCode         uint32
 }
 
@@ -280,15 +250,6 @@ type BaseRegSetValueReq struct {
 	Type      uint32
 	Data      []byte
 	DataLen   uint32 // How many bytes are transmitted in Data. E.g., ActualSize
-}
-
-func (self *ReturnCode) MarshalBinary() ([]byte, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for ReturnCode")
-}
-
-func (self *ReturnCode) UnmarshalBinary(buf []byte) error {
-	self.uint32 = le.Uint32(buf)
-	return nil
 }
 
 // Useful for decoding BaseRegEnumValueRes
@@ -384,10 +345,10 @@ func writeRRPUnicodeStr(w io.Writer, bo binary.ByteOrder, us *RRPUnicodeStr, ref
 	return
 }
 
-func (self *RRPUnicodeStr) MarshalBinary() (ret []byte, err error) {
+func (s *RRPUnicodeStr) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 	refId := uint32(1)
-	err = writeRRPUnicodeStr(w, le, self, &refId, false)
+	err = writeRRPUnicodeStr(w, le, s, &refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -406,12 +367,12 @@ func readRRPUnicodeStr(r *bytes.Reader) (s string, maxLength uint16, err error) 
 	return
 }
 
-func (self *RRPUnicodeStr) UnmarshalBinary(buf []byte) (err error) {
+func (s *RRPUnicodeStr) UnmarshalBinary(buf []byte) (err error) {
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer too small for RRPUnicodeStr!")
 	}
 	r := bytes.NewReader(buf)
-	self.S, self.MaxLength, err = readRRPUnicodeStr(r)
+	s.S, s.MaxLength, err = readRRPUnicodeStr(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -420,15 +381,15 @@ func (self *RRPUnicodeStr) UnmarshalBinary(buf []byte) (err error) {
 }
 
 // Opnums 0-4
-func (self *OpenRootKeyReq) MarshalBinary() (ret []byte, err error) {
+func (s *OpenRootKeyReq) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
-	err = binary.Write(w, le, self.ServerName)
+	err = binary.Write(w, le, s.ServerName)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -437,15 +398,15 @@ func (self *OpenRootKeyReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *OpenRootKeyReq) UnmarshalBinary(buf []byte) (err error) {
+func (s *OpenRootKeyReq) UnmarshalBinary(buf []byte) (err error) {
 	r := bytes.NewReader(buf)
-	err = binary.Read(r, le, &self.ServerName)
+	err = binary.Read(r, le, &s.ServerName)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.DesiredAccess)
+	err = binary.Read(r, le, &s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -453,19 +414,19 @@ func (self *OpenRootKeyReq) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *OpenKeyRes) MarshalBinary() (ret []byte, err error) {
+func (s *OpenKeyRes) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
-	if len(self.HKey) != 20 {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in OpenKeyRes")
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.HKey)
+	err = binary.Write(w, le, s.HKey)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.ReturnCode)
+	err = binary.Write(w, le, s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -473,20 +434,20 @@ func (self *OpenKeyRes) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *OpenKeyRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *OpenKeyRes) UnmarshalBinary(buf []byte) (err error) {
 	if len(buf) < 20 {
 		err = fmt.Errorf("Buffer too short to unmarshal OpenKeyRes")
 		log.Errorln(err)
 		return
 	}
 	r := bytes.NewReader(buf)
-	self.HKey = make([]byte, 20)
-	err = binary.Read(r, le, &self.HKey)
+	s.HKey = make([]byte, 20)
+	err = binary.Read(r, le, &s.HKey)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -495,14 +456,14 @@ func (self *OpenKeyRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 // Opnum 5
-func (self *BaseRegCloseKeyReq) MarshalBinary() (ret []byte, err error) {
+func (s *BaseRegCloseKeyReq) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
-	if len(self.HKey) != 20 {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegCloseKeyReq")
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.HKey)
+	err = binary.Write(w, le, s.HKey)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -510,15 +471,15 @@ func (self *BaseRegCloseKeyReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegCloseKeyReq) UnmarshalBinary(buf []byte) (err error) {
+func (s *BaseRegCloseKeyReq) UnmarshalBinary(buf []byte) (err error) {
 	if len(buf) < 20 {
 		err = fmt.Errorf("Buffer too short to unmarshal BaseRegCloseKeyReq")
 		log.Errorln(err)
 		return
 	}
 	r := bytes.NewReader(buf)
-	self.HKey = make([]byte, 20)
-	err = binary.Read(r, le, &self.HKey)
+	s.HKey = make([]byte, 20)
+	err = binary.Read(r, le, &s.HKey)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -526,14 +487,14 @@ func (self *BaseRegCloseKeyReq) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *BaseRegCreateKeyReq) MarshalBinary() (ret []byte, err error) {
+func (s *BaseRegCreateKeyReq) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
-	if len(self.HKey) != 20 {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegCreateKeyReq")
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.HKey[:20])
+	err = binary.Write(w, le, s.HKey[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -542,52 +503,52 @@ func (self *BaseRegCreateKeyReq) MarshalBinary() (ret []byte, err error) {
 	refId := uint32(1)
 
 	// Encode the RRPUnicodeStr SubKey
-	err = writeRRPUnicodeStr(w, le, &self.SubKey, &refId, false)
+	err = writeRRPUnicodeStr(w, le, &s.SubKey, &refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 	// Encode the RRPUnicodeStr Class
-	err = writeRRPUnicodeStr(w, le, &self.Class, &refId, false)
+	err = writeRRPUnicodeStr(w, le, &s.Class, &refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.Options)
+	err = binary.Write(w, le, s.Options)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	if self.SecurityAttr == nil {
+	if s.SecurityAttr == nil {
 		err = binary.Write(w, le, uint32(0))
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	} else {
-		err = writeRPCSecurityAttributes(w, le, *self.SecurityAttr, &refId)
+		err = writeRPCSecurityAttributes(w, le, *s.SecurityAttr, &refId)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	}
 
-	if self.Disposition != 0 {
+	if s.Disposition != 0 {
 		err = binary.Write(w, le, refId)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 	}
-	err = binary.Write(w, le, self.Disposition)
+	err = binary.Write(w, le, s.Disposition)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -595,23 +556,23 @@ func (self *BaseRegCreateKeyReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegCreateKeyReq) UnmarshalBinary(buf []byte) error {
+func (s *BaseRegCreateKeyReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegCreateKeyReq")
 }
 
-func (self *BaseRegCreateKeyRes) MarshalBinary() (ret []byte, err error) {
+func (s *BaseRegCreateKeyRes) MarshalBinary() (ret []byte, err error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for BaseRegCreateKeyReq")
 }
 
-func (self *BaseRegCreateKeyRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *BaseRegCreateKeyRes) UnmarshalBinary(buf []byte) (err error) {
 	if len(buf) < 28 {
 		err = fmt.Errorf("Buffer too short to unmarshal BaseRegCreateKeyRes")
 		log.Errorln(err)
 		return
 	}
 	r := bytes.NewReader(buf)
-	self.HKey = make([]byte, 20)
-	err = binary.Read(r, le, &self.HKey)
+	s.HKey = make([]byte, 20)
+	err = binary.Read(r, le, &s.HKey)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -621,12 +582,12 @@ func (self *BaseRegCreateKeyRes) UnmarshalBinary(buf []byte) (err error) {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.Disposition)
+	err = binary.Read(r, le, &s.Disposition)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -634,14 +595,14 @@ func (self *BaseRegCreateKeyRes) UnmarshalBinary(buf []byte) (err error) {
 	return nil
 }
 
-func (self *BaseRegDeleteKeyReq) MarshalBinary() (ret []byte, err error) {
+func (s *BaseRegDeleteKeyReq) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
-	if len(self.HKey) != 20 {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegDeleteKeyReq")
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.HKey[:20])
+	err = binary.Write(w, le, s.HKey[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -650,7 +611,7 @@ func (self *BaseRegDeleteKeyReq) MarshalBinary() (ret []byte, err error) {
 	refId := uint32(1)
 
 	// Encode the RRPUnicodeStr SubKey
-	err = writeRRPUnicodeStr(w, le, &self.SubKey, &refId, false)
+	err = writeRRPUnicodeStr(w, le, &s.SubKey, &refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -659,18 +620,18 @@ func (self *BaseRegDeleteKeyReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegDeleteKeyReq) UnmarshalBinary(buf []byte) error {
+func (s *BaseRegDeleteKeyReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegDeleteKeyReq")
 }
 
-func (self *BaseRegDeleteValueReq) MarshalBinary() (ret []byte, err error) {
+func (s *BaseRegDeleteValueReq) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
-	if len(self.HKey) != 20 {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegDeleteValueReq")
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.HKey[:20])
+	err = binary.Write(w, le, s.HKey[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -679,7 +640,7 @@ func (self *BaseRegDeleteValueReq) MarshalBinary() (ret []byte, err error) {
 	refId := uint32(1)
 
 	// Encode the RRPUnicodeStr ValueName
-	err = writeRRPUnicodeStr(w, le, &self.ValueName, &refId, false)
+	err = writeRRPUnicodeStr(w, le, &s.ValueName, &refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -688,25 +649,25 @@ func (self *BaseRegDeleteValueReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegDeleteValueReq) UnmarshalBinary(buf []byte) error {
+func (s *BaseRegDeleteValueReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegDeleteValueReq")
 }
 
 // Opnum 9
-func (self *BaseRegEnumKeyReq) MarshalBinary() (ret []byte, err error) {
+func (s *BaseRegEnumKeyReq) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
-	if len(self.HKey) != 20 {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegEnumKeyReq")
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.HKey[:20])
+	err = binary.Write(w, le, s.HKey[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.Index)
+	err = binary.Write(w, le, s.Index)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -715,7 +676,7 @@ func (self *BaseRegEnumKeyReq) MarshalBinary() (ret []byte, err error) {
 	refId := uint32(1)
 
 	// Encode the RRPUnicodeStr NameIn
-	err = writeRRPUnicodeStr(w, le, &self.NameIn, &refId, false)
+	err = writeRRPUnicodeStr(w, le, &s.NameIn, &refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -730,7 +691,7 @@ func (self *BaseRegEnumKeyReq) MarshalBinary() (ret []byte, err error) {
 	refId++
 
 	// Encode the RRPUnicodeStr ClassIn
-	err = writeRRPUnicodeStr(w, le, &self.ClassIn, &refId, false)
+	err = writeRRPUnicodeStr(w, le, &s.ClassIn, &refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -738,28 +699,28 @@ func (self *BaseRegEnumKeyReq) MarshalBinary() (ret []byte, err error) {
 
 	// Encode LastWriteTime
 	binary.Write(w, le, refId) // Referent ID
-	binary.Write(w, le, self.LastWriteTime.LowDateTime)
-	binary.Write(w, le, self.LastWriteTime.HighDateTime)
+	binary.Write(w, le, s.LastWriteTime.LowDateTime)
+	binary.Write(w, le, s.LastWriteTime.HighDateTime)
 
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegEnumKeyReq) UnmarshalBinary(buf []byte) error {
+func (s *BaseRegEnumKeyReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegEnumKeyReq")
 }
 
-func (self *BaseRegEnumKeyRes) MarshalBinary() ([]byte, error) {
+func (s *BaseRegEnumKeyRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for BaseRegEnumKeyRes")
 }
 
-func (self *BaseRegEnumKeyRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *BaseRegEnumKeyRes) UnmarshalBinary(buf []byte) (err error) {
 	if len(buf) < 36 {
 		return fmt.Errorf("Buffer too short for BaseRegEnumKeyRes")
 	}
 
 	r := bytes.NewReader(buf)
 
-	self.NameOut.S, self.NameOut.MaxLength, err = readRRPUnicodeStr(r)
+	s.NameOut.S, s.NameOut.MaxLength, err = readRRPUnicodeStr(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -772,7 +733,7 @@ func (self *BaseRegEnumKeyRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.ClassOut.S, self.ClassOut.MaxLength, err = readRRPUnicodeStr(r)
+	s.ClassOut.S, s.ClassOut.MaxLength, err = readRRPUnicodeStr(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -785,19 +746,19 @@ func (self *BaseRegEnumKeyRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.LastWriteTime.LowDateTime)
+	err = binary.Read(r, le, &s.LastWriteTime.LowDateTime)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.LastWriteTime.HighDateTime)
+	err = binary.Read(r, le, &s.LastWriteTime.HighDateTime)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -807,19 +768,19 @@ func (self *BaseRegEnumKeyRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 // Opnum 10
-func (self *BaseRegEnumValueReq) MarshalBinary() (ret []byte, err error) {
-	if len(self.HKey) != 20 {
+func (s *BaseRegEnumValueReq) MarshalBinary() (ret []byte, err error) {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegEnumValueReq")
 		log.Errorln(err)
 		return
 	}
 	w := bytes.NewBuffer(ret)
-	err = binary.Write(w, le, self.HKey[:20])
+	err = binary.Write(w, le, s.HKey[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.Index)
+	err = binary.Write(w, le, s.Index)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -827,7 +788,7 @@ func (self *BaseRegEnumValueReq) MarshalBinary() (ret []byte, err error) {
 
 	refId := uint32(1)
 	// Encode ValueNameIn
-	err = writeRRPUnicodeStr(w, le, &self.NameIn, &refId, false)
+	err = writeRRPUnicodeStr(w, le, &s.NameIn, &refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -841,14 +802,14 @@ func (self *BaseRegEnumValueReq) MarshalBinary() (ret []byte, err error) {
 		return
 	}
 	refId++
-	err = binary.Write(w, le, self.Type)
+	err = binary.Write(w, le, s.Type)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Encode Data
-	_, err = msdtyp.WriteConformantVaryingArrayPtr(w, self.Data, self.MaxLen, &refId)
+	_, err = msdtyp.WriteConformantVaryingArrayPtr(w, s.Data, s.MaxLen, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -861,7 +822,7 @@ func (self *BaseRegEnumValueReq) MarshalBinary() (ret []byte, err error) {
 		return
 	}
 	refId++
-	err = binary.Write(w, le, self.MaxLen)
+	err = binary.Write(w, le, s.MaxLen)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -875,7 +836,7 @@ func (self *BaseRegEnumValueReq) MarshalBinary() (ret []byte, err error) {
 	}
 
 	refId++
-	err = binary.Write(w, le, uint32(len(self.Data)))
+	err = binary.Write(w, le, uint32(len(s.Data)))
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -884,22 +845,22 @@ func (self *BaseRegEnumValueReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegEnumValueReq) UnmarshalBinary(buf []byte) error {
+func (s *BaseRegEnumValueReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegEnumValueReq")
 }
 
-func (self *BaseRegEnumValueRes) MarshalBinary() ([]byte, error) {
+func (s *BaseRegEnumValueRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for BaseRegEnumValueRes")
 }
 
-func (self *BaseRegEnumValueRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *BaseRegEnumValueRes) UnmarshalBinary(buf []byte) (err error) {
 	if len(buf) < 36 {
 		return fmt.Errorf("Buffer to short for BaseRegEnumValueRes")
 	}
 	r := bytes.NewReader(buf)
 
 	// Read RPCUnicodeStr
-	self.NameOut.S, self.NameOut.MaxLength, err = readRPCUnicodeStr(r)
+	s.NameOut.S, s.NameOut.MaxLength, err = readRPCUnicodeStr(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -912,14 +873,14 @@ func (self *BaseRegEnumValueRes) UnmarshalBinary(buf []byte) (err error) {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.Type)
+	err = binary.Read(r, le, &s.Type)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Read Data
-	self.Data, _, err = msdtyp.ReadConformantVaryingArrayPtr(r)
+	s.Data, _, err = msdtyp.ReadConformantVaryingArrayPtr(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -933,7 +894,7 @@ func (self *BaseRegEnumValueRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.DataLen)
+	err = binary.Read(r, le, &s.DataLen)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -947,14 +908,14 @@ func (self *BaseRegEnumValueRes) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	err = binary.Read(r, le, &self.MaxLen)
+	err = binary.Read(r, le, &s.MaxLen)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Read ReturnCode
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -963,27 +924,27 @@ func (self *BaseRegEnumValueRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 // Opnum 10
-func (self *BaseRegGetKeySecurityReq) MarshalBinary() (ret []byte, err error) {
-	if len(self.HKey) != 20 {
+func (s *BaseRegGetKeySecurityReq) MarshalBinary() (ret []byte, err error) {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegGetKeySecurityReq")
 		log.Errorln(err)
 		return
 	}
 	w := bytes.NewBuffer(ret)
-	err = binary.Write(w, le, self.HKey[:20])
+	err = binary.Write(w, le, s.HKey[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.SecurityInformation)
+	err = binary.Write(w, le, s.SecurityInformation)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	refId := uint32(1)
-	err = writeRPCSecurityDescriptor(w, le, self.SecurityDescriptorIn, &refId)
+	err = writeRPCSecurityDescriptor(w, le, s.SecurityDescriptorIn, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -992,15 +953,15 @@ func (self *BaseRegGetKeySecurityReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegGetKeySecurityReq) UnmarshalBinary(buf []byte) error {
+func (s *BaseRegGetKeySecurityReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegGetKeySecurityReq")
 }
 
-func (self *BaseRegGetKeySecurityRes) MarshalBinary() ([]byte, error) {
+func (s *BaseRegGetKeySecurityRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for BaseRegGetKeySecurityRes")
 }
 
-func (self *BaseRegGetKeySecurityRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *BaseRegGetKeySecurityRes) UnmarshalBinary(buf []byte) (err error) {
 	// Read SecurityDescriptorOut
 	if len(buf) < 16 {
 		return fmt.Errorf("Buffer to short for BaseRegGetKeySecurityRes")
@@ -1009,12 +970,12 @@ func (self *BaseRegGetKeySecurityRes) UnmarshalBinary(buf []byte) (err error) {
 
 	// First read ReturnCode
 	_, err = r.Seek(-4, io.SeekEnd)
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	if self.ReturnCode != 0 {
+	if s.ReturnCode != 0 {
 		return
 	}
 
@@ -1026,14 +987,14 @@ func (self *BaseRegGetKeySecurityRes) UnmarshalBinary(buf []byte) (err error) {
 	}
 
 	// Read max size of SecurityDescriptor
-	err = binary.Read(r, le, &self.SecurityDescriptorOut.InSecurityDescriptor)
+	err = binary.Read(r, le, &s.SecurityDescriptorOut.InSecurityDescriptor)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Read actual size of SecurityDescriptor
-	err = binary.Read(r, le, &self.SecurityDescriptorOut.OutSecurityDescriptor)
+	err = binary.Read(r, le, &s.SecurityDescriptorOut.OutSecurityDescriptor)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1050,20 +1011,20 @@ func (self *BaseRegGetKeySecurityRes) UnmarshalBinary(buf []byte) (err error) {
 		log.Errorln(err)
 		return
 	}
-	self.SecurityDescriptorOut.SecurityDescriptor = &sd
+	s.SecurityDescriptorOut.SecurityDescriptor = &sd
 
 	return nil
 }
 
 // Opnum 15
-func (self *BaseRegOpenKeyReq) MarshalBinary() (ret []byte, err error) {
-	if len(self.HKey) != 20 {
+func (s *BaseRegOpenKeyReq) MarshalBinary() (ret []byte, err error) {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegOpenKeyReq")
 		log.Errorln(err)
 		return
 	}
 	w := bytes.NewBuffer(ret)
-	err = binary.Write(w, le, self.HKey[:20])
+	err = binary.Write(w, le, s.HKey[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1071,18 +1032,18 @@ func (self *BaseRegOpenKeyReq) MarshalBinary() (ret []byte, err error) {
 
 	refId := uint32(1)
 	// Encode SubKey
-	err = writeRRPUnicodeStr(w, le, &self.SubKey, &refId, false)
+	err = writeRRPUnicodeStr(w, le, &s.SubKey, &refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.Options)
+	err = binary.Write(w, le, s.Options)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Write(w, le, self.DesiredAccess)
+	err = binary.Write(w, le, s.DesiredAccess)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1091,26 +1052,26 @@ func (self *BaseRegOpenKeyReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegOpenKeyReq) UnmarshalBinary(buf []byte) error {
+func (s *BaseRegOpenKeyReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegOpenKeyReq")
 }
 
 // Opnum 16
-func (self *BaseRegQueryInfoKeyReq) MarshalBinary() (ret []byte, err error) {
-	if len(self.HKey) != 20 {
+func (s *BaseRegQueryInfoKeyReq) MarshalBinary() (ret []byte, err error) {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegQueryInfoKey")
 		log.Errorln(err)
 		return
 	}
 	w := bytes.NewBuffer(ret)
-	err = binary.Write(w, le, self.HKey[:20])
+	err = binary.Write(w, le, s.HKey[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	refId := uint32(1)
-	err = writeRRPUnicodeStr(w, le, &self.ClassIn, &refId, true)
+	err = writeRRPUnicodeStr(w, le, &s.ClassIn, &refId, true)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1119,79 +1080,79 @@ func (self *BaseRegQueryInfoKeyReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegQueryInfoKeyReq) UnmarshalBinary(buf []byte) error {
+func (s *BaseRegQueryInfoKeyReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegQueryInfoKeyReq")
 }
 
-func (self *BaseRegQueryInfoKeyRes) MarshalBinary() ([]byte, error) {
+func (s *BaseRegQueryInfoKeyRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for BaseRegQueryInfoKeyRes")
 }
 
-func (self *BaseRegQueryInfoKeyRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *BaseRegQueryInfoKeyRes) UnmarshalBinary(buf []byte) (err error) {
 	r := bytes.NewReader(buf)
 	// Read ClassOut
-	self.ClassOut.S, self.ClassOut.MaxLength, err = readRPCUnicodeStr(r)
+	s.ClassOut.S, s.ClassOut.MaxLength, err = readRPCUnicodeStr(r)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.SubKeys)
+	err = binary.Read(r, le, &s.SubKeys)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.MaxSubKeyLen)
+	err = binary.Read(r, le, &s.MaxSubKeyLen)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.MaxClassLen)
+	err = binary.Read(r, le, &s.MaxClassLen)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.Values)
+	err = binary.Read(r, le, &s.Values)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.MaxValueNameLen)
+	err = binary.Read(r, le, &s.MaxValueNameLen)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.MaxValueLen)
+	err = binary.Read(r, le, &s.MaxValueLen)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Read(r, le, &self.SecurityDescriptor)
+	err = binary.Read(r, le, &s.SecurityDescriptor)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Read LastWriteTime
-	err = binary.Read(r, le, &self.LastWriteTime.LowDateTime)
+	err = binary.Read(r, le, &s.LastWriteTime.LowDateTime)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.LastWriteTime.HighDateTime)
+	err = binary.Read(r, le, &s.LastWriteTime.HighDateTime)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Read ReturnCode
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1201,14 +1162,14 @@ func (self *BaseRegQueryInfoKeyRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 // Opnum 17
-func (self *BaseRegQueryValueReq) MarshalBinary() (ret []byte, err error) {
-	if len(self.HKey) != 20 {
+func (s *BaseRegQueryValueReq) MarshalBinary() (ret []byte, err error) {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegQueryValueReq")
 		log.Errorln(err)
 		return
 	}
 	w := bytes.NewBuffer(ret)
-	err = binary.Write(w, le, self.HKey[:20])
+	err = binary.Write(w, le, s.HKey[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1216,7 +1177,7 @@ func (self *BaseRegQueryValueReq) MarshalBinary() (ret []byte, err error) {
 
 	refId := uint32(1)
 	// Encode the RRPUnicodeStr ValueName
-	err = writeRRPUnicodeStr(w, le, &self.ValueName, &refId, false)
+	err = writeRRPUnicodeStr(w, le, &s.ValueName, &refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1229,14 +1190,14 @@ func (self *BaseRegQueryValueReq) MarshalBinary() (ret []byte, err error) {
 		return
 	}
 	refId++
-	err = binary.Write(w, le, self.Type)
+	err = binary.Write(w, le, s.Type)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Encode Data
-	_, err = msdtyp.WriteConformantVaryingArrayPtr(w, self.Data, self.MaxLen, &refId)
+	_, err = msdtyp.WriteConformantVaryingArrayPtr(w, s.Data, s.MaxLen, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1249,7 +1210,7 @@ func (self *BaseRegQueryValueReq) MarshalBinary() (ret []byte, err error) {
 		return
 	}
 	refId++
-	err = binary.Write(w, le, self.MaxLen)
+	err = binary.Write(w, le, s.MaxLen)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1263,7 +1224,7 @@ func (self *BaseRegQueryValueReq) MarshalBinary() (ret []byte, err error) {
 	}
 
 	refId++
-	err = binary.Write(w, le, uint32(len(self.Data)))
+	err = binary.Write(w, le, uint32(len(s.Data)))
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1272,15 +1233,15 @@ func (self *BaseRegQueryValueReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegQueryValueReq) UnmarshalBinary(buf []byte) error {
+func (s *BaseRegQueryValueReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegQueryValueReq")
 }
 
-func (self *BaseRegQueryValueRes) MarshalBinary() ([]byte, error) {
+func (s *BaseRegQueryValueRes) MarshalBinary() ([]byte, error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for BaseRegQueryValueRes")
 }
 
-func (self *BaseRegQueryValueRes) UnmarshalBinary(buf []byte) (err error) {
+func (s *BaseRegQueryValueRes) UnmarshalBinary(buf []byte) (err error) {
 	r := bytes.NewReader(buf)
 	// Read Type
 	// Skip ReferentId
@@ -1289,14 +1250,14 @@ func (self *BaseRegQueryValueRes) UnmarshalBinary(buf []byte) (err error) {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.Type)
+	err = binary.Read(r, le, &s.Type)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Read Data
-	self.Data, _, err = msdtyp.ReadConformantVaryingArrayPtr(r)
+	s.Data, _, err = msdtyp.ReadConformantVaryingArrayPtr(r)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1308,7 +1269,7 @@ func (self *BaseRegQueryValueRes) UnmarshalBinary(buf []byte) (err error) {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.DataLen)
+	err = binary.Read(r, le, &s.DataLen)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1320,14 +1281,14 @@ func (self *BaseRegQueryValueRes) UnmarshalBinary(buf []byte) (err error) {
 		log.Errorln(err)
 		return
 	}
-	err = binary.Read(r, le, &self.MaxLen)
+	err = binary.Read(r, le, &s.MaxLen)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Read ReturnCode
-	err = binary.Read(r, le, &self.ReturnCode)
+	err = binary.Read(r, le, &s.ReturnCode)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1337,14 +1298,14 @@ func (self *BaseRegQueryValueRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 // Opnum 20
-func (self *BaseRegSaveKeyReq) MarshalBinary() (ret []byte, err error) {
-	if len(self.HKey) != 20 {
+func (s *BaseRegSaveKeyReq) MarshalBinary() (ret []byte, err error) {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegSaveKeyReq")
 		log.Errorln(err)
 		return
 	}
 	w := bytes.NewBuffer(ret)
-	err = binary.Write(w, le, self.HKey[:20])
+	err = binary.Write(w, le, s.HKey[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1352,14 +1313,14 @@ func (self *BaseRegSaveKeyReq) MarshalBinary() (ret []byte, err error) {
 
 	refId := uint32(1)
 	// Encode the RRPUnicodeStr FileName
-	err = writeRRPUnicodeStr(w, le, &self.FileName, &refId, false)
+	err = writeRRPUnicodeStr(w, le, &s.FileName, &refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Encode SecurityAttributes
-	err = writeRPCSecurityAttributes(w, le, self.SecurityAttributes, &refId)
+	err = writeRPCSecurityAttributes(w, le, s.SecurityAttributes, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1368,25 +1329,25 @@ func (self *BaseRegSaveKeyReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegSaveKeyReq) UnmarshalBinary(buf []byte) error {
+func (s *BaseRegSaveKeyReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegSaveKeyReq")
 }
 
 // Opnum 21
-func (self *BaseRegSetKeySecurityReq) MarshalBinary() (ret []byte, err error) {
-	if len(self.HKey) != 20 {
+func (s *BaseRegSetKeySecurityReq) MarshalBinary() (ret []byte, err error) {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegSetKeySecurityReq")
 		log.Errorln(err)
 		return
 	}
 	w := bytes.NewBuffer(ret)
-	err = binary.Write(w, le, self.HKey[:20])
+	err = binary.Write(w, le, s.HKey[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	err = binary.Write(w, le, self.SecurityInformation)
+	err = binary.Write(w, le, s.SecurityInformation)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1394,7 +1355,7 @@ func (self *BaseRegSetKeySecurityReq) MarshalBinary() (ret []byte, err error) {
 
 	refId := uint32(1)
 	// Encode SecurityInformation
-	err = writeRPCSecurityDescriptor(w, le, self.SecurityDescriptorIn, &refId)
+	err = writeRPCSecurityDescriptor(w, le, s.SecurityDescriptorIn, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1403,7 +1364,7 @@ func (self *BaseRegSetKeySecurityReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegSetKeySecurityReq) UnmarshalBinary(buf []byte) error {
+func (s *BaseRegSetKeySecurityReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegSetKeySecurityReq")
 }
 
@@ -1545,11 +1506,11 @@ func writeRPCSecurityDescriptor(w io.Writer, bo binary.ByteOrder, sd RpcSecurity
 	return
 }
 
-func (self *RpcSecurityAttributes) MarshalBinary() (ret []byte, err error) {
+func (s *RpcSecurityAttributes) MarshalBinary() (ret []byte, err error) {
 
 	refId := uint32(1)
 	w := bytes.NewBuffer(ret)
-	err = writeRPCSecurityAttributes(w, le, *self, &refId)
+	err = writeRPCSecurityAttributes(w, le, *s, &refId)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1557,20 +1518,20 @@ func (self *RpcSecurityAttributes) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *RpcSecurityAttributes) UnmarshalBinary(buf []byte) error {
+func (s *RpcSecurityAttributes) UnmarshalBinary(buf []byte) error {
 
 	err := fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for RpcSecurityAttributes")
 	return err
 }
 
-func (self *BaseRegSetValueReq) MarshalBinary() (ret []byte, err error) {
-	if len(self.HKey) != 20 {
+func (s *BaseRegSetValueReq) MarshalBinary() (ret []byte, err error) {
+	if len(s.HKey) != 20 {
 		err = fmt.Errorf("Invalid length of HKey in BaseRegSetValueReq")
 		log.Errorln(err)
 		return
 	}
 	w := bytes.NewBuffer(ret)
-	err = binary.Write(w, le, self.HKey[:20])
+	err = binary.Write(w, le, s.HKey[:20])
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1578,28 +1539,28 @@ func (self *BaseRegSetValueReq) MarshalBinary() (ret []byte, err error) {
 
 	refId := uint32(1)
 	// Encode the RRPUnicodeStr ValueName
-	err = writeRRPUnicodeStr(w, le, &self.ValueName, &refId, false)
+	err = writeRRPUnicodeStr(w, le, &s.ValueName, &refId, false)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Encode Type
-	err = binary.Write(w, le, self.Type)
+	err = binary.Write(w, le, s.Type)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Encode Data
-	_, err = msdtyp.WriteConformantArray(w, self.Data)
+	_, err = msdtyp.WriteConformantArray(w, s.Data)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
 	// Encode the Actual length of transmitted data value
-	err = binary.Write(w, le, uint32(len(self.Data)))
+	err = binary.Write(w, le, uint32(len(s.Data)))
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1608,6 +1569,6 @@ func (self *BaseRegSetValueReq) MarshalBinary() (ret []byte, err error) {
 	return w.Bytes(), nil
 }
 
-func (self *BaseRegSetValueReq) UnmarshalBinary(buf []byte) error {
+func (s *BaseRegSetValueReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for BaseRegSetValueReq")
 }

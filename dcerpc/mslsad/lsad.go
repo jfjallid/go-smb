@@ -243,7 +243,6 @@ func (sb *RPCCon) LsarCreateAccount(policyHandle []byte, sid string, desiredAcce
 		log.Errorln(err)
 		return
 	}
-	fmt.Printf("SID: %s\n", innerReq.AccountSid.ToString())
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
