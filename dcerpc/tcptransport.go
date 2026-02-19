@@ -35,7 +35,7 @@ import (
 type TCPTransport struct {
 	conn       net.Conn
 	mu         sync.Mutex // Serialize access to the connection
-	sessionKey []byte     // Populated after authenticated bind (future)
+	sessionKey []byte     // Populated after authenticated bind via SetSessionKey
 }
 
 func NewTCPTransport(conn net.Conn) *TCPTransport {
@@ -68,7 +68,12 @@ func (t *TCPTransport) Close() error {
 }
 
 func (t *TCPTransport) GetSessionKey() []byte {
-	return t.sessionKey
+	if t.sessionKey == nil {
+		return nil
+	}
+	key := make([]byte, len(t.sessionKey))
+	copy(key, t.sessionKey)
+	return key
 }
 
 func (t *TCPTransport) SetSessionKey(key []byte) {

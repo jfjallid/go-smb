@@ -46,9 +46,9 @@ type ServiceBind struct {
 	// Max size of fragment server should send
 	maxFragReceiveSize uint16
 	// Auth state (set by BindAuth, zero for unauthenticated Bind)
-	authType  uint8
-	authLevel uint8
-	sealer    Sealer // non-nil when authLevel >= PktIntegrity
+	authType      uint8
+	authLevel     uint8
+	sealer        Sealer // non-nil when authLevel >= PktIntegrity
 }
 
 // AuthVerifier represents the auth_verifier structure appended to DCERPC PDUs
@@ -159,7 +159,7 @@ C706 Section 12.6.3.1
 */
 type ContextItem struct {
 	Id             uint16
-	Count          byte // Determined by number of items in TransferSyntax list
+	Count          byte // Used only for unmarshal; marshal computes from len(TransferSyntax)
 	Reserved       byte // Alignment
 	AbstractSyntax SyntaxId
 	TransferSyntax []SyntaxId
@@ -236,8 +236,9 @@ type BindRes struct {
 	AuthVerifier    *AuthVerifier // Parsed when Header.AuthLength > 0
 }
 
-// Auth3Req is sent as the third leg of an NTLM authentication handshake
-// (MS-RPCE 2.2.2.3). The server does not send a response to this PDU.
+// Auth3Req represents the Auth3 PDU type (MS-RPCE 2.2.2.3).
+// Not currently used — BindAuth uses AlterContext for the 3rd leg instead.
+// Kept for reference; the server does not send a response to this PDU type.
 type Auth3Req struct {
 	Header                       // Type = PacketTypeAuth3
 	MaxSendFragSize uint16       // Pad field (same layout as Bind)

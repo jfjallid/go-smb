@@ -38,6 +38,8 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/jfjallid/gofork/encoding/asn1"
+
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/golog"
 )
@@ -74,6 +76,7 @@ const (
 	PacketTypeFault            uint8 = 3
 	PacketTypeBind             uint8 = 11
 	PacketTypeBindAck          uint8 = 12
+	PacketTypeBindNak          uint8 = 13
 	PacketTypeAlterContext     uint8 = 14
 	PacketTypeAlterContextResp uint8 = 15
 	PacketTypeAuth3            uint8 = 16
@@ -81,9 +84,10 @@ const (
 
 // Auth types (MS-RPCE 2.2.1.1.7)
 const (
-	RpcAuthnNone        uint8 = 0x00
-	RpcAuthnWinnt       uint8 = 0x0A // NTLMSSP
-	RpcAuthnGssKerberos uint8 = 0x10 // Kerberos
+	RpcAuthnNone         uint8 = 0x00
+	RpcAuthnGssNegotiate uint8 = 0x09 // SPNEGO
+	RpcAuthnWinnt        uint8 = 0x0A // NTLMSSP
+	RpcAuthnGssKerberos  uint8 = 0x10 // Kerberos (raw, without SPNEGO)
 )
 
 // Auth levels (MS-RPCE 2.2.1.1.8)
@@ -128,25 +132,46 @@ const (
 )
 
 // Sealer provides per-PDU encryption/decryption for auth levels
-// PktIntegrity and PktPrivacy. The mechanism (e.g., NTLMInitiator)
-// implements this interface to seal outgoing and unseal incoming stubs.
+// PktIntegrity and PktPrivacy. The mechanism (e.g., NTLMInitiator,
+// KRB5Initiator) implements this interface to seal outgoing and unseal
+// incoming stubs.
 //
-// DCERPC requires the MAC to cover the full PDU (header + plaintext stub +
-// auth_pad + sec_trailer) while only the stub + auth_pad portion is encrypted.
-// The Seal method takes separate toEncrypt and toSign parameters for this.
+// For NTLM, the MAC covers the full PDU (header + plaintext stub +
+// auth_pad + sec_trailer) while only the stub + auth_pad is encrypted.
+// For Kerberos, integrity is built into the encryption (HMAC inside
+// the encrypted blob), so the toSign / pduHeader+secTrailer parameters
+// are ignored.
 type Sealer interface {
-	// Seal encrypts toEncrypt (stub + auth_pad) and computes a MAC over
-	// toSign (full PDU: header + plaintext_stub + auth_pad + sec_trailer).
-	// Returns ciphertext and signature separately.
+	// Seal encrypts toEncrypt (stub + auth_pad) and returns ciphertext
+	// and signature (auth_value bytes). toSign is the full PDU for NTLM
+	// MAC; Kerberos ignores it. The returned ciphertext may be larger
+	// than toEncrypt by EncryptionOverhead() bytes.
 	Seal(toEncrypt, toSign []byte) (ciphertext, signature []byte)
-	// Decrypt decrypts ciphertext without verifying. Used as the first
-	// step of unseal so the caller can build signData from the plaintext.
-	Decrypt(ciphertext []byte) []byte
-	// VerifyMAC verifies a MAC over signData against expectedSig.
-	// Must be called after Decrypt so the RC4 handle is correctly positioned.
-	VerifyMAC(signData, expectedSig []byte) error
-	// SignatureSize returns the fixed signature length (e.g., 16 for NTLM).
+	// Unseal decrypts ciphertext and verifies integrity.
+	// signature is the auth_value bytes. pduHeader and secTrailer are
+	// provided for NTLM (which MACs the full PDU); Kerberos ignores them.
+	Unseal(ciphertext, signature, pduHeader, secTrailer []byte) (plaintext []byte, err error)
+	// SignatureSize returns the maximum auth_value size
+	// (NTLM=16, Kerberos=16+16+RRC+maxPad).
 	SignatureSize() int
+	// EncryptionOverhead returns extra ciphertext bytes beyond plaintext
+	// size (0 for both NTLM and Kerberos).
+	EncryptionOverhead() int
+}
+
+// DCEThirdLegProvider is implemented by mechanisms that generate a 3rd leg
+// token for DCERPC SPNEGO authentication (e.g., Kerberos sends a modified
+// AP_REP in the AlterContext).
+type DCEThirdLegProvider interface {
+	DCEThirdLeg() ([]byte, error)
+}
+
+// DCEAPRepProcessor is implemented by mechanisms that can process a bare
+// AP_REP (not KRB5Token-wrapped) from a DCE-style SPNEGO response.
+// When GSS_C_DCE_STYLE is set, the server sends the AP_REP directly
+// in the NegTokenResp's ResponseToken field, without KRB5Token wrapping.
+type DCEAPRepProcessor interface {
+	DCEProcessAPRep(rawAPRep []byte) error
 }
 
 // DCERPCTransport abstracts the underlying transport for DCERPC PDUs.
@@ -164,6 +189,8 @@ type DCERPCTransport interface {
 
 	// Read reads the next DCERPC PDU fragment from the transport.
 	// Used for continuation fragments after the first Transceive response.
+	// maxSize is a buffer sizing hint: SMBTransport uses it to size the read
+	// buffer, while TCPTransport ignores it (TCP is self-framing via FragLength).
 	// For SMB: maps to ReadFile on the named pipe.
 	// For TCP: reads a complete PDU (header + body based on FragLength).
 	Read(maxSize uint16) ([]byte, error)
@@ -182,7 +209,7 @@ func newHeader() Header {
 		// At some point it might be worth to implement support for other
 		// representations such as Big-Endian
 		Representation: 0x00000010, // 0x10000000, // Little-endian, char = ASCII, float = IEEE
-		FragLength:     72,         // Always 72
+		FragLength:     0, // Set after marshal to actual PDU size
 		AuthLength:     0,
 		CallId:         0,
 	}
@@ -258,8 +285,7 @@ func newBindReq(callId uint32, interface_uuid string, majorVersion, minorVersion
 	header.Type = PacketTypeBind
 	header.CallId = callId
 	ctxItem := ContextItem{
-		Id:    0,
-		Count: 1,
+		Id: 0,
 		AbstractSyntax: SyntaxId{
 			UUID:    srsv_uuid,
 			Version: (uint32(minorVersion) << 16) | uint32(majorVersion),
@@ -297,43 +323,41 @@ func newRequestReq(callId uint32, op uint16) (*RequestReq, error) {
 		Opnum:     op,
 	}, nil
 }
-
-func Bind(transport DCERPCTransport, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string) (bind *ServiceBind, err error) {
-	log.Debugln("In Bind")
-	if transport == nil {
-		return nil, fmt.Errorf("Transport argument cannot be nil")
-	}
-	callId := atomic.Uint32{}
-	maxFragRxSize := uint16(4280)
-	maxFragTxSize := uint16(4280)
-	bindReq, err := newBindReq(callId.Add(1), interface_uuid, majorVersion, minorVersion, transfer_uuid, maxFragTxSize, maxFragRxSize)
+// parseAndValidateCommonHeader validates a BindAck or AlterContext response PDU Common Header.
+// It checks the CallId and the packet type
+func parseAndValidateCommonHeader(response []byte, expectedCallId uint32) (error) {
+	var h Header
+	err := h.UnmarshalBinary(response[:16])
 	if err != nil {
-		return
+		return err
 	}
+	if h.CallId != expectedCallId {
+		return fmt.Errorf("Received invalid callId: %d\n", h.CallId)
+	}
+	switch h.Type {
+	case PacketTypeBindNak:
+		return fmt.Errorf("Received Bind_Nak with reason: 0x%x", le.Uint16(response[16:18])) // Should it be Little Endian?
+	case PacketTypeBindAck,PacketTypeAlterContextResp:
+	default:
+		return fmt.Errorf("Invalid response from server: %v\n", h)
+	}
+	return nil
+}
 
-	buf, err := bindReq.MarshalBinary()
+// parseAndValidateBindAck validates a BindAck (or AlterContext response) PDU.
+// It checks the CallId, packet type, unmarshals the BindRes, and verifies the
+// first context result item was accepted.
+func parseAndValidateBindAck(response []byte, expectedCallId uint32) (*BindRes, error) {
+	err := parseAndValidateCommonHeader(response, expectedCallId)
 	if err != nil {
-		return
+		return nil, err
 	}
-
-	response, err := transport.Transceive(buf)
-	if err != nil {
-		return
-	}
-
 	var bindRes BindRes
 	err = bindRes.UnmarshalBinary(response)
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	// Check if Bind was successful
-	if bindRes.CallId != bindReq.CallId {
-		return nil, fmt.Errorf("Received invalid callId: %d\n", bindRes.CallId)
-	}
-	if bindRes.Type != PacketTypeBindAck {
-		return nil, fmt.Errorf("Invalid response from server: %v\n", bindRes)
-	}
 	if len(bindRes.ResultList.Items) == 0 {
 		return nil, fmt.Errorf("Invalid response from server with no Context Items: %v\n", bindRes.ResultList)
 	}
@@ -353,6 +377,39 @@ func Bind(transport DCERPCTransport, interface_uuid string, majorVersion, minorV
 			errMsg = fmt.Sprintf("Unknown reason: %d\n", bindRes.ResultList.Items[0].Reason)
 		}
 		return nil, fmt.Errorf("Server did not approve bind request with reason: \"%s\"\n", errMsg)
+	}
+
+	return &bindRes, nil
+}
+
+func Bind(transport DCERPCTransport, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string) (bind *ServiceBind, err error) {
+	log.Debugln("In Bind")
+	if transport == nil {
+		return nil, fmt.Errorf("Transport argument cannot be nil")
+	}
+	callId := atomic.Uint32{}
+	maxFragRxSize := uint16(4280)
+	maxFragTxSize := uint16(4280)
+	bindReq, err := newBindReq(callId.Add(1), interface_uuid, majorVersion, minorVersion, transfer_uuid, maxFragTxSize, maxFragRxSize)
+	if err != nil {
+		return
+	}
+
+	buf, err := bindReq.MarshalBinary()
+	if err != nil {
+		return
+	}
+	// Update FragLength to actual PDU size
+	binary.LittleEndian.PutUint16(buf[8:10], uint16(len(buf)))
+
+	response, err := transport.Transceive(buf)
+	if err != nil {
+		return
+	}
+
+	bindRes, err := parseAndValidateBindAck(response, bindReq.CallId)
+	if err != nil {
+		return
 	}
 
 	return &ServiceBind{
@@ -377,15 +434,64 @@ func authTypeForMechanism(mechanism gss.Mechanism) (uint8, error) {
 		return RpcAuthnWinnt, nil
 	}
 	if oid.Equal(gss.KerberosSSPMechTypeOid) || oid.Equal(gss.MsKerberosOid) {
-		return RpcAuthnGssKerberos, nil
+		// Use SPNEGO (0x09) for Kerberos, not raw Kerberos (0x10).
+		// Windows DCERPC servers expect SPNEGO wrapping with a 3-leg
+		// exchange (Bind, BindAck, AlterContext) to finalize the context.
+		return RpcAuthnGssNegotiate, nil
 	}
 	return 0, fmt.Errorf("Unsupported authentication mechanism OID: %v", oid)
 }
 
+// isKerberosMech returns true if the mechanism is a Kerberos mechanism.
+func isKerberosMech(mechanism gss.Mechanism) bool {
+	oid := mechanism.Oid()
+	return oid.Equal(gss.KerberosSSPMechTypeOid) || oid.Equal(gss.MsKerberosOid)
+}
+
+// marshalSPNEGOInit wraps a mechanism token in a SPNEGO NegTokenInit.
+func marshalSPNEGOInit(mechTypes []asn1.ObjectIdentifier, mechToken []byte) ([]byte, error) {
+	init := gss.NegTokenInit{
+		OID: gss.SpnegoOid,
+		Data: gss.NegTokenInitData{
+			MechTypes:    mechTypes,
+			ReqFlags:     asn1.BitString{},
+			MechToken:    mechToken,
+			MechTokenMIC: []byte{},
+		},
+	}
+	buf, err := asn1.Marshal(init)
+	if err != nil {
+		return nil, err
+	}
+	// Override ASN1 SEQUENCE tag (0x30) with APPLICATION tag (0x60)
+	buf[0] = 0x60
+	return buf, nil
+}
+
+// unmarshalSPNEGOResp parses a SPNEGO NegTokenResp.
+func unmarshalSPNEGOResp(data []byte) (gss.NegTokenResp, error) {
+	var resp gss.NegTokenResp
+	_, err := asn1.UnmarshalWithParams(data, &resp, "explicit,tag:1")
+	return resp, err
+}
+
+// marshalSPNEGOResp encodes a SPNEGO NegTokenResp.
+func marshalSPNEGOResp(resp gss.NegTokenResp) ([]byte, error) {
+	wrapped := struct{ G interface{} }{resp}
+	buf, err := asn1.Marshal(wrapped)
+	if err != nil {
+		return nil, err
+	}
+	// Override ASN1 SEQUENCE tag (0x30) with CONTEXT tag 1 (0xa1)
+	buf[0] = 0xa1
+	return buf, nil
+}
+
 // BindAuth performs an authenticated DCERPC bind using the provided GSS mechanism.
-// For NTLM (3-leg), it uses Alter Context instead of Auth3 for the third leg so
-// that the server's response confirms authentication success.
-// For Kerberos (1-2 leg), the BindAck response is sufficient.
+// For NTLM (3-leg), it uses Alter Context for the third leg so that the server's
+// response confirms authentication success.
+// For Kerberos, it wraps tokens in SPNEGO and uses Alter Context for the third
+// leg to finalize the security context.
 func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, minorVersion uint16, transfer_uuid string, authLevel uint8, mechanism gss.Mechanism) (bind *ServiceBind, err error) {
 	log.Debugln("In BindAuth")
 	if transport == nil {
@@ -400,14 +506,29 @@ func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, mi
 		return nil, err
 	}
 
+	useSpnego := isKerberosMech(mechanism)
+
 	callId := atomic.Uint32{}
 	maxFragRxSize := uint16(4280)
 	maxFragTxSize := uint16(4280)
 
 	// Step 1: Get initial auth token from mechanism
-	initToken, err := mechanism.InitSecContext(nil)
+	mechToken, err := mechanism.InitSecContext(nil)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to initialize security context: %w", err)
+	}
+
+	// For Kerberos, wrap the raw AP_REQ in SPNEGO NegTokenInit
+	var initToken []byte
+	if useSpnego {
+		// Use MS KRB5 OID (1.2.840.48018.1.2.2) as the SPNEGO MechType
+		mechTypes := []asn1.ObjectIdentifier{gss.MsKerberosOid}
+		initToken, err = marshalSPNEGOInit(mechTypes, mechToken)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to marshal SPNEGO NegTokenInit: %w", err)
+		}
+	} else {
+		initToken = mechToken
 	}
 
 	// Step 2: Build Bind request with AuthVerifier
@@ -418,7 +539,6 @@ func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, mi
 	bindReq.AuthVerifier = &AuthVerifier{
 		AuthType:      authType,
 		AuthLevel:     authLevel,
-		AuthContextId: 0,
 		AuthValue:     initToken,
 	}
 
@@ -438,50 +558,60 @@ func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, mi
 		return
 	}
 
-	var bindRes BindRes
-	err = bindRes.UnmarshalBinary(response)
+	// Step 4: Validate BindAck
+	bindRes, err := parseAndValidateBindAck(response, bindReq.CallId)
 	if err != nil {
 		return
-	}
-
-	// Step 4: Validate BindAck
-	if bindRes.CallId != bindReq.CallId {
-		return nil, fmt.Errorf("Received invalid callId: %d\n", bindRes.CallId)
-	}
-	if bindRes.Type != PacketTypeBindAck {
-		return nil, fmt.Errorf("Invalid response from server: %v\n", bindRes)
-	}
-	if len(bindRes.ResultList.Items) == 0 {
-		return nil, fmt.Errorf("Invalid response from server with no Context Items: %v\n", bindRes.ResultList)
-	}
-	if bindRes.ResultList.Items[0].Result != acceptance {
-		errMsg := ""
-		switch bindRes.ResultList.Items[0].Reason {
-		case reasonNotSpecified:
-			errMsg = "Reason not specified"
-		case abstractSyntaxNotSupported:
-			errMsg = "Abstract syntax not supported"
-		case proposedTransferSyntaxNotSupported:
-			errMsg = "Proposed transfer syntax not supported"
-		case localLimitExceeded:
-			errMsg = "Local limit exceeded"
-		default:
-			errMsg = fmt.Sprintf("Unknown reason: %d\n", bindRes.ResultList.Items[0].Reason)
-		}
-		return nil, fmt.Errorf("Server did not approve bind request with reason: \"%s\"\n", errMsg)
 	}
 
 	// Step 5: Process server auth token if present
 	if bindRes.AuthVerifier != nil && len(bindRes.AuthVerifier.AuthValue) > 0 {
 		var responseToken []byte
-		responseToken, err = mechanism.InitSecContext(bindRes.AuthVerifier.AuthValue)
-		if err != nil {
-			return nil, fmt.Errorf("Failed to process server auth token: %w", err)
+
+		if useSpnego {
+			// Kerberos with SPNEGO: unwrap NegTokenResp to get inner AP_REP
+			negResp, err2 := unmarshalSPNEGOResp(bindRes.AuthVerifier.AuthValue)
+			if err2 != nil {
+				return nil, fmt.Errorf("Failed to parse SPNEGO NegTokenResp from BindAck: %w", err2)
+			}
+
+			// DCE-style: the ResponseToken is a bare AP_REP (not KRB5Token-wrapped)
+			// because GSS_C_DCE_STYLE is set in the AP_REQ authenticator checksum.
+			if processor, ok := mechanism.(DCEAPRepProcessor); ok {
+				err = processor.DCEProcessAPRep(negResp.ResponseToken)
+			} else {
+				_, err = mechanism.InitSecContext(negResp.ResponseToken)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("Failed to process server auth token: %w", err)
+			}
+
+			// Build 3rd leg: SPNEGO NegTokenResp with modified AP_REP
+			var thirdLegMechToken []byte
+			if provider, ok := mechanism.(DCEThirdLegProvider); ok {
+				thirdLegMechToken, err = provider.DCEThirdLeg()
+				if err != nil {
+					return nil, fmt.Errorf("Failed to build 3rd leg token: %w", err)
+				}
+			}
+
+			// Leaving negState at zero omits it via omitempty.
+			thirdLeg := gss.NegTokenResp{
+				ResponseToken: thirdLegMechToken,
+			}
+			responseToken, err = marshalSPNEGOResp(thirdLeg)
+			if err != nil {
+				return nil, fmt.Errorf("Failed to marshal SPNEGO 3rd leg: %w", err)
+			}
+		} else {
+			// NTLM: pass server token directly to mechanism
+			responseToken, err = mechanism.InitSecContext(bindRes.AuthVerifier.AuthValue)
+			if err != nil {
+				return nil, fmt.Errorf("Failed to process server auth token: %w", err)
+			}
 		}
 
-		// Step 6: If we got a response token, send Alter Context (third leg).
-		// Alter Context has the same wire format as Bind but gets a response,
-		// unlike Auth3 which is fire-and-forget. This lets us confirm auth success.
+		// Step 6: Send third leg via Alter Context to finalize the security context.
 		if len(responseToken) > 0 {
 			alterReq, err2 := newBindReq(callId.Add(1), interface_uuid, majorVersion, minorVersion, transfer_uuid, maxFragTxSize, maxFragRxSize)
 			if err2 != nil {
@@ -491,7 +621,6 @@ func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, mi
 			alterReq.AuthVerifier = &AuthVerifier{
 				AuthType:      authType,
 				AuthLevel:     authLevel,
-				AuthContextId: 0,
 				AuthValue:     responseToken,
 			}
 			alterReq.Header.AuthLength = uint16(len(responseToken))
@@ -509,21 +638,23 @@ func BindAuth(transport DCERPCTransport, interface_uuid string, majorVersion, mi
 				return nil, fmt.Errorf("Failed to send Alter Context: %w", err)
 			}
 
+			err := parseAndValidateCommonHeader(alterResponse, alterReq.CallId)
+			if err != nil {
+				return nil, fmt.Errorf("Alter Context Response validation failed with error: %w", err)
+			}
 			var alterRes BindRes
 			err = alterRes.UnmarshalBinary(alterResponse)
 			if err != nil {
 				return nil, fmt.Errorf("Failed to unmarshal Alter Context Response: %w", err)
 			}
 
-			if alterRes.Type != PacketTypeAlterContextResp {
-				return nil, fmt.Errorf("Expected Alter Context Response (type %d), got type %d", PacketTypeAlterContextResp, alterRes.Type)
-			}
 			if len(alterRes.ResultList.Items) == 0 {
 				return nil, fmt.Errorf("Alter Context Response has no context items")
 			}
 			if alterRes.ResultList.Items[0].Result != acceptance {
 				return nil, fmt.Errorf("Authentication failed: server rejected Alter Context")
 			}
+
 		}
 	}
 
@@ -564,8 +695,9 @@ func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byt
 	totalPayloadLen := len(innerBuf)
 	authOverhead := 0
 	if sb.sealer != nil {
-		// 8 = auth verifier header, + signature size, + worst-case auth padding (3 bytes)
-		authOverhead = 8 + sb.sealer.SignatureSize() + 3
+		// 8 = auth verifier header + worst-case signature + worst-case auth padding (3 bytes)
+		// + encryption overhead (0 for both NTLM and Kerberos)
+		authOverhead = 8 + sb.sealer.SignatureSize() + 3 + sb.sealer.EncryptionOverhead()
 	}
 	maxStub := int(sb.maxFragTransmitSize) - RequestHeaderSize - authOverhead
 	if maxStub <= 0 {
@@ -714,7 +846,6 @@ func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
 		AuthLevel:     sb.authLevel,
 		AuthPadLength: uint8(authPad),
 		AuthReserved:  0,
-		AuthContextId: 0,
 	}
 	secTrailerBytes, err := secTrailer.MarshalBinary()
 	if err != nil {
@@ -722,18 +853,21 @@ func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
 	}
 	// secTrailerBytes is 8 bytes (no AuthValue)
 
-	// Compute the total FragLength for the header before signing
-	fragLen := uint16(RequestHeaderSize + len(toEncrypt) + len(secTrailerBytes) + sigSize)
+	// Pre-compute FragLength for the header used in NTLM signing.
+	// For both NTLM and Kerberos, ciphertext length equals toEncrypt length,
+	// but actual signature size may differ from sigSize — we fix the header below.
+	preFragLen := uint16(RequestHeaderSize + len(toEncrypt) + len(secTrailerBytes) + sigSize)
 
-	// Build the header with correct FragLength and AuthLength
+	// Build the header with pre-computed FragLength and AuthLength
 	header := make([]byte, RequestHeaderSize)
 	copy(header, pdu[:RequestHeaderSize])
-	binary.LittleEndian.PutUint16(header[8:10], fragLen)
+	binary.LittleEndian.PutUint16(header[8:10], preFragLen)
 	binary.LittleEndian.PutUint16(header[10:12], uint16(sigSize))
 
 	// Build toSign: header + plaintext stub+pad + sec_trailer
-	// This is the full PDU minus the auth_value (signature)
-	toSign := make([]byte, 0, int(fragLen)-sigSize)
+	// This is the full PDU minus the auth_value (signature).
+	// Used by NTLM for MAC; Kerberos ignores it.
+	toSign := make([]byte, 0, RequestHeaderSize+len(toEncrypt)+len(secTrailerBytes))
 	toSign = append(toSign, header...)
 	toSign = append(toSign, toEncrypt...)
 	toSign = append(toSign, secTrailerBytes...)
@@ -741,8 +875,15 @@ func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
 	// Encrypt toEncrypt, compute MAC over toSign
 	ciphertext, signature := sb.sealer.Seal(toEncrypt, toSign)
 
+	// Compute actual FragLength from Seal output sizes.
+	// len(ciphertext)==len(toEncrypt) for both NTLM and Kerberos.
+	// len(signature) may differ from sigSize (Kerberos varies by padding).
+	actualFragLen := uint16(RequestHeaderSize + len(ciphertext) + len(secTrailerBytes) + len(signature))
+	binary.LittleEndian.PutUint16(header[8:10], actualFragLen)
+	binary.LittleEndian.PutUint16(header[10:12], uint16(len(signature)))
+
 	// Assemble sealed PDU: header + ciphertext + sec_trailer + signature
-	sealed := make([]byte, int(fragLen))
+	sealed := make([]byte, int(actualFragLen))
 	copy(sealed[:RequestHeaderSize], header)
 	copy(sealed[RequestHeaderSize:], ciphertext)
 	copy(sealed[RequestHeaderSize+len(ciphertext):], secTrailerBytes)
@@ -784,20 +925,12 @@ func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, er
 	// Encrypted data is between response header and sec_trailer
 	encryptedData := pdu[ResponseHeaderSize:authStart]
 
-	// Step 1: Decrypt (advances receive-side RC4 handle by len(encryptedData))
-	plaintext := sb.sealer.Decrypt(encryptedData)
-
-	// Step 2: Build signData = header + plaintext + sec_trailer
-	// Use the PDU header bytes as received (with FragLength including auth overhead)
-	signData := make([]byte, 0, ResponseHeaderSize+len(plaintext)+len(secTrailerBytes))
-	signData = append(signData, pdu[:ResponseHeaderSize]...)
-	signData = append(signData, plaintext...)
-	signData = append(signData, secTrailerBytes...)
-
-	// Step 3: Verify MAC (advances receive-side RC4 handle by 8)
-	err = sb.sealer.VerifyMAC(signData, signature)
+	// Decrypt and verify integrity in one step.
+	// NTLM uses pduHeader and secTrailer for MAC verification.
+	// Kerberos verifies integrity inside DecryptMessage.
+	plaintext, err := sb.sealer.Unseal(encryptedData, signature, pdu[:ResponseHeaderSize], secTrailerBytes)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to verify response PDU signature: %w", err)
+		return nil, fmt.Errorf("Failed to unseal response PDU: %w", err)
 	}
 
 	// Strip auth padding

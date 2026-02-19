@@ -70,9 +70,11 @@ type KRB5Initiator struct {
 	DnsTCP      bool
 	Host        string
 
-	client *krb5ssp.Client
-	seqNum uint32
-	SPN    string
+	client       *krb5ssp.Client
+	micSeqNum    uint32
+	SPN          string
+	sealSeqNum   uint64
+	unsealSeqNum uint64
 }
 
 func (i *KRB5Initiator) SetClient(c *krb5ssp.Client) error {
@@ -121,12 +123,16 @@ func (i *KRB5Initiator) initKerberosClient() error {
 		if len(parts) < 2 {
 			err = fmt.Errorf("Must specify a host FQDN to initialize a Kerberos client")
 			log.Errorln(err)
-			fmt.Printf("host: %s, parts: %v\n", i.Host, parts)
 			return err
 		}
 		i.Domain = parts[1]
 	}
-
+	if i.DnsHost != "" {
+		if !strings.Contains(i.DnsHost, ":") {
+			log.Infoln("Kerberos Initiator DnsHost does not contain a port number, assuming port 53")
+			i.DnsHost += ":53"
+		}
+	}
 	i.client, err = krb5ssp.InitKerberosClient(i.User, i.Domain, i.Password, i.Hash, i.AESKey, i.DCIP, i.SPN, i.DialTimout, i.ProxyDialer, i.DnsHost, i.DnsTCP)
 	return err
 }
@@ -173,7 +179,14 @@ func (i *KRB5Initiator) InitSecContext(inputToken []byte) (res []byte, err error
 		}
 		switch token.TokenId {
 		case krb5ssp.TokenIdKrb5APRep:
-			i.client.ParseAPRep(token.APRep.EncPart)
+			err = i.client.ParseAPRep(token.APRep.EncPart)
+			if err != nil {
+				log.Errorf("Failed to parse AP_REP: %v\n", err)
+				return
+			}
+			// Initialize Wrap Token sequence numbers from the Kerberos context
+			i.sealSeqNum = i.client.OutboundSeqNum()
+			i.unsealSeqNum = i.client.InboundSeqNum()
 		case krb5ssp.TokenIdKrb5Error:
 			if token.KRBError.ErrorCode == 41 {
 				if i.SPN != "" {
@@ -212,7 +225,7 @@ func (i *KRB5Initiator) Sum(bs []byte) []byte {
 		return nil
 	}
 
-	res, err := i.client.GetMICToken(bs, uint64(i.seqNum))
+	res, err := i.client.GetMICToken(bs, uint64(i.micSeqNum))
 	if err != nil {
 		log.Errorln(err)
 		return nil
@@ -232,4 +245,65 @@ func (i *KRB5Initiator) IsNullSession() bool {
 
 func (i *KRB5Initiator) GetUsername() string {
 	return i.client.Credentials.Domain() + "\\" + i.client.Credentials.UserName()
+}
+
+// DCEProcessAPRep processes a bare AP_REP (not KRB5Token-wrapped) from a
+// DCE-style SPNEGO NegTokenResp. Implements the dcerpc.DCEAPRepProcessor interface.
+func (i *KRB5Initiator) DCEProcessAPRep(rawAPRep []byte) error {
+	err := i.client.ParseRawAPRep(rawAPRep)
+	if err != nil {
+		return err
+	}
+	// Initialize Wrap Token sequence numbers from the Kerberos context.
+	// RFC 4121: SND_SEQ must match the sequence number established during
+	// context setup. The outbound seq is the authenticator's SeqNumber,
+	// the inbound seq is the AP_REP's SequenceNumber.
+	i.sealSeqNum = i.client.OutboundSeqNum()
+	i.unsealSeqNum = i.client.InboundSeqNum()
+	return nil
+}
+
+// Seal encrypts toEncrypt for DCE-RPC using Kerberos Wrap Token.
+// toSign is ignored (Kerberos integrity is built into the encryption).
+// Implements the dcerpc.Sealer interface.
+func (i *KRB5Initiator) Seal(toEncrypt, toSign []byte) (ciphertext, signature []byte) {
+	body, authValue, err := i.client.WrapDCE(toEncrypt, i.sealSeqNum)
+	if err != nil {
+		log.Errorf("KRB5Initiator.Seal failed: %v\n", err)
+		return nil, nil
+	}
+	i.sealSeqNum++
+	return body, authValue
+}
+
+// Unseal decrypts ciphertext and verifies integrity using Kerberos Wrap Token.
+// pduHeader and secTrailer are ignored (Kerberos verifies integrity internally).
+// Implements the dcerpc.Sealer interface.
+func (i *KRB5Initiator) Unseal(ciphertext, signature, pduHeader, secTrailer []byte) ([]byte, error) {
+	plaintext, err := i.client.UnwrapDCE(ciphertext, signature, i.unsealSeqNum)
+	if err != nil {
+		return nil, err
+	}
+	i.unsealSeqNum++
+	return plaintext, nil
+}
+
+// SignatureSize returns the auth_value size for Kerberos Wrap Token.
+// Implements the dcerpc.Sealer interface.
+func (i *KRB5Initiator) SignatureSize() int {
+	sigSize, _ := i.client.WrapTokenOverhead()
+	return sigSize
+}
+
+// EncryptionOverhead returns extra ciphertext bytes beyond plaintext size.
+// Implements the dcerpc.Sealer interface.
+func (i *KRB5Initiator) EncryptionOverhead() int {
+	_, overhead := i.client.WrapTokenOverhead()
+	return overhead
+}
+
+// DCEThirdLeg generates the modified AP_REP token for the DCERPC SPNEGO
+// 3rd leg (AlterContext). Implements the dcerpc.DCEThirdLegProvider interface.
+func (i *KRB5Initiator) DCEThirdLeg() ([]byte, error) {
+	return i.client.BuildDCEThirdLeg()
 }

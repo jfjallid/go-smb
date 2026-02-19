@@ -23,6 +23,7 @@ package dcerpc
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 
 	"testing"
@@ -44,6 +45,8 @@ func TestBindReq(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Update FragLength to actual PDU size (newHeader sets it to 0)
+	binary.LittleEndian.PutUint16(buf[8:10], uint16(len(buf)))
 
 	if !bytes.Equal(pkt, buf) {
 		t.Fatal("Fail")

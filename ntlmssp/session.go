@@ -42,8 +42,6 @@ type Session struct {
 
 	clientHandle *rc4.Cipher
 	serverHandle *rc4.Cipher
-
-	infoMap map[uint16][]byte
 }
 
 func (s *Session) User() string {
@@ -123,6 +121,12 @@ func (s *Session) Seal(dst, plaintext []byte, seqNum uint32) ([]byte, uint32) {
 
 	return ret, seqNum
 }
+
+// --- DCERPC per-PDU encryption methods ---
+// These differ from Seal/Unseal (used by SMB) because DCERPC requires the MAC
+// to cover the full PDU (header + stub + pad + sec_trailer), while only the
+// stub + auth_pad is encrypted. The split into EncryptAndSign / DecryptOnly /
+// VerifyMAC allows the caller to construct the sign data from the PDU layout.
 
 // EncryptAndSign encrypts toEncrypt and computes a MAC over toSign using the
 // send-side handle. This is used by DCERPC where the encrypted data (stub+pad)

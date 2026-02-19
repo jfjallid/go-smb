@@ -48,7 +48,7 @@ type NTLMInitiator struct {
 	TargetSPN   string
 
 	ntlm   *ntlmssp.Client
-	seqNum uint32
+	micSeqNum uint32
 
 	sealSeqNum   uint32
 	unsealSeqNum uint32
@@ -103,7 +103,7 @@ func (i *NTLMInitiator) AcceptSecContext(sc []byte) ([]byte, error) {
 }
 
 func (i *NTLMInitiator) Sum(bs []byte) []byte {
-	mic, _ := i.ntlm.Session().Sum(bs, i.seqNum)
+	mic, _ := i.ntlm.Session().Sum(bs, i.micSeqNum)
 	return mic
 }
 
@@ -130,24 +130,26 @@ func (i *NTLMInitiator) Seal(toEncrypt, toSign []byte) (ciphertext, signature []
 	return ct, sig
 }
 
-// Decrypt decrypts ciphertext without verifying the MAC.
+// Unseal decrypts ciphertext and verifies the MAC over the full PDU.
 // Implements the dcerpc.Sealer interface.
-func (i *NTLMInitiator) Decrypt(ciphertext []byte) []byte {
-	return i.ntlm.Session().DecryptOnly(ciphertext)
-}
-
-// VerifyMAC verifies a MAC over signData against the expected signature.
-// Must be called after Decrypt so the RC4 handle is correctly positioned.
-// Implements the dcerpc.Sealer interface.
-func (i *NTLMInitiator) VerifyMAC(signData, expectedSig []byte) error {
-	newSeqNum, err := i.ntlm.Session().VerifyMAC(signData, expectedSig, i.unsealSeqNum)
+func (i *NTLMInitiator) Unseal(ciphertext, signature, pduHeader, secTrailer []byte) ([]byte, error) {
+	plaintext := i.ntlm.Session().DecryptOnly(ciphertext)
+	signData := make([]byte, 0, len(pduHeader)+len(plaintext)+len(secTrailer))
+	signData = append(signData, pduHeader...)
+	signData = append(signData, plaintext...)
+	signData = append(signData, secTrailer...)
+	newSeqNum, err := i.ntlm.Session().VerifyMAC(signData, signature, i.unsealSeqNum)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	i.unsealSeqNum = newSeqNum
-	return nil
+	return plaintext, nil
 }
 
 // SignatureSize returns the NTLM signature size (always 16 bytes).
 // Implements the dcerpc.Sealer interface.
 func (i *NTLMInitiator) SignatureSize() int { return 16 }
+
+// EncryptionOverhead returns 0 because NTLM RC4 is size-preserving.
+// Implements the dcerpc.Sealer interface.
+func (i *NTLMInitiator) EncryptionOverhead() int { return 0 }
