@@ -299,7 +299,7 @@ func newAuthenticatorChecksum(flags []int) []byte {
 	return a
 }
 
-func (i *Client) GetAPReq(spn string) ([]byte, error) {
+func (i *Client) GetAPReq(spn string, dceStyle bool) ([]byte, error) {
 	var ticket messages.Ticket
 	var authenticator types.Authenticator
 	var apReq messages.APReq
@@ -324,7 +324,9 @@ func (i *Client) GetAPReq(spn string) ([]byte, error) {
 		gss.GssContextFlagSequence,
 		gss.GssContextFlagConf,
 		gss.GssContextFlagInteg,
-		gss.GssContextFlagDCEStyle,
+	}
+	if dceStyle {
+		flags = append(flags, gss.GssContextFlagDCEStyle)
 	}
 	authenticator.Cksum = types.Checksum{
 		CksumType: IanaKrb5ChecksumGSSAPI,

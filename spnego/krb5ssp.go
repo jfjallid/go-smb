@@ -72,9 +72,18 @@ type KRB5Initiator struct {
 	SPN         string
 
 	client       *krb5ssp.Client
+	dceStyle     bool
 	micSeqNum    uint32
 	sealSeqNum   uint64
 	unsealSeqNum uint64
+}
+
+// EnableDCEStyle enables the GSS_C_DCE_STYLE flag in the AP_REQ authenticator
+// checksum. This causes Windows to return a bare AP_REP (not KRB5Token-wrapped)
+// in the NegTokenResp, which is required for DCERPC TCP but must NOT be set for
+// SMB transport (which uses the standard KRB5Token-wrapped AP_REP).
+func (i *KRB5Initiator) EnableDCEStyle() {
+	i.dceStyle = true
 }
 
 func (i *KRB5Initiator) SetClient(c *krb5ssp.Client) error {
@@ -169,7 +178,7 @@ func (i *KRB5Initiator) InitSecContext(inputToken []byte) (res []byte, err error
 				log.Infof("Using username found in ticket: %s\n", i.User)
 			}
 		}
-		return i.client.GetAPReq(i.SPN)
+		return i.client.GetAPReq(i.SPN, i.dceStyle)
 	} else {
 		var token krb5ssp.KRB5Token
 		err = token.UnmarshalBinary(inputToken)

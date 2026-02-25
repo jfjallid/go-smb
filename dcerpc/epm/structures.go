@@ -26,6 +26,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"net"
 
 	"github.com/jfjallid/go-smb/dcerpc"
 	"github.com/jfjallid/ndr"
@@ -42,6 +43,181 @@ type Floor struct {
 // Tower represents a DCE/RPC tower with multiple protocol floors.
 type Tower struct {
 	Floors []Floor
+}
+
+// UUIDFloor holds the parsed content of a UUID protocol floor.
+type UUIDFloor struct {
+	UUID         string
+	MajorVersion uint16
+	MinorVersion uint16
+}
+
+// GetTCPPort returns the TCP port number from this floor.
+// Returns an error if the floor is not a TCP floor or the RHS data is too short.
+func (f *Floor) GetTCPPort() (uint16, error) {
+	if f.ProtocolID != FloorProtoTCP {
+		return 0, fmt.Errorf("floor is not a TCP floor (proto 0x%02x)", f.ProtocolID)
+	}
+	if len(f.RHSData) < 2 {
+		return 0, fmt.Errorf("TCP floor RHS data too short")
+	}
+	return binary.BigEndian.Uint16(f.RHSData[:2]), nil
+}
+
+// GetUDPPort returns the UDP port number from this floor.
+// Returns an error if the floor is not a UDP floor or the RHS data is too short.
+func (f *Floor) GetUDPPort() (uint16, error) {
+	if f.ProtocolID != FloorProtoUDP {
+		return 0, fmt.Errorf("floor is not a UDP floor (proto 0x%02x)", f.ProtocolID)
+	}
+	if len(f.RHSData) < 2 {
+		return 0, fmt.Errorf("UDP floor RHS data too short")
+	}
+	return binary.BigEndian.Uint16(f.RHSData[:2]), nil
+}
+
+// GetIPv4Address returns the IPv4 address from this floor.
+// Returns an error if the floor is not an IP floor or the RHS data is too short.
+func (f *Floor) GetIPv4Address() (net.IP, error) {
+	if f.ProtocolID != FloorProtoIP {
+		return nil, fmt.Errorf("floor is not an IP floor (proto 0x%02x)", f.ProtocolID)
+	}
+	if len(f.RHSData) < 4 {
+		return nil, fmt.Errorf("IP floor RHS data too short")
+	}
+	ip := make(net.IP, 4)
+	copy(ip, f.RHSData[:4])
+	return ip, nil
+}
+
+// GetUUID returns the parsed UUID, major version, and minor version from this floor.
+// Returns an error if the floor is not a UUID floor or the data is malformed.
+func (f *Floor) GetUUID() (UUIDFloor, error) {
+	if f.ProtocolID != FloorProtoUUID {
+		return UUIDFloor{}, fmt.Errorf("floor is not a UUID floor (proto 0x%02x)", f.ProtocolID)
+	}
+	if len(f.UUID) < 16 {
+		return UUIDFloor{}, fmt.Errorf("UUID floor has insufficient UUID bytes: %d", len(f.UUID))
+	}
+	if len(f.RHSData) < 2 {
+		return UUIDFloor{}, fmt.Errorf("UUID floor RHS data too short for minor version")
+	}
+	// Reverse of dcerpc.UUIDToBin: Data1/Data2/Data3 are little-endian, Data4 is big-endian.
+	d1 := binary.LittleEndian.Uint32(f.UUID[0:4])
+	d2 := binary.LittleEndian.Uint16(f.UUID[4:6])
+	d3 := binary.LittleEndian.Uint16(f.UUID[6:8])
+	uuidStr := fmt.Sprintf("%08X-%04X-%04X-%04X-%04X%08X",
+		d1, d2, d3,
+		binary.BigEndian.Uint16(f.UUID[8:10]),
+		binary.BigEndian.Uint16(f.UUID[10:12]),
+		binary.BigEndian.Uint32(f.UUID[12:16]))
+	minor := binary.LittleEndian.Uint16(f.RHSData[:2])
+	return UUIDFloor{UUID: uuidStr, MajorVersion: f.UUIDVersion, MinorVersion: minor}, nil
+}
+
+// GetRPCVersion returns the minor version from an RPC connection-oriented floor.
+// Returns an error if the floor is not an RPC connection floor or the RHS data is too short.
+func (f *Floor) GetRPCVersion() (uint16, error) {
+	if f.ProtocolID != FloorProtoRPCConn {
+		return 0, fmt.Errorf("floor is not an RPC connection floor (proto 0x%02x)", f.ProtocolID)
+	}
+	if len(f.RHSData) < 2 {
+		return 0, fmt.Errorf("RPC connection floor RHS data too short")
+	}
+	return binary.LittleEndian.Uint16(f.RHSData[:2]), nil
+}
+
+// GetPipeName returns the named pipe path from this floor as a string.
+// The name is stored as a null-terminated byte string in the RHS data.
+// Returns an error if the floor is not a named pipe floor.
+func (f *Floor) GetPipeName() (string, error) {
+	if f.ProtocolID != FloorProtoNPipe {
+		return "", fmt.Errorf("floor is not a named pipe floor (proto 0x%02x)", f.ProtocolID)
+	}
+	name := f.RHSData
+	if idx := bytes.IndexByte(name, 0); idx >= 0 {
+		name = name[:idx]
+	}
+	return string(name), nil
+}
+
+// GetNetBIOSName returns the NetBIOS name from this floor as a string.
+// The name is stored as a null-terminated byte string in the RHS data.
+// Returns an error if the floor is not a NetBIOS name floor.
+func (f *Floor) GetNetBIOSName() (string, error) {
+	if f.ProtocolID != FloorProtoNBName {
+		return "", fmt.Errorf("floor is not a NetBIOS name floor (proto 0x%02x)", f.ProtocolID)
+	}
+	name := f.RHSData
+	if idx := bytes.IndexByte(name, 0); idx >= 0 {
+		name = name[:idx]
+	}
+	return string(name), nil
+}
+
+// GetTCPPorts returns all TCP port numbers found across all TCP floors in the tower.
+func (t *Tower) GetTCPPorts() ([]uint16, error) {
+	var ports []uint16
+	for _, f := range t.Floors {
+		if f.ProtocolID != FloorProtoTCP {
+			continue
+		}
+		port, err := f.GetTCPPort()
+		if err != nil {
+			return nil, err
+		}
+		ports = append(ports, port)
+	}
+	return ports, nil
+}
+
+// GetUDPPorts returns all UDP port numbers found across all UDP floors in the tower.
+func (t *Tower) GetUDPPorts() ([]uint16, error) {
+	var ports []uint16
+	for _, f := range t.Floors {
+		if f.ProtocolID != FloorProtoUDP {
+			continue
+		}
+		port, err := f.GetUDPPort()
+		if err != nil {
+			return nil, err
+		}
+		ports = append(ports, port)
+	}
+	return ports, nil
+}
+
+// GetIPAddresses returns all IPv4 addresses (as dotted-decimal strings) found
+// across all IP floors in the tower.
+func (t *Tower) GetIPAddresses() ([]string, error) {
+	var addrs []string
+	for _, f := range t.Floors {
+		if f.ProtocolID != FloorProtoIP {
+			continue
+		}
+		ip, err := f.GetIPv4Address()
+		if err != nil {
+			return nil, err
+		}
+		addrs = append(addrs, ip.String())
+	}
+	return addrs, nil
+}
+
+// GetUUIDs returns all parsed UUID floors found in the tower.
+func (t *Tower) GetUUIDs() ([]UUIDFloor, error) {
+	var uuids []UUIDFloor
+	for _, f := range t.Floors {
+		if f.ProtocolID != FloorProtoUUID {
+			continue
+		}
+		u, err := f.GetUUID()
+		if err != nil {
+			return nil, err
+		}
+		uuids = append(uuids, u)
+	}
+	return uuids, nil
 }
 
 // NewRequestTower builds a 5-floor request tower for querying the EPM.
@@ -204,18 +380,17 @@ func UnmarshalTowerOctets(data []byte) (*Tower, error) {
 	return t, nil
 }
 
-// GetTCPPort extracts the TCP port from a tower's TCP floor.
-// The port is stored big-endian in the RHS data.
+// GetTCPPort extracts the TCP port from the first TCP floor in the tower.
+// Use GetTCPPorts to retrieve all TCP ports when more than one may be present.
 func (t *Tower) GetTCPPort() (uint16, error) {
-	for _, f := range t.Floors {
-		if f.ProtocolID == FloorProtoTCP {
-			if len(f.RHSData) < 2 {
-				return 0, fmt.Errorf("TCP floor RHS data too short")
-			}
-			return binary.BigEndian.Uint16(f.RHSData[:2]), nil
-		}
+	ports, err := t.GetTCPPorts()
+	if err != nil {
+		return 0, err
 	}
-	return 0, fmt.Errorf("no TCP floor found in tower")
+	if len(ports) == 0 {
+		return 0, fmt.Errorf("no TCP floor found in tower")
+	}
+	return ports[0], nil
 }
 
 // towerNDR maps to DCE IDL twr_t:

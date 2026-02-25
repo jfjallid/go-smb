@@ -622,7 +622,7 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 				if val, ok := meta.Lens[meta.CurrField]; ok {
 					length = int(val)
 				} else {
-					err := fmt.Errorf("Variable length field missing length reference in struct field: " + meta.CurrField)
+					err := fmt.Errorf("Variable length field missing length reference in struct field: %s", meta.CurrField)
 					log.Errorln(err)
 					return nil, err
 				}
@@ -661,7 +661,7 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 					if val, ok := meta.Lens[meta.CurrField]; ok {
 						length = int(val)
 					} else {
-						err := fmt.Errorf("Variable length field missing length reference in struct field: " + meta.CurrField)
+						err := fmt.Errorf("Variable length field missing length reference in struct field: %s", meta.CurrField)
 						log.Errorln(err)
 						return nil, err
 					}
@@ -738,12 +738,12 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 			return list.Interface(), nil
 
 		default:
-			err := fmt.Errorf("Unmarshal not implemented for slice kind:" + typev.Kind().String())
+			err := fmt.Errorf("Unmarshal not implemented for slice kind: %s", typev.Kind().String())
 			log.Errorln(err)
 			return nil, err
 		}
 	default:
-		err := fmt.Errorf("Unmarshal not implemented for kind:" + typev.Kind().String())
+		err := fmt.Errorf("Unmarshal not implemented for kind: %s", typev.Kind().String())
 		log.Errorln(err)
 		return nil, err
 	}

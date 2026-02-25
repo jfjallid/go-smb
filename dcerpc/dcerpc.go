@@ -33,6 +33,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"math/rand"
 	"regexp"
 	"strconv"
 	"strings"
@@ -175,6 +176,14 @@ type DCEThirdLegProvider interface {
 // in the NegTokenResp's ResponseToken field, without KRB5Token wrapping.
 type DCEAPRepProcessor interface {
 	DCEProcessAPRep(rawAPRep []byte) error
+}
+
+// DCEStyleInitiator is implemented by Kerberos mechanisms that support
+// DCE-style SPNEGO (GSS_C_DCE_STYLE flag in AP_REQ authenticator checksum).
+// BindAuth calls EnableDCEStyle() before InitSecContext(nil) so that only
+// the DCERPC TCP path sets the flag; SMB transport does not.
+type DCEStyleInitiator interface {
+	EnableDCEStyle()
 }
 
 // DCERPCTransport abstracts the underlying transport for DCERPC PDUs.
@@ -516,8 +525,15 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 	callId := atomic.Uint32{}
 	maxFragRxSize := defaultMaxFragSize
 	maxFragTxSize := defaultMaxFragSize
+	authContextId := rand.Uint32()
 
-	// Step 1: Get initial auth token from mechanism
+	// Step 1: Get initial auth token from mechanism.
+	// For Kerberos over DCERPC, enable DCE-style so the server returns a bare
+	// AP_REP in NegTokenResp (handled by DCEProcessAPRep). SMB transport must
+	// NOT set this flag, so it is scoped to BindAuth (DCERPC path) only.
+	if dceStyler, ok := mechanism.(DCEStyleInitiator); ok {
+		dceStyler.EnableDCEStyle()
+	}
 	mechToken, err := mechanism.InitSecContext(nil)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to initialize security context: %w", err)
@@ -544,6 +560,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 	bindReq.AuthVerifier = &AuthVerifier{
 		AuthType:      authType,
 		AuthLevel:     authLevel,
+		AuthContextId: authContextId,
 		AuthValue:     initToken,
 	}
 
@@ -626,6 +643,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 			alterReq.AuthVerifier = &AuthVerifier{
 				AuthType:      authType,
 				AuthLevel:     authLevel,
+				AuthContextId: authContextId,
 				AuthValue:     responseToken,
 			}
 			alterReq.Header.AuthLength = uint16(len(responseToken))
@@ -689,6 +707,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 		maxFragTransmitSize: bindRes.MaxRecvFragSize,
 		authType:            authType,
 		authLevel:           authLevel,
+		authContextId:       authContextId,
 		sealer:              sealer,
 	}, nil
 }
@@ -853,6 +872,7 @@ func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
 		AuthLevel:     sb.authLevel,
 		AuthPadLength: uint8(authPad),
 		AuthReserved:  0,
+		AuthContextId: sb.authContextId,
 	}
 	secTrailerBytes, err := secTrailer.MarshalBinary()
 	if err != nil {

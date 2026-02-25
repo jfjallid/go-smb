@@ -362,7 +362,13 @@ func WriteRPCUnicodeStrArray(w io.Writer, items []string, refId *uint32, nullTer
 
 	n2 := 0
 	for i := 0; i < len(items); i++ {
-		n2, err = WriteConformantVaryingString(w, items[i], nullTerminate)
+		if nullTerminate {
+			n2, err = WriteConformantVaryingString(w, items[i], true)
+		} else {
+			// For RPC_UNICODE_STRING (non-null-terminated), MaxCount must reserve
+			// space for a null terminator per MS-DTYP 2.3.10 (MaxLength = Length+2).
+			n2, err = writeConformantVaryingStringReserveNull(w, items[i])
+		}
 		if err != nil {
 			log.Errorln(err)
 			return

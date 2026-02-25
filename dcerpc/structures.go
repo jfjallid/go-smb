@@ -48,6 +48,7 @@ type ServiceBind struct {
 	// Auth state (set by BindAuth, zero for unauthenticated Bind)
 	authType      uint8
 	authLevel     uint8
+	authContextId uint32
 	sealer        Sealer // non-nil when authLevel >= PktIntegrity
 }
 
