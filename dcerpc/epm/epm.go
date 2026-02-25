@@ -60,6 +60,17 @@ const ContextHandleSize = 20
 // EPT_S_NOT_REGISTERED - no entries found for the requested interface
 const EptSNotRegistered uint32 = 0x16C9A0D6
 
+// StringBinding holds the host address and TCP port returned by the Endpoint Mapper.
+type StringBinding struct {
+	Host string // IPv4 address string (e.g. "10.0.0.1" or "0.0.0.0" for wildcard)
+	Port uint16
+}
+
+// String returns the address in "host:port" form, suitable for use with net.Dial.
+func (sb StringBinding) String() string {
+	return net.JoinHostPort(sb.Host, fmt.Sprintf("%d", sb.Port))
+}
+
 type RPCCon struct {
 	*dcerpc.ServiceBind
 }
@@ -103,48 +114,73 @@ func (c *RPCCon) EptMap(requestTower *Tower, maxTowers uint32) ([]Tower, error) 
 	return resp.Towers, nil
 }
 
-// GetTCPPortForInterface queries the EPM for the TCP port of the given interface.
-func (c *RPCCon) GetTCPPortForInterface(interfaceUUID string, majorVersion, minorVersion uint16) (uint16, error) {
+// GetTCPPortForInterface queries the EPM for the TCP port and IP address of the
+// given interface. The returned StringBinding.Host is taken directly from the
+// tower's IP floor and may be "0.0.0.0" when the service is bound to all
+// interfaces; callers that need a dialable address should substitute their own
+// host in that case (as GetStringBindingForInterface does).
+func (c *RPCCon) GetTCPPortForInterface(interfaceUUID string, majorVersion, minorVersion uint16) (StringBinding, error) {
 	tower, err := NewRequestTower(interfaceUUID, majorVersion, minorVersion)
 	if err != nil {
-		return 0, err
+		return StringBinding{}, err
 	}
 
 	towers, err := c.EptMap(tower, 4)
 	if err != nil {
-		return 0, err
+		return StringBinding{}, err
 	}
 
 	if len(towers) == 0 {
-		return 0, fmt.Errorf("no towers returned for interface %s", interfaceUUID)
+		return StringBinding{}, fmt.Errorf("no towers returned for interface %s", interfaceUUID)
 	}
 
 	port, err := towers[0].GetTCPPort()
 	if err != nil {
-		return 0, err
+		return StringBinding{}, err
 	}
 
-	return port, nil
+	addrs, err := towers[0].GetIPAddresses()
+	if err != nil {
+		return StringBinding{}, err
+	}
+
+	host := ""
+	if len(addrs) > 0 {
+		host = addrs[0]
+	}
+
+	return StringBinding{Host: host, Port: port}, nil
 }
 
 // GetStringBindingForInterface is a convenience function that connects to the
-// EPM on port 135, queries for the TCP port of the given RPC interface, and
-// returns the port number.
-func GetStringBindingForInterface(host, interfaceUUID string, majorVersion, minorVersion uint16, timeout time.Duration) (uint16, error) {
+// EPM on port 135, queries for the TCP port and IP address of the given RPC
+// interface, and returns a StringBinding. When the server reports a wildcard
+// address ("0.0.0.0"), the original host parameter is substituted so that the
+// returned StringBinding.String() is always directly dialable.
+func GetStringBindingForInterface(host, interfaceUUID string, majorVersion, minorVersion uint16, timeout time.Duration) (StringBinding, error) {
 	addr := net.JoinHostPort(host, "135")
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
-		return 0, fmt.Errorf("failed to connect to EPM at %s: %w", addr, err)
+		return StringBinding{}, fmt.Errorf("failed to connect to EPM at %s: %w", addr, err)
 	}
 
 	transport := dcerpc.NewTCPTransport(conn)
 	defer transport.Close()
 
-	sb, err := dcerpc.Bind(transport, MSRPCUuidEpm, MSRPCEpmMajorVersion, MSRPCEpmMinorVersion, dcerpc.MSRPCUuidNdr)
+	svcBind, err := dcerpc.Bind(transport, MSRPCUuidEpm, MSRPCEpmMajorVersion, MSRPCEpmMinorVersion, dcerpc.MSRPCUuidNdr)
 	if err != nil {
-		return 0, fmt.Errorf("failed to bind to EPM: %w", err)
+		return StringBinding{}, fmt.Errorf("failed to bind to EPM: %w", err)
 	}
 
-	rpcCon := NewRPCCon(sb)
-	return rpcCon.GetTCPPortForInterface(interfaceUUID, majorVersion, minorVersion)
+	rpcCon := NewRPCCon(svcBind)
+	binding, err := rpcCon.GetTCPPortForInterface(interfaceUUID, majorVersion, minorVersion)
+	if err != nil {
+		return StringBinding{}, err
+	}
+
+	if binding.Host == "" || binding.Host == "0.0.0.0" {
+		binding.Host = host
+	}
+
+	return binding, nil
 }

@@ -650,3 +650,20 @@ func TestGetUUIDs(t *testing.T) {
 		t.Errorf("expected NDR major version 2, got %d", uuids[1].MajorVersion)
 	}
 }
+
+func TestStringBindingString(t *testing.T) {
+	sb := StringBinding{Host: "10.0.0.1", Port: 49152}
+	if sb.String() != "10.0.0.1:49152" {
+		t.Errorf("expected 10.0.0.1:49152, got %s", sb.String())
+	}
+}
+
+func TestStringBindingStringIPv4Zero(t *testing.T) {
+	// Wildcard address should still format correctly via String().
+	// Substitution of the original host is the caller's responsibility
+	// (GetStringBindingForInterface does this; GetTCPPortForInterface does not).
+	sb := StringBinding{Host: "0.0.0.0", Port: 135}
+	if sb.String() != "0.0.0.0:135" {
+		t.Errorf("expected 0.0.0.0:135, got %s", sb.String())
+	}
+}
