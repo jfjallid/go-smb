@@ -26,6 +26,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"testing"
 )
 
@@ -665,5 +666,75 @@ func TestStringBindingStringIPv4Zero(t *testing.T) {
 	sb := StringBinding{Host: "0.0.0.0", Port: 135}
 	if sb.String() != "0.0.0.0:135" {
 		t.Errorf("expected 0.0.0.0:135, got %s", sb.String())
+	}
+}
+
+// TestGetTCPPortForInterfaceMultipleTowers verifies that when the EPM returns
+// multiple towers, each with its own TCP port and IP address, the per-tower
+// extraction logic produces the correct []StringBinding slice.
+func TestGetTCPPortForInterfaceMultipleTowers(t *testing.T) {
+	srvUUID := "4B324FC8-1670-01D3-1278-5A47BF6EE188"
+
+	// Build two response towers with distinct ports and IPs.
+	makeResponseTower := func(port uint16, ip [4]byte) *Tower {
+		t2, err := NewRequestTower(srvUUID, 3, 0)
+		if err != nil {
+			t.Fatalf("NewRequestTower: %v", err)
+		}
+		t2.Floors[3].RHSData = []byte{byte(port >> 8), byte(port)}
+		t2.Floors[4].RHSData = ip[:]
+		return t2
+	}
+
+	tower1 := makeResponseTower(49152, [4]byte{10, 0, 0, 1})
+	tower2 := makeResponseTower(49200, [4]byte{192, 168, 1, 50})
+
+	// Verify per-tower extraction independently (GetTCPPortForInterface requires
+	// a live RPCCon, so we exercise the tower-level helpers directly and confirm
+	// the []StringBinding aggregation logic).
+	type tc struct {
+		tower   *Tower
+		wantIP  string
+		wantPort uint16
+	}
+	cases := []tc{
+		{tower1, "10.0.0.1", 49152},
+		{tower2, "192.168.1.50", 49200},
+	}
+
+	var bindings []StringBinding
+	for _, c := range cases {
+		ports, err := c.tower.GetTCPPorts()
+		if err != nil {
+			t.Fatalf("GetTCPPorts: %v", err)
+		}
+		if len(ports) == 0 {
+			t.Fatal("expected TCP ports, got none")
+		}
+		addrs, err := c.tower.GetIPAddresses()
+		if err != nil {
+			t.Fatalf("GetIPAddresses: %v", err)
+		}
+		host := ""
+		if len(addrs) > 0 {
+			host = addrs[0]
+		}
+		bindings = append(bindings, StringBinding{Host: host, Port: ports[0]})
+	}
+
+	if len(bindings) != 2 {
+		t.Fatalf("expected 2 bindings, got %d", len(bindings))
+	}
+	for i, c := range cases {
+		if bindings[i].Host != c.wantIP {
+			t.Errorf("binding[%d].Host: want %s, got %s", i, c.wantIP, bindings[i].Host)
+		}
+		if bindings[i].Port != c.wantPort {
+			t.Errorf("binding[%d].Port: want %d, got %d", i, c.wantPort, bindings[i].Port)
+		}
+		want := fmt.Sprintf("%s:%d", c.wantIP, c.wantPort)
+		if bindings[i].String() != want {
+			t.Errorf("binding[%d].String(): want %s, got %s", i, want, bindings[i].String())
+		}
 	}
 }

@@ -422,7 +422,7 @@ type contextHandle struct {
 type eptMapRequestNDR struct {
 	Object      *[16]byte     `ndr:"toppointer,fullpointer"` // uuid_p_t (nullable)
 	MapTower    *towerNDR     `ndr:"toppointer,fullpointer"` // twr_p_t (nullable)
-	EntryHandle contextHandle                                 // ept_lookup_handle_t
+	EntryHandle contextHandle // ept_lookup_handle_t
 	MaxTowers   uint32
 }
 
@@ -482,18 +482,14 @@ func (resp *EptMapResponse) UnmarshalBinary(data []byte) error {
 	}
 
 	// Convert contextHandle struct back to [20]byte
-	//binary.LittleEndian.PutUint32(resp.ContextHandle[:4], ndrResp.EntryHandle.Attributes)
-	//copy(resp.ContextHandle[4:], ndrResp.EntryHandle.UUID[:])
 	copy(resp.ContextHandle[:], ndrResp.EntryHandle[:])
 
 	resp.NumTowers = ndrResp.NumTowers
 	resp.Status = ndrResp.Status
 
 	resp.Towers = make([]Tower, 0, len(ndrResp.Towers))
-	//for i, tp := range ndrResp.Towers {
 	for i, tp := range ndrResp.Towers {
 		if len(tp.Tower.TowerOctetString) == 0 {
-	//	if len(tp.Tower.TowerOctetString) == 0 {
 			continue // NULL tower pointer
 		}
 		tower, err := UnmarshalTowerOctets(tp.Tower.TowerOctetString)

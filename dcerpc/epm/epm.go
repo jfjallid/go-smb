@@ -114,54 +114,66 @@ func (c *RPCCon) EptMap(requestTower *Tower, maxTowers uint32) ([]Tower, error) 
 	return resp.Towers, nil
 }
 
-// GetTCPPortForInterface queries the EPM for the TCP port and IP address of the
-// given interface. The returned StringBinding.Host is taken directly from the
-// tower's IP floor and may be "0.0.0.0" when the service is bound to all
-// interfaces; callers that need a dialable address should substitute their own
-// host in that case (as GetStringBindingForInterface does).
-func (c *RPCCon) GetTCPPortForInterface(interfaceUUID string, majorVersion, minorVersion uint16) (StringBinding, error) {
+// GetTCPPortForInterface queries the EPM for the TCP endpoints of the given
+// interface. Each returned StringBinding corresponds to one tower that contains
+// a TCP floor. Towers without a TCP floor (e.g. UDP-only) are skipped. The
+// Host field is taken directly from the tower's IP floor and may be "0.0.0.0"
+// when the service is bound to all interfaces; callers that need a dialable
+// address should substitute their own host in that case (as
+// GetStringBindingForInterface does).
+func (c *RPCCon) GetTCPPortForInterface(interfaceUUID string, majorVersion, minorVersion uint16) ([]StringBinding, error) {
 	tower, err := NewRequestTower(interfaceUUID, majorVersion, minorVersion)
 	if err != nil {
-		return StringBinding{}, err
+		return nil, err
 	}
 
 	towers, err := c.EptMap(tower, 4)
 	if err != nil {
-		return StringBinding{}, err
+		return nil, err
 	}
 
 	if len(towers) == 0 {
-		return StringBinding{}, fmt.Errorf("no towers returned for interface %s", interfaceUUID)
+		return nil, fmt.Errorf("no towers returned for interface %s", interfaceUUID)
 	}
 
-	port, err := towers[0].GetTCPPort()
-	if err != nil {
-		return StringBinding{}, err
+	var bindings []StringBinding
+	for _, t := range towers {
+		ports, err := t.GetTCPPorts()
+		if err != nil {
+			return nil, err
+		}
+		if len(ports) == 0 {
+			continue // skip non-TCP towers
+		}
+
+		addrs, err := t.GetIPAddresses()
+		if err != nil {
+			return nil, err
+		}
+
+		host := ""
+		if len(addrs) > 0 {
+			host = addrs[0]
+		}
+		bindings = append(bindings, StringBinding{Host: host, Port: ports[0]})
 	}
 
-	addrs, err := towers[0].GetIPAddresses()
-	if err != nil {
-		return StringBinding{}, err
+	if len(bindings) == 0 {
+		return nil, fmt.Errorf("no TCP bindings found in towers for interface %s", interfaceUUID)
 	}
-
-	host := ""
-	if len(addrs) > 0 {
-		host = addrs[0]
-	}
-
-	return StringBinding{Host: host, Port: port}, nil
+	return bindings, nil
 }
 
 // GetStringBindingForInterface is a convenience function that connects to the
-// EPM on port 135, queries for the TCP port and IP address of the given RPC
-// interface, and returns a StringBinding. When the server reports a wildcard
-// address ("0.0.0.0"), the original host parameter is substituted so that the
+// EPM on port 135, queries for the TCP endpoints of the given RPC interface,
+// and returns all StringBindings found. When a tower reports a wildcard address
+// ("0.0.0.0"), the original host parameter is substituted so that every
 // returned StringBinding.String() is always directly dialable.
-func GetStringBindingForInterface(host, interfaceUUID string, majorVersion, minorVersion uint16, timeout time.Duration) (StringBinding, error) {
+func GetStringBindingForInterface(host, interfaceUUID string, majorVersion, minorVersion uint16, timeout time.Duration) ([]StringBinding, error) {
 	addr := net.JoinHostPort(host, "135")
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
-		return StringBinding{}, fmt.Errorf("failed to connect to EPM at %s: %w", addr, err)
+		return nil, fmt.Errorf("failed to connect to EPM at %s: %w", addr, err)
 	}
 
 	transport := dcerpc.NewTCPTransport(conn)
@@ -169,18 +181,20 @@ func GetStringBindingForInterface(host, interfaceUUID string, majorVersion, mino
 
 	svcBind, err := dcerpc.Bind(transport, MSRPCUuidEpm, MSRPCEpmMajorVersion, MSRPCEpmMinorVersion, dcerpc.MSRPCUuidNdr)
 	if err != nil {
-		return StringBinding{}, fmt.Errorf("failed to bind to EPM: %w", err)
+		return nil, fmt.Errorf("failed to bind to EPM: %w", err)
 	}
 
 	rpcCon := NewRPCCon(svcBind)
-	binding, err := rpcCon.GetTCPPortForInterface(interfaceUUID, majorVersion, minorVersion)
+	bindings, err := rpcCon.GetTCPPortForInterface(interfaceUUID, majorVersion, minorVersion)
 	if err != nil {
-		return StringBinding{}, err
+		return nil, err
 	}
 
-	if binding.Host == "" || binding.Host == "0.0.0.0" {
-		binding.Host = host
+	for i := range bindings {
+		if bindings[i].Host == "" || bindings[i].Host == "0.0.0.0" {
+			bindings[i].Host = host
+		}
 	}
 
-	return binding, nil
+	return bindings, nil
 }
