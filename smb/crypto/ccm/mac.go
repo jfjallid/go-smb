@@ -43,40 +43,40 @@ func newMAC(c cipher.Block) *mac {
 	}
 }
 
-func (self *mac) Reset() {
-	for i, _ := range self.ci {
-		self.ci[i] = 0
+func (s *mac) Reset() {
+	for i, _ := range s.ci {
+		s.ci[i] = 0
 	}
-	self.ptr = 0
+	s.ptr = 0
 }
 
-func (self *mac) Write(p []byte) (n int, err error) {
+func (s *mac) Write(p []byte) (n int, err error) {
 	for _, b := range p {
-		if self.ptr >= len(self.ci) {
-			self.c.Encrypt(self.ci, self.ci)
-			self.ptr = 0
+		if s.ptr >= len(s.ci) {
+			s.c.Encrypt(s.ci, s.ci)
+			s.ptr = 0
 		}
-		self.ci[self.ptr] ^= b
-		self.ptr++
+		s.ci[s.ptr] ^= b
+		s.ptr++
 	}
 	return len(p), nil
 }
 
-func (self *mac) Sum(b []byte) []byte {
-	return append(b, self.ci...)
+func (s *mac) Sum(b []byte) []byte {
+	return append(b, s.ci...)
 }
 
-func (self *mac) Size() int {
-	return len(self.ci)
+func (s *mac) Size() int {
+	return len(s.ci)
 }
 
-func (self *mac) BlockSize() int {
+func (s *mac) BlockSize() int {
 	return 16 // Always 128 bit block size for AES
 }
 
-func (self *mac) PadZero() {
-	if self.ptr != 0 {
-		self.c.Encrypt(self.ci, self.ci)
-		self.ptr = 0
+func (s *mac) PadZero() {
+	if s.ptr != 0 {
+		s.c.Encrypt(s.ci, s.ci)
+		s.ptr = 0
 	}
 }

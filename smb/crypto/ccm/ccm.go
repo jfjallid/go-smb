@@ -181,7 +181,7 @@ func (ccm *ccm) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 	return result[:len(plaintext)+ccm.tagSize]
 }
 
-func (self *ccm) Open(dst, nonce, ciphertext, additionalData []byte) (result []byte, err error) {
+func (s *ccm) Open(dst, nonce, ciphertext, additionalData []byte) (result []byte, err error) {
 
 	/*
 	   The algorithm for decryption:
@@ -195,13 +195,13 @@ func (self *ccm) Open(dst, nonce, ciphertext, additionalData []byte) (result []b
 	   8. XOR the output from step 1 with the last output block from step 7 to produce the authentication tag.
 	*/
 
-	if self.tagSize > len(ciphertext) {
+	if s.tagSize > len(ciphertext) {
 		err = fmt.Errorf("The ciphertext must be of a greater length than the tag size")
 		log.Errorln(err)
 		return
 	}
 
-	if self.nonceSize > len(nonce) {
+	if s.nonceSize > len(nonce) {
 		err = fmt.Errorf("Incorrect nonce size. Must match size specified at initialization")
 		log.Errorln(err)
 		return
@@ -212,7 +212,7 @@ func (self *ccm) Open(dst, nonce, ciphertext, additionalData []byte) (result []b
 	// q = 15 - n
 	// Check if the ciphertext is too large for the specified tagSize as the size of the
 	// plaintext must be encoded within the bytes left by 15 - nonceSize
-	if maxUint64ValueInBytes(15-self.nonceSize) < uint64(len(ciphertext)-self.tagSize) {
+	if maxUint64ValueInBytes(15-s.nonceSize) < uint64(len(ciphertext)-s.tagSize) {
 		err = fmt.Errorf("The size of the ciphertext is too large for the given size of nonce")
 		log.Errorln(err.Error())
 		return
@@ -220,32 +220,32 @@ func (self *ccm) Open(dst, nonce, ciphertext, additionalData []byte) (result []b
 
 	// The AEAD interface Open function states that the plaintext should be appended
 	// to the dst variable, so need to make some extra room
-	result, plaintext := extendSliceForAppend(dst, len(ciphertext)-self.mac.Size())
+	result, plaintext := extendSliceForAppend(dst, len(ciphertext)-s.mac.Size())
 
 	// From A.1
 	// n + q = 15
 	// q = 15 - n
 	// [q-1] = 15 - n - 1
 	Ctr := make([]byte, 16)
-	Ctr[0] = byte(15 - self.nonceSize - 1) // [q-1]3
+	Ctr[0] = byte(15 - s.nonceSize - 1) // [q-1]3
 	copy(Ctr[1:], nonce)
 
 	s0 := make([]byte, 16)
-	self.c.Encrypt(s0, Ctr)
+	s.c.Encrypt(s0, Ctr)
 	// The last part of Ctr_i is the index i
 	// The ctr should be represented as q blocks where q = 15 - nonceSize
-	putUvarintAsBigEndian(Ctr[1+self.nonceSize:], 1) // [i]8q stored in octet number 16-q ... 15
-	ctr := cipher.NewCTR(self.c, Ctr)
+	putUvarintAsBigEndian(Ctr[1+s.nonceSize:], 1) // [i]8q stored in octet number 16-q ... 15
+	ctr := cipher.NewCTR(s.c, Ctr)
 	ctr.XORKeyStream(plaintext, ciphertext[:len(plaintext)])
 
 	// Format B0
-	b0 := self.formatFirstInputBlock(nonce, plaintext, additionalData)
+	b0 := s.formatFirstInputBlock(nonce, plaintext, additionalData)
 
 	// Set Y_0 = CIPH_k(B_0)
 	y0 := make([]byte, 16)
-	self.c.Encrypt(y0, b0)
+	s.c.Encrypt(y0, b0)
 
-	mac := self.calculateMAC(nonce, plaintext, additionalData)
+	mac := s.calculateMAC(nonce, plaintext, additionalData)
 
 	subtle.XORBytes(mac, mac, s0)
 

@@ -42,12 +42,13 @@ const (
 // https://www.gnu.org/software/gss/reference/gss-api.html#GSS-C-DELEG-FLAG:CAPS
 const (
 	GssContextFlagDeleg    = 1
-	GssContextFlagMutual   = 1
+	GssContextFlagMutual   = 2
 	GssContextFlagReplay   = 4
 	GssContextFlagSequence = 8
 	GssContextFlagConf     = 16
 	GssContextFlagInteg    = 32
 	GssContextFlagAnon     = 64
+	GssContextFlagDCEStyle = 0x1000 // DCE-RPC style 3-leg authentication
 )
 
 // RFC4178

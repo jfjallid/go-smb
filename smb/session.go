@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/jfjallid/go-smb/gss"
+	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb/crypto/ccm"
 	"github.com/jfjallid/go-smb/smb/crypto/cmac"
@@ -1215,23 +1216,23 @@ func (f *File) QueryInfoSecurity(bufferSize uint32) (fs *FileSecurityInformation
 	}
 
 	start, stop := uint32(0), res.OutputBufferLength
-	sd := &SecurityDescriptor{}
-	err = encoder.Unmarshal(res.Buffer[start:stop], sd)
+	sd := &msdtyp.SecurityDescriptor{}
+	err = sd.UnmarshalBinary(res.Buffer[start:stop])
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing security descriptor: %w", err)
 	}
 
 	fs = &FileSecurityInformation{
-		OwnerSID: sd.OwnerSid.String(),
-		GroupSID: sd.GroupSid.String(),
+		OwnerSID: sd.OwnerSid.ToString(),
+		GroupSID: sd.GroupSid.ToString(),
 	}
 	for _, acl := range sd.Dacl.ACLS {
 		if acl.Header.Type != AccessAllowedAceType {
 			continue
 		}
 		fs.Access = append(fs.Access, FileSecurityInformationACL{
-			Permissions: acl.Permissions(),
-			SID:         acl.Sid.String(),
+			Permissions: ParseAccessMask(acl.Mask),
+			SID:         acl.Sid.ToString(),
 		})
 	}
 
@@ -1391,7 +1392,6 @@ func (s *Connection) OpenFileExt(tree string, filepath string, opts *CreateReqOp
 		opts.CreateOpts,
 	)
 
-	//req.Credits = 256
 	if err != nil {
 		log.Debugln(err)
 		return
@@ -1453,6 +1453,19 @@ func (s *Connection) OpenFile(tree string, filepath string) (file *File, err err
 
 }
 
+// connectToTree connects to share if not already connected.
+// Returns true if a new connection was made (caller should defer TreeDisconnect),
+// or false if already connected. Returns an error if the connection failed.
+func (s *Connection) connectToTree(share string) (bool, error) {
+	if _, ok := s.trees[share]; ok {
+		return false, nil
+	}
+	if err := s.TreeConnect(share); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, callback func([]byte) (int, error)) (err error) {
 
 	if callback == nil {
@@ -1461,14 +1474,7 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 		return
 	}
 
-	disconnectFromTree := false
-	// Only disconnect from share if it wasn't already connected.
-	// Otherwise, allow reuse of existing connection.
-	if _, ok := s.trees[share]; !ok {
-		disconnectFromTree = true
-	}
-
-	err = s.TreeConnect(share)
+	disconnectFromTree, err := s.connectToTree(share)
 	if err != nil {
 		log.Debugln(err)
 		return
@@ -1655,14 +1661,7 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 }
 
 func (s *Connection) PutFile(share string, filepath string, offset uint64, callback func([]byte) (int, error)) (err error) {
-	disconnectFromTree := false
-	// Only disconnect from share if it wasn't already connected.
-	// Otherwise, allow reuse of existing connection.
-	if _, ok := s.trees[share]; !ok {
-		disconnectFromTree = true
-	}
-
-	err = s.TreeConnect(share)
+	disconnectFromTree, err := s.connectToTree(share)
 	if err != nil {
 		log.Debugln(err)
 		return
@@ -1818,18 +1817,7 @@ func (f *File) IsDir() bool {
 }
 
 func (s *Connection) deleteFileDir(share string, path string, isDir bool) (err error) {
-	disconnectFromTree := false
-	// Only disconnect from share if it wasn't already connected.
-	// Otherwise, allow reuse of existing connection.
-	if _, ok := s.trees[share]; !ok {
-		disconnectFromTree = true
-	}
-
-	// Normalize path
-	path = strings.ReplaceAll(path, `/`, `\`)
-	path = strings.Trim(path, `\`)
-
-	err = s.TreeConnect(share)
+	disconnectFromTree, err := s.connectToTree(share)
 	if err != nil {
 		log.Debugln(err)
 		return
@@ -1838,6 +1826,10 @@ func (s *Connection) deleteFileDir(share string, path string, isDir bool) (err e
 	if disconnectFromTree {
 		defer s.TreeDisconnect(share)
 	}
+
+	// Normalize path
+	path = strings.ReplaceAll(path, `/`, `\`)
+	path = strings.Trim(path, `\`)
 
 	var accessMask uint32
 	var createOpts uint32
@@ -2003,18 +1995,7 @@ func (c *Connection) Close() {
 
 // Create a new directory
 func (s *Connection) Mkdir(share string, path string) (err error) {
-	disconnectFromTree := false
-	// Only disconnect from share if it wasn't already connected.
-	// Otherwise, allow reuse of existing connection.
-	if _, ok := s.trees[share]; !ok {
-		disconnectFromTree = true
-	}
-
-	// Normalize path
-	path = strings.ReplaceAll(path, `/`, `\`)
-	path = strings.Trim(path, `\`)
-
-	err = s.TreeConnect(share)
+	disconnectFromTree, err := s.connectToTree(share)
 	if err != nil {
 		log.Debugln(err)
 		return
@@ -2023,6 +2004,10 @@ func (s *Connection) Mkdir(share string, path string) (err error) {
 	if disconnectFromTree {
 		defer s.TreeDisconnect(share)
 	}
+
+	// Normalize path
+	path = strings.ReplaceAll(path, `/`, `\`)
+	path = strings.Trim(path, `\`)
 
 	req, err := s.NewCreateReq(share, path,
 		OpLockLevelNone,
@@ -2087,18 +2072,7 @@ func (s *Connection) Mkdir(share string, path string) (err error) {
 // Creates a directory named path along with any necessary parent directories
 // If the directory specified by path already exists, the return value is nil
 func (s *Connection) MkdirAll(share string, path string) (err error) {
-	disconnectFromTree := false
-	// Only disconnect from share if it wasn't already connected.
-	// Otherwise, allow reuse of existing connection.
-	if _, ok := s.trees[share]; !ok {
-		disconnectFromTree = true
-	}
-
-	// Normalize path
-	path = strings.ReplaceAll(path, `/`, `\`)
-	path = strings.Trim(path, `\`)
-
-	err = s.TreeConnect(share)
+	disconnectFromTree, err := s.connectToTree(share)
 	if err != nil {
 		log.Debugln(err)
 		return
@@ -2107,6 +2081,10 @@ func (s *Connection) MkdirAll(share string, path string) (err error) {
 	if disconnectFromTree {
 		defer s.TreeDisconnect(share)
 	}
+
+	// Normalize path
+	path = strings.ReplaceAll(path, `/`, `\`)
+	path = strings.Trim(path, `\`)
 
 	// First check if directory already exists
 	createOpts := NewCreateReqOpts()

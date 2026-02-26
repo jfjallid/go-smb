@@ -43,28 +43,28 @@ type MICToken struct {
 }
 
 // Return the header fields to calculate the checksum on
-func (self *MICToken) MarshalHeader() []byte {
+func (s *MICToken) MarshalHeader() []byte {
 	buf := make([]byte, MICTokenHdrLen)
-	be.PutUint16(buf[0:2], self.TokenId)
-	buf[2] = self.Flags
-	copy(buf[3:8], self.Filler)
-	be.PutUint64(buf[8:16], self.SenderSeqNum)
+	be.PutUint16(buf[0:2], s.TokenId)
+	buf[2] = s.Flags
+	copy(buf[3:8], s.Filler)
+	be.PutUint64(buf[8:16], s.SenderSeqNum)
 	return buf
 }
 
-func (self *MICToken) MarshalBinary() (ret []byte, err error) {
+func (s *MICToken) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
-	if self.Checksum == nil {
+	if s.Checksum == nil {
 		err = fmt.Errorf("Checksum has not been calculated yet so can't marshal MICToken")
 		log.Errorln(err)
 		return
 	}
-	_, err = w.Write(self.MarshalHeader())
+	_, err = w.Write(s.MarshalHeader())
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	_, err = w.Write(self.Checksum)
+	_, err = w.Write(s.Checksum)
 	if err != nil {
 		log.Errorln(err)
 		return

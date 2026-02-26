@@ -42,8 +42,6 @@ type Session struct {
 
 	clientHandle *rc4.Cipher
 	serverHandle *rc4.Cipher
-
-	infoMap map[uint16][]byte
 }
 
 func (s *Session) User() string {
@@ -122,6 +120,59 @@ func (s *Session) Seal(dst, plaintext []byte, seqNum uint32) ([]byte, uint32) {
 	}
 
 	return ret, seqNum
+}
+
+// --- DCERPC per-PDU encryption methods ---
+// These differ from Seal/Unseal (used by SMB) because DCERPC requires the MAC
+// to cover the full PDU (header + stub + pad + sec_trailer), while only the
+// stub + auth_pad is encrypted. The split into EncryptAndSign / DecryptOnly /
+// VerifyMAC allows the caller to construct the sign data from the PDU layout.
+
+// EncryptAndSign encrypts toEncrypt and computes a MAC over toSign using the
+// send-side handle. This is used by DCERPC where the encrypted data (stub+pad)
+// differs from the signed data (full PDU: header + plaintext stub + pad + sec_trailer).
+// The RC4 handle advances by len(toEncrypt) + 8 per call.
+func (s *Session) EncryptAndSign(toEncrypt, toSign []byte, seqNum uint32) (ciphertext, signature []byte, newSeqNum uint32) {
+	ciphertext = make([]byte, len(toEncrypt))
+	if s.isClientSide {
+		s.clientHandle.XORKeyStream(ciphertext, toEncrypt)
+		signature, newSeqNum = mac(nil, s.negotiateFlags, s.clientHandle, s.clientSigningKey, seqNum, toSign)
+	} else {
+		s.serverHandle.XORKeyStream(ciphertext, toEncrypt)
+		signature, newSeqNum = mac(nil, s.negotiateFlags, s.serverHandle, s.serverSigningKey, seqNum, toSign)
+	}
+	return
+}
+
+// DecryptAndVerify decrypts ciphertext and verifies a MAC over signData using
+// the receive-side handle. The caller must build signData from the decrypted
+// plaintext before calling, so this method provides DecryptOnly as a first step.
+// However, for DCERPC, the caller needs the plaintext to build signData, so use
+// DecryptOnly + VerifyMAC instead.
+func (s *Session) DecryptOnly(ciphertext []byte) []byte {
+	plaintext := make([]byte, len(ciphertext))
+	if s.isClientSide {
+		s.serverHandle.XORKeyStream(plaintext, ciphertext)
+	} else {
+		s.clientHandle.XORKeyStream(plaintext, ciphertext)
+	}
+	return plaintext
+}
+
+// VerifyMAC computes a MAC over signData and compares it with the expected
+// signature. Must be called after DecryptOnly so the receive-side RC4 handle
+// is at the correct keystream position.
+func (s *Session) VerifyMAC(signData, expectedSig []byte, seqNum uint32) (uint32, error) {
+	var computedSig []byte
+	if s.isClientSide {
+		computedSig, seqNum = mac(nil, s.negotiateFlags, s.serverHandle, s.serverSigningKey, seqNum, signData)
+	} else {
+		computedSig, seqNum = mac(nil, s.negotiateFlags, s.clientHandle, s.clientSigningKey, seqNum, signData)
+	}
+	if !bytes.Equal(expectedSig, computedSig) {
+		return 0, fmt.Errorf("Signature mismatch")
+	}
+	return seqNum, nil
 }
 
 func (s *Session) Unseal(dst, ciphertext []byte, seqNum uint32) ([]byte, uint32, error) {

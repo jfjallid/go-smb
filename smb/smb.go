@@ -23,15 +23,11 @@
 package smb
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math"
 	"slices"
-	"strconv"
-	"strings"
 
 	"github.com/jfjallid/golog"
 
@@ -766,11 +762,6 @@ type TreeDisconnectRes struct {
 	Reserved      uint16
 }
 
-type Filetime struct {
-	DwLowDateTime  uint32
-	DwHighDateTime uint32
-}
-
 type CreateReq struct {
 	Header
 	StructureSize        uint16 // Must always be 57 regardless of Buffer size
@@ -877,532 +868,70 @@ type QueryInfoRes struct {
 	Buffer             []byte
 }
 
-type SecurityDescriptor struct {
-	Revision    uint16
-	Control     uint16
-	OffsetOwner uint32
-	OffsetGroup uint32
-	OffsetSacl  uint32 // From beginning of struct?
-	OffsetDacl  uint32 // From beginning of struct?
-	OwnerSid    *SID
-	GroupSid    *SID
-	Sacl        *PACL
-	Dacl        *PACL
-}
-
-type PACL struct {
-	AclRevision uint16
-	AclSize     uint16
-	AceCount    uint32
-	ACLS        []ACE
-}
-
-// MS-DTYP Section 2.4.4.1 ACE_HEADER
-type ACEHeader struct {
-	Type  byte
-	Flags byte
-	Size  uint16 //Includes header size?
-}
-
-type ACE struct {
-	Header ACEHeader
-	Mask   uint32
-	Sid    SID //Must be multiple of 4
-}
-
-type SID struct {
-	Revision       byte
-	NumAuth        byte
-	Authority      []byte
-	SubAuthorities []uint32
-}
-
-func (self *QueryInfoReq) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
+func (s *QueryInfoReq) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
 	log.Debugln("In MarshalBinary for QueryInfoReq")
-	buf := make([]byte, 0, 40+len(self.Buffer))
+	buf := make([]byte, 0, 40+len(s.Buffer))
 
-	hBuf, err := encoder.Marshal(self.Header)
+	hBuf, err := encoder.Marshal(s.Header)
 	if err != nil {
 		log.Debugln(err)
 		return nil, err
 	}
 	buf = append(buf, hBuf...)
 	// StructureSize
-	buf = binary.LittleEndian.AppendUint16(buf, self.StructureSize)
+	buf = binary.LittleEndian.AppendUint16(buf, s.StructureSize)
 	// Info Type
-	buf = append(buf, self.InfoType)
+	buf = append(buf, s.InfoType)
 	// FileInfoClass
-	buf = append(buf, self.FileInfoClass)
+	buf = append(buf, s.FileInfoClass)
 	// OutputBufferLength
-	buf = binary.LittleEndian.AppendUint32(buf, self.OutputBufferLength)
+	buf = binary.LittleEndian.AppendUint32(buf, s.OutputBufferLength)
 	// InputBufferOffset
 	inputBufferOffset := uint16(0)
-	if len(self.Buffer) > 0 {
+	if len(s.Buffer) > 0 {
 		inputBufferOffset = 104 // 40 bytes for QueryInfo, 64 for SMB2 Header
 	}
 	buf = binary.LittleEndian.AppendUint16(buf, inputBufferOffset)
 	// Reserved
 	buf = binary.LittleEndian.AppendUint16(buf, 0)
 	// InputBufferLength
-	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(self.Buffer)))
+	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(s.Buffer)))
 	// AdditionalInformation
-	buf = binary.LittleEndian.AppendUint32(buf, self.AdditionalInformation)
+	buf = binary.LittleEndian.AppendUint32(buf, s.AdditionalInformation)
 	// Flags
-	buf = binary.LittleEndian.AppendUint32(buf, self.Flags)
+	buf = binary.LittleEndian.AppendUint32(buf, s.Flags)
 	// FileID
-	buf = append(buf, self.FileId...)
+	buf = append(buf, s.FileId...)
 	// Buffer
-	buf = append(buf, self.Buffer...)
+	buf = append(buf, s.Buffer...)
 
 	return buf, nil
 }
 
-func (self *QueryInfoReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
+func (s *QueryInfoReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
 	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of QueryInfoReq")
 }
 
-func (self *QueryInfoRes) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
+func (s *QueryInfoRes) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
 	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of QueryInfoRes")
 }
 
-func (self *QueryInfoRes) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (s *QueryInfoRes) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	log.Debugln("In UnmarshalBinary for QueryInfoRes")
-	err := encoder.Unmarshal(buf[:64], &self.Header)
+	err := encoder.Unmarshal(buf[:64], &s.Header)
 	if err != nil {
 		log.Errorln(err)
 		return err
 	}
 	offset := 64
-	self.StructureSize = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	s.StructureSize = binary.LittleEndian.Uint16(buf[offset : offset+2])
 	offset += 2
-	self.OutputBufferOffset = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	s.OutputBufferOffset = binary.LittleEndian.Uint16(buf[offset : offset+2])
 	offset += 2
-	self.OutputBufferLength = binary.LittleEndian.Uint32(buf[offset : offset+4])
+	s.OutputBufferLength = binary.LittleEndian.Uint32(buf[offset : offset+4])
 
-	offset = int(self.OutputBufferOffset)
-	self.Buffer = buf[offset : offset+int(self.OutputBufferLength)]
-
-	return nil
-}
-
-func (self *SecurityDescriptor) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
-	w := bytes.NewBuffer(ret)
-	ptrBuf := make([]byte, 0)
-	// Order: 1. SACL, 2. DACL, 3. Owner, 4. Group
-	bufOffset := uint32(20)
-
-	if self.Sacl != nil {
-		sBuf, err := self.Sacl.MarshalBinary(meta)
-		if err != nil {
-			log.Errorln(err)
-			return nil, err
-		}
-		ptrBuf = append(ptrBuf, sBuf...)
-		self.Control |= SecurityDescriptorFlagSP
-		self.OffsetSacl = bufOffset
-		bufOffset += uint32(len(sBuf))
-	}
-	if self.Dacl != nil {
-		dBuf, err := self.Dacl.MarshalBinary(meta)
-		if err != nil {
-			return nil, err
-		}
-		ptrBuf = append(ptrBuf, dBuf...)
-		self.Control |= SecurityDescriptorFlagDP
-		self.OffsetDacl = bufOffset
-		bufOffset += uint32(len(dBuf))
-	}
-
-	if self.OwnerSid != nil {
-		oBuf, err := self.OwnerSid.MarshalBinary(meta)
-		if err != nil {
-			return nil, err
-		}
-		ptrBuf = append(ptrBuf, oBuf...)
-		self.OffsetOwner = bufOffset
-		bufOffset += uint32(len(oBuf))
-	}
-
-	if self.OffsetGroup != 0 {
-		gBuf, err := self.GroupSid.MarshalBinary(meta)
-		if err != nil {
-			return nil, err
-		}
-		ptrBuf = append(ptrBuf, gBuf...)
-		self.OffsetGroup = bufOffset
-	}
-
-	// Encode revision
-	err = binary.Write(w, binary.LittleEndian, self.Revision)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	// Encode control
-	err = binary.Write(w, binary.LittleEndian, self.Control)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	// Encode  OffsetOwner
-	err = binary.Write(w, binary.LittleEndian, self.OffsetOwner)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	// Encode  OffsetGroup
-	err = binary.Write(w, binary.LittleEndian, self.OffsetGroup)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	// Encode  OffsetSacl
-	err = binary.Write(w, binary.LittleEndian, self.OffsetSacl)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	// Encode  OffsetDacl
-	err = binary.Write(w, binary.LittleEndian, self.OffsetDacl)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	// Encode serialized Owner, Group, Sacl and Dacl
-	_, err = w.Write(ptrBuf)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	return w.Bytes(), nil
-}
-
-func (self *SecurityDescriptor) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
-
-	r := bytes.NewReader(buf)
-
-	err = binary.Read(r, binary.LittleEndian, &self.Revision)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Read(r, binary.LittleEndian, &self.Control)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Read(r, binary.LittleEndian, &self.OffsetOwner)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Read(r, binary.LittleEndian, &self.OffsetGroup)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Read(r, binary.LittleEndian, &self.OffsetSacl)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Read(r, binary.LittleEndian, &self.OffsetDacl)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	if self.OffsetOwner != 0 {
-		_, err = r.Seek(int64(self.OffsetOwner), io.SeekStart)
-		self.OwnerSid, err = readSID(r)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-	}
-	if self.OffsetGroup != 0 {
-		_, err = r.Seek(int64(self.OffsetGroup), io.SeekStart)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-		self.GroupSid, err = readSID(r)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-	}
-
-	if (self.Control & SecurityDescriptorFlagSP) == SecurityDescriptorFlagSP {
-		_, err = r.Seek(int64(self.OffsetSacl), io.SeekStart)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-		self.Sacl, err = readPACL(r)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-	}
-
-	if (self.Control & SecurityDescriptorFlagDP) == SecurityDescriptorFlagDP {
-		_, err = r.Seek(int64(self.OffsetDacl), io.SeekStart)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-		self.Dacl, err = readPACL(r)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-	}
-
-	return nil
-}
-
-func (self *SID) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
-	w := bytes.NewBuffer(ret)
-
-	// Encode ACE SID
-	err = binary.Write(w, binary.LittleEndian, self.Revision)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Write(w, binary.LittleEndian, byte(len(self.SubAuthorities)))
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Write(w, binary.LittleEndian, self.Authority)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Write(w, binary.LittleEndian, self.SubAuthorities)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	return w.Bytes(), nil
-}
-
-func readSID(r *bytes.Reader) (s *SID, err error) {
-	s = &SID{}
-	// Decode ACE SID
-	err = binary.Read(r, binary.LittleEndian, &s.Revision)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Read(r, binary.LittleEndian, &s.NumAuth)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	s.Authority = make([]byte, 6)
-	err = binary.Read(r, binary.LittleEndian, &s.Authority)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	s.SubAuthorities = make([]uint32, s.NumAuth)
-	for i := range s.SubAuthorities {
-		err = binary.Read(r, binary.LittleEndian, &s.SubAuthorities[i])
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-	}
-
-	return
-}
-
-func (self *SID) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
-	r := bytes.NewReader(buf)
-	sid, err := readSID(r)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	*self = *sid
-	return nil
-}
-
-func (self *ACE) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
-	w := bytes.NewBuffer(ret)
-
-	err = binary.Write(w, binary.LittleEndian, self.Header.Type)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Write(w, binary.LittleEndian, self.Header.Flags)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Write(w, binary.LittleEndian, self.Header.Size)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Write(w, binary.LittleEndian, self.Mask)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	// Encode ACE SID
-	sidBuf, err := self.Sid.MarshalBinary(meta)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-	err = binary.Write(w, binary.LittleEndian, sidBuf)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	return w.Bytes(), nil
-}
-
-func readACE(r *bytes.Reader) (a *ACE, err error) {
-	a = &ACE{}
-	err = binary.Read(r, binary.LittleEndian, &a.Header.Type)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Read(r, binary.LittleEndian, &a.Header.Flags)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Read(r, binary.LittleEndian, &a.Header.Size)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Read(r, binary.LittleEndian, &a.Mask)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	sid, err := readSID(r)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	a.Sid = *sid
-
-	return
-}
-
-func (self *ACE) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
-	r := bytes.NewReader(buf)
-	ace, err := readACE(r)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	*self = *ace
-	return nil
-}
-
-func (self *PACL) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
-	w := bytes.NewBuffer(ret)
-
-	err = binary.Write(w, binary.LittleEndian, self.AclRevision)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Write(w, binary.LittleEndian, self.AclSize)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	// Encode AceCount at 4 byte boundary
-	err = binary.Write(w, binary.LittleEndian, uint32(len(self.ACLS)))
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	for _, item := range self.ACLS {
-		var aceBuf []byte
-		aceBuf, err = item.MarshalBinary(meta)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-		_, err = w.Write(aceBuf)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-	}
-
-	return w.Bytes(), nil
-}
-
-func readPACL(r *bytes.Reader) (p *PACL, err error) {
-	p = &PACL{}
-	err = binary.Read(r, binary.LittleEndian, &p.AclRevision)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Read(r, binary.LittleEndian, &p.AclSize)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Read(r, binary.LittleEndian, &p.AceCount)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	p.ACLS = make([]ACE, p.AceCount)
-	for i := range p.ACLS {
-		var ace *ACE
-		ace, err = readACE(r)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-		p.ACLS[i] = *ace
-	}
-
-	return
-}
-
-func (self *PACL) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
-	r := bytes.NewReader(buf)
-	pacl, err := readPACL(r)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	*self = *pacl
+	offset = int(s.OutputBufferOffset)
+	s.Buffer = buf[offset : offset+int(s.OutputBufferLength)]
 
 	return nil
 }
@@ -1416,23 +945,6 @@ func ParseAccessMask(mask uint32) []string {
 	}
 	slices.Sort(permissions)
 	return permissions
-}
-
-func (a ACE) Permissions() []string {
-	return ParseAccessMask(a.Mask)
-}
-
-func (s SID) String() string {
-	ia := "0"
-	l := len(s.Authority)
-	if l > 0 {
-		ia = strconv.FormatUint(uint64(s.Authority[l-1]), 10)
-	}
-	subAuthorities := make([]string, len(s.SubAuthorities))
-	for i, sub := range s.SubAuthorities {
-		subAuthorities[i] = strconv.FormatUint(uint64(sub), 10)
-	}
-	return fmt.Sprintf("S-1-%s-%s", ia, strings.Join(subAuthorities, "-"))
 }
 
 type FileSecurityInformationACL struct {
@@ -1586,50 +1098,49 @@ func calcCreditCharge(payloadSize uint32) uint16 {
 	return uint16(math.Ceil(((float64(payloadSize) - 1) / 65536) + 1))
 }
 
-func (self *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+func (s *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	log.Debugln("In MarshalBinary for NegotiateReq")
 	buf := make([]byte, 0, 100)
 	padding := 0
-	hBuf, err := encoder.Marshal(self.Header)
+	hBuf, err := encoder.Marshal(s.Header)
 	if err != nil {
 		log.Debugln(err)
 		return nil, err
 	}
 	buf = append(buf, hBuf...)
 	// StructureSize
-	buf = binary.LittleEndian.AppendUint16(buf, self.StructureSize)
+	buf = binary.LittleEndian.AppendUint16(buf, s.StructureSize)
 	// DialectCount
-	buf = binary.LittleEndian.AppendUint16(buf, uint16(len(self.Dialects)))
+	buf = binary.LittleEndian.AppendUint16(buf, uint16(len(s.Dialects)))
 	// SecurityMode
-	buf = binary.LittleEndian.AppendUint16(buf, self.SecurityMode)
+	buf = binary.LittleEndian.AppendUint16(buf, s.SecurityMode)
 	//Reserved
 	buf = binary.LittleEndian.AppendUint16(buf, 0)
 	// Capabilities
-	buf = binary.LittleEndian.AppendUint32(buf, self.Capabilities)
+	buf = binary.LittleEndian.AppendUint32(buf, s.Capabilities)
 	buf = append(buf, make([]byte, 16)...)
-	//buf = append(buf, self.ClientGuid...)
-	if len(self.ContextList) == 0 {
+	//buf = append(buf, s.ClientGuid...)
+	if len(s.ContextList) == 0 {
 		buf = binary.LittleEndian.AppendUint32(buf, 0)
 		buf = binary.LittleEndian.AppendUint16(buf, 0)
 	} else {
-		fmt.Printf("Len of contextlist is : %d\n", len(self.ContextList))
-		padding = 8 - ((36 + len(self.Dialects)*2) % 8)
-		offset := 64 + 36 + len(self.Dialects)*2 + padding
+padding = 8 - ((36 + len(s.Dialects)*2) % 8)
+		offset := 64 + 36 + len(s.Dialects)*2 + padding
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(offset))
-		buf = binary.LittleEndian.AppendUint16(buf, self.NegotiateContextCount)
+		buf = binary.LittleEndian.AppendUint16(buf, s.NegotiateContextCount)
 	}
 	// Reserved2
 	buf = binary.LittleEndian.AppendUint16(buf, 0)
 
-	if len(self.Dialects) != 0 {
-		for _, d := range self.Dialects {
+	if len(s.Dialects) != 0 {
+		for _, d := range s.Dialects {
 			buf = binary.LittleEndian.AppendUint16(buf, d)
 		}
 	}
-	if len(self.ContextList) != 0 {
+	if len(s.ContextList) != 0 {
 		// Padding
 		buf = append(buf, make([]byte, padding)...)
-		for _, c := range self.ContextList {
+		for _, c := range s.ContextList {
 			contextBuf, err := encoder.Marshal(c)
 			if err != nil {
 				log.Debugln(err)
@@ -1641,44 +1152,44 @@ func (self *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) 
 	return buf, nil
 }
 
-func (self *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (s *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	log.Debugln("In UnmarshalBinary for NegotiateReq")
-	err := encoder.Unmarshal(buf[:64], &self.Header)
+	err := encoder.Unmarshal(buf[:64], &s.Header)
 	if err != nil {
 		log.Errorln(err)
 		return err
 	}
 	offset := 64
-	self.StructureSize = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	s.StructureSize = binary.LittleEndian.Uint16(buf[offset : offset+2])
 	offset += 2
-	self.DialectCount = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	s.DialectCount = binary.LittleEndian.Uint16(buf[offset : offset+2])
 	offset += 2
 	// 2 bytes reserved
 	offset += 2
-	self.Capabilities = binary.LittleEndian.Uint32(buf[offset : offset+4])
+	s.Capabilities = binary.LittleEndian.Uint32(buf[offset : offset+4])
 	offset += 4
-	self.ClientGuid = buf[offset : offset+16]
+	s.ClientGuid = buf[offset : offset+16]
 	offset += 16
-	self.NegotiateContextOffset = binary.LittleEndian.Uint32(buf[offset : offset+4])
+	s.NegotiateContextOffset = binary.LittleEndian.Uint32(buf[offset : offset+4])
 	offset += 4
-	self.NegotiateContextCount = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	s.NegotiateContextCount = binary.LittleEndian.Uint16(buf[offset : offset+2])
 	offset += 2
 	// 2 bytes reserved2
 	offset += 2
-	for i := 0; i < int(self.DialectCount); i++ {
-		self.Dialects = append(self.Dialects, binary.LittleEndian.Uint16(buf[offset:offset+2]))
+	for i := 0; i < int(s.DialectCount); i++ {
+		s.Dialects = append(s.Dialects, binary.LittleEndian.Uint16(buf[offset:offset+2]))
 		offset += 2
 	}
 
-	offset = int(self.NegotiateContextOffset)
-	for i := 0; i < int(self.NegotiateContextCount); i++ {
+	offset = int(s.NegotiateContextOffset)
+	for i := 0; i < int(s.NegotiateContextCount); i++ {
 		var negContext NegContext
 		err = encoder.Unmarshal(buf[offset:], &negContext)
 		if err != nil {
 			log.Errorln(err)
 			return err
 		}
-		self.ContextList = append(self.ContextList, negContext)
+		s.ContextList = append(s.ContextList, negContext)
 		negContextSize := int(8 + negContext.DataLength)
 		if negContextSize%8 != 0 {
 			negContextSize += 8 - (negContextSize % 8)

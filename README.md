@@ -3,7 +3,7 @@
 ## Description
 Package go-smb is a work in progress to create a go library that implements
 an SMB2/3 client with support for interacting with various RPC endpoints using
-DCERPC over named pipes.
+DCERPC over named pipes or raw TCP connections.
 This project was created as a way to learn how to interact remotely with Windows
 services and the remote registry, but has evolved to include support for more
 RPC services.
@@ -115,8 +115,9 @@ import (
 
 	"github.com/jfjallid/go-smb/smb"
 	"github.com/jfjallid/go-smb/spnego"
-	"github.com/jfjallid/go-smb/smb/dcerpc"
-	"github.com/jfjallid/go-smb/smb/dcerpc/mssrvs"
+	"github.com/jfjallid/go-smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc/smbtransport"
+	"github.com/jfjallid/go-smb/dcerpc/mssrvs"
 )
 
 func main() {
@@ -164,7 +165,13 @@ func main() {
     }
     defer f.CloseFile()
 
-    bind, err := dcerpc.Bind(f, mssrvs.MSRPCUuidSrvSvc, mssrvs.MSRPCSrvSvcMajorVersion, mssrvs.MSRPCSrvSvcMinorVersion, dcerpc.MSRPCUuidNdr)
+    transport, err := smbtransport.NewSMBTransport(f)
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+
+    bind, err := dcerpc.Bind(transport, mssrvs.MSRPCUuidSrvSvc, mssrvs.MSRPCSrvSvcMajorVersion, mssrvs.MSRPCSrvSvcMinorVersion, dcerpc.MSRPCUuidNdr)
     if err != nil {
         fmt.Println(err)
         return
@@ -181,5 +188,69 @@ func main() {
     for _, share := range shares {
         fmt.Printf("Name: %s\nComment: %s\nType: %s\n\n", share.Name, share.Comment, share.Type)
     }
+}
+```
+
+### List Windows services's status via direct TCP connection
+
+When the target RPC service is accessible over a direct TCP endpoint (e.g., dynamic
+RPC ports), you can connect without SMB:
+
+```go
+package main
+
+import (
+	"fmt"
+	"net"
+	"time"
+
+	"github.com/jfjallid/go-smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc/epm"
+	"github.com/jfjallid/go-smb/dcerpc/msscmr"
+
+	"github.com/jfjallid/go-smb/spnego"
+)
+
+func main() {
+
+	hostname := "127.0.0.1"
+
+	sb, err := epm.GetStringBindingForInterface(hostname, msscmr.MSRPCUuidSvcCtl, msscmr.MSRPCSvcCtlMajorVersion, msscmr.MSRPCSvcCtlMinorVersion, time.Second * 5)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Printf("MS-SCMR is running at: %s\n", sb[0].String())
+	conn, err := net.Dial("tcp", sb[0].String())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer conn.Close()
+
+	initiator := &spnego.NTLMInitiator{
+			User:        "Administrator",
+			Password:    "AdminPass123",
+	}
+
+    transport := dcerpc.NewTCPTransport(conn)
+
+	bind, err := dcerpc.BindAuth(transport, msscmr.MSRPCUuidSvcCtl, msscmr.MSRPCSvcCtlMajorVersion, msscmr.MSRPCSvcCtlMinorVersion, dcerpc.MSRPCUuidNdr, dcerpc.RpcAuthnLevelPktPrivacy, initiator)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+    rpccon := msscmr.NewRPCCon(bind)
+	result, err := rpccon.EnumServicesStatus(uint32(16), uint32(3))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	for _, service := range result {
+		fmt.Printf("\nDisplayName: %s\nServiceName: %s\nStatus: %s\n", service.DisplayName, service.ServiceName, msscmr.ServiceStatusMap[service.ServiceStatus.CurrentState])
+		break // Only print the first service
+	}
 }
 ```

@@ -32,9 +32,14 @@ import (
 	"github.com/jfjallid/gofork/encoding/asn1"
 
 	"github.com/jfjallid/go-smb/gss"
+	"github.com/jfjallid/gokrb5/v8/asn1tools"
 	"github.com/jfjallid/gokrb5/v8/client"
 	"github.com/jfjallid/gokrb5/v8/config"
 	"github.com/jfjallid/gokrb5/v8/crypto"
+	"github.com/jfjallid/gokrb5/v8/iana"
+	"github.com/jfjallid/gokrb5/v8/iana/asnAppTag"
+	"github.com/jfjallid/gokrb5/v8/iana/keyusage"
+	"github.com/jfjallid/gokrb5/v8/iana/msgtype"
 	"github.com/jfjallid/gokrb5/v8/messages"
 	"github.com/jfjallid/gokrb5/v8/types"
 	"github.com/jfjallid/golog"
@@ -71,28 +76,30 @@ type KRB5Token struct {
 
 type Client struct {
 	*client.Client
-	sessionKey    types.EncryptionKey
-	sessionSubKey types.EncryptionKey
-	micSubkey     types.EncryptionKey
+	sessionKey          types.EncryptionKey
+	sessionSubKey       types.EncryptionKey
+	micSubkey           types.EncryptionKey
+	encAPRepPart        *messages.EncAPRepPart // saved for DCERPC 3rd leg
+	authenticatorSeqNum int64                  // saved from AP_REQ authenticator
 }
 
 func NewClient(client *client.Client) *Client {
 	return &Client{Client: client}
 }
 
-func (self *KRB5Token) MarshalBinary() (res []byte, err error) {
+func (t *KRB5Token) MarshalBinary() (res []byte, err error) {
 	log.Debugln("In MarshalBinary for KRB5Token")
-	res, err = asn1.Marshal(self.Oid)
+	res, err = asn1.Marshal(t.Oid)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	res = le.AppendUint16(res, self.TokenId)
+	res = le.AppendUint16(res, t.TokenId)
 
-	switch self.TokenId {
+	switch t.TokenId {
 	case TokenIdKrb5APReq:
-		buf, err := self.APReq.Marshal()
+		buf, err := t.APReq.Marshal()
 		if err != nil {
 			log.Errorln(err)
 			return nil, err
@@ -124,17 +131,17 @@ func (self *KRB5Token) MarshalBinary() (res []byte, err error) {
 	return
 }
 
-func (self *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
+func (t *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 	log.Debugln("In UnmarshalBinary for KRB5Token")
 
-	rest, err := asn1.UnmarshalWithParams(buf, &self.Oid, "application,explicit,tag:0")
+	rest, err := asn1.UnmarshalWithParams(buf, &t.Oid, "application,explicit,tag:0")
 	if err != nil {
 		log.Errorf("Failed to unmarshal KRB5Token OID: %v\n", err)
 		return
 	}
 
-	if !self.Oid.Equal(gss.KerberosSSPMechTypeOid) {
-		err = fmt.Errorf("KRB5Token OID is %s and not %s as expected", self.Oid.String(), gss.KerberosSSPMechTypeOid.String())
+	if !t.Oid.Equal(gss.KerberosSSPMechTypeOid) {
+		err = fmt.Errorf("KRB5Token OID is %s and not %s as expected", t.Oid.String(), gss.KerberosSSPMechTypeOid.String())
 		log.Errorln(err)
 		return
 	}
@@ -144,8 +151,8 @@ func (self *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 		return
 	}
 
-	self.TokenId = le.Uint16(rest[0:2])
-	switch self.TokenId {
+	t.TokenId = le.Uint16(rest[0:2])
+	switch t.TokenId {
 	case TokenIdKrb5APReq:
 		err = fmt.Errorf("Unmarshal of KRB5Token APReq not yet implemented!")
 		log.Errorln(err)
@@ -157,7 +164,7 @@ func (self *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		self.APRep = rep
+		t.APRep = rep
 	case TokenIdKrb5Error:
 		krb5err := messages.KRBError{}
 		err = krb5err.Unmarshal(rest[2:])
@@ -165,9 +172,9 @@ func (self *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 			log.Errorln(err)
 			return
 		}
-		self.KRBError = krb5err
+		t.KRBError = krb5err
 	default:
-		err = fmt.Errorf("Unmarshal av KRB5Token failed with unknown TokenId of: %d\n", self.TokenId)
+		err = fmt.Errorf("Unmarshal av KRB5Token failed with unknown TokenId of: %d\n", t.TokenId)
 		log.Errorln(err)
 		return
 	}
@@ -292,7 +299,7 @@ func newAuthenticatorChecksum(flags []int) []byte {
 	return a
 }
 
-func (i *Client) GetAPReq(spn string) ([]byte, error) {
+func (i *Client) GetAPReq(spn string, dceStyle bool) ([]byte, error) {
 	var ticket messages.Ticket
 	var authenticator types.Authenticator
 	var apReq messages.APReq
@@ -311,7 +318,16 @@ func (i *Client) GetAPReq(spn string) ([]byte, error) {
 		log.Errorln(err)
 		return nil, err
 	}
-	flags := []int{gss.GssContextFlagInteg, gss.GssContextFlagConf}
+	flags := []int{
+		gss.GssContextFlagMutual,
+		gss.GssContextFlagReplay,
+		gss.GssContextFlagSequence,
+		gss.GssContextFlagConf,
+		gss.GssContextFlagInteg,
+	}
+	if dceStyle {
+		flags = append(flags, gss.GssContextFlagDCEStyle)
+	}
 	authenticator.Cksum = types.Checksum{
 		CksumType: IanaKrb5ChecksumGSSAPI,
 		Checksum:  newAuthenticatorChecksum(flags),
@@ -334,6 +350,8 @@ func (i *Client) GetAPReq(spn string) ([]byte, error) {
 	}
 	// Used to calculate a checksum
 	i.micSubkey = authenticator.SubKey
+	// Save authenticator SeqNumber for Wrap Token sequence numbering (RFC 4121)
+	i.authenticatorSeqNum = authenticator.SeqNumber
 
 	apReq, err = messages.NewAPReq(ticket, i.sessionKey, authenticator)
 	if err != nil {
@@ -344,6 +362,18 @@ func (i *Client) GetAPReq(spn string) ([]byte, error) {
 	types.SetFlag(&apReq.APOptions, APOptionMutualRequired)
 	token.APReq = apReq
 	return token.MarshalBinary()
+}
+
+// ParseRawAPRep parses a bare AP_REP (with APPLICATION 15 tag, not wrapped
+// in a KRB5Token). Used for DCE-style SPNEGO where the server sends a bare
+// AP_REP in the NegTokenResp's ResponseToken field.
+func (client *Client) ParseRawAPRep(rawAPRep []byte) error {
+	var apRep messages.APRep
+	err := apRep.Unmarshal(rawAPRep)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal bare AP_REP: %w", err)
+	}
+	return client.ParseAPRep(apRep.EncPart)
 }
 
 func (client *Client) ParseAPRep(encpart types.EncryptedData) error {
@@ -373,7 +403,74 @@ func (client *Client) ParseAPRep(encpart types.EncryptedData) error {
 	// Store the sessionSubkey from the payload.Subkey
 	// This is used to derive the signing/encryption keys
 	client.sessionSubKey = repPart.Subkey
+	// Save EncAPRepPart for DCERPC 3rd leg (modified AP_REP)
+	client.encAPRepPart = &repPart
 	return nil
+}
+
+// encAPRepPartNoSubkey is a version of EncAPRepPart for the DCERPC 3rd leg
+// where the subkey must be completely absent (not just zeroed). The gokrb5
+// struct has Cusec (tag 1) as the last field which produces non-standard DER,
+// so we also fix the field order here.
+type encAPRepPartNoSubkey struct {
+	CTime          time.Time `asn1:"generalized,explicit,tag:0"`
+	Cusec          int       `asn1:"explicit,tag:1"`
+	// Subkey (tag 2) intentionally omitted — Impacket clears it entirely
+	SequenceNumber int64 `asn1:"optional,explicit,tag:3"`
+}
+
+// BuildDCEThirdLeg constructs a modified AP_REP for the DCERPC SPNEGO 3rd leg.
+// Following Impacket's approach: the subkey is cleared, timestamps are updated
+// to current time, and the EncAPRepPart is re-encrypted using the ORIGINAL
+// session key (not the subkey) with the subkey's cipher type and Key Usage 12.
+func (client *Client) BuildDCEThirdLeg() ([]byte, error) {
+	if client.encAPRepPart == nil {
+		return nil, fmt.Errorf("cannot build DCERPC 3rd leg: AP_REP not yet processed")
+	}
+
+	now := time.Now().UTC()
+
+	// Build modified EncAPRepPart with subkey completely absent and current timestamps.
+	// Subkey field is excluded from the struct so it's not encoded at all.
+	modifiedPart := encAPRepPartNoSubkey{
+		CTime:          now,
+		Cusec:          now.Nanosecond() / 1000,
+		SequenceNumber: client.encAPRepPart.SequenceNumber,
+	}
+
+	// Marshal EncAPRepPart with application tag 27
+	plainBytes, err := asn1.Marshal(modifiedPart)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal modified EncAPRepPart: %w", err)
+	}
+	plainBytes = asn1tools.AddASNAppTag(plainBytes, asnAppTag.EncAPRepPart)
+
+	// Encrypt using the subkey's cipher type but with the ORIGINAL session key.
+	// Key Usage 12 (AP_REP_ENCPART).
+	encKey := types.EncryptionKey{
+		KeyType:  client.sessionSubKey.KeyType,
+		KeyValue: client.sessionKey.KeyValue,
+	}
+	encryptedData, err := crypto.GetEncryptedData(plainBytes, encKey, keyusage.AP_REP_ENCPART, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt modified EncAPRepPart: %w", err)
+	}
+
+	// Build AP_REP
+	apRep := messages.APRep{
+		PVNO:    iana.PVNO,
+		MsgType: msgtype.KRB_AP_REP,
+		EncPart: encryptedData,
+	}
+
+	// Marshal AP_REP with application tag 15
+	apRepBytes, err := asn1.Marshal(apRep)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal AP_REP: %w", err)
+	}
+	apRepBytes = asn1tools.AddASNAppTag(apRepBytes, asnAppTag.APREP)
+
+	return apRepBytes, nil
 }
 
 func (client *Client) GetMICToken(bs []byte, seqNum uint64) ([]byte, error) {
@@ -413,6 +510,44 @@ func (client *Client) GetSessionSubKey() []byte {
 	return client.sessionSubKey.KeyValue
 }
 
+// OutboundSeqNum returns the initial outbound sequence number for Wrap Tokens.
+// This is the authenticator's SeqNumber from the AP_REQ.
+func (client *Client) OutboundSeqNum() uint64 {
+	return uint64(client.authenticatorSeqNum)
+}
+
+// InboundSeqNum returns the initial inbound sequence number for Wrap Tokens.
+// This is the SequenceNumber from the AP_REP's EncAPRepPart.
+func (client *Client) InboundSeqNum() uint64 {
+	if client.encAPRepPart != nil {
+		return uint64(client.encAPRepPart.SequenceNumber)
+	}
+	return uint64(client.authenticatorSeqNum)
+}
+
 func (client *Client) GetSessionKey() []byte {
 	return client.sessionKey.KeyValue
+}
+
+// WrapDCE encrypts plaintext for DCE-RPC using the acceptor subkey.
+// Returns body (PDU stub) and authValue (PDU auth_value).
+func (client *Client) WrapDCE(plaintext []byte, seqNum uint64) (body, authValue []byte, err error) {
+	return WrapDCE(client.sessionSubKey, gss.KGUsageInitiatorSeal, plaintext, seqNum)
+}
+
+// UnwrapDCE decrypts a DCE-RPC sealed PDU using the acceptor subkey.
+// seqNum is the expected sequence number for replay/reorder detection.
+func (client *Client) UnwrapDCE(body, authValue []byte, seqNum uint64) (plaintext []byte, err error) {
+	return UnwrapDCE(client.sessionSubKey, gss.KGUsageAcceptorSeal, body, authValue, seqNum)
+}
+
+// WrapTokenOverhead returns the signature size and encryption overhead
+// for the current session key type.
+func (client *Client) WrapTokenOverhead() (signatureSize, encryptionOverhead int) {
+	sigSize, overhead, err := WrapTokenOverhead(client.sessionSubKey.KeyType)
+	if err != nil {
+		log.Errorf("WrapTokenOverhead failed: %v\n", err)
+		return 0, 0
+	}
+	return sigSize, overhead
 }

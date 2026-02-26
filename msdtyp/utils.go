@@ -209,6 +209,37 @@ func WriteConformantVaryingString(w io.Writer, s string, addNullByte bool) (n in
 	return
 }
 
+// writeConformantVaryingStringReserveNull writes a non-null-terminated conformant
+// varying string whose MaxCount is ActualCount+1, reserving space for a null
+// terminator per the RPC_UNICODE_STRING convention (MS-DTYP 2.3.10: MaxLength = Length+2).
+func writeConformantVaryingStringReserveNull(w io.Writer, s string) (n int, err error) {
+	offset, count, paddlen, buffer := NewUnicodeStr(s, false)
+	maxCount := count + 1
+	if err = binary.Write(w, le, maxCount); err != nil {
+		return
+	}
+	n += 4
+	if err = binary.Write(w, le, offset); err != nil {
+		return
+	}
+	n += 4
+	if err = binary.Write(w, le, count); err != nil {
+		return
+	}
+	n += 4
+	var n2 int
+	if n2, err = w.Write(buffer); err != nil {
+		return
+	}
+	n += n2
+	padd := make([]byte, paddlen)
+	if n2, err = w.Write(padd); err != nil {
+		return
+	}
+	n += n2
+	return
+}
+
 // Write a ptr to a conformant and varying string to the output stream
 func WriteConformantVaryingStringPtr(w io.Writer, s string, refid *uint32, addNullByte bool) (n int, err error) {
 	var n2 int
