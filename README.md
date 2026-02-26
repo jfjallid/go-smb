@@ -191,7 +191,7 @@ func main() {
 }
 ```
 
-### List SMB Shares via TCP (without SMB)
+### List Windows services's status via direct TCP connection
 
 When the target RPC service is accessible over a direct TCP endpoint (e.g., dynamic
 RPC ports), you can connect without SMB:
@@ -202,37 +202,55 @@ package main
 import (
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/jfjallid/go-smb/dcerpc"
-	"github.com/jfjallid/go-smb/dcerpc/mssrvs"
+	"github.com/jfjallid/go-smb/dcerpc/epm"
+	"github.com/jfjallid/go-smb/dcerpc/msscmr"
+
+	"github.com/jfjallid/go-smb/spnego"
 )
 
 func main() {
-    hostname := "192.168.0.1"
-    conn, err := net.Dial("tcp", hostname+":49667")
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
-    defer conn.Close()
+
+	hostname := "127.0.0.1"
+
+	sb, err := epm.GetStringBindingForInterface(hostname, msscmr.MSRPCUuidSvcCtl, msscmr.MSRPCSvcCtlMajorVersion, msscmr.MSRPCSvcCtlMinorVersion, time.Second * 5)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Printf("MS-SCMR is running at: %s\n", sb[0].String())
+	conn, err := net.Dial("tcp", sb[0].String())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer conn.Close()
+
+	initiator := &spnego.NTLMInitiator{
+			User:        "Administrator",
+			Password:    "AdminPass123",
+	}
 
     transport := dcerpc.NewTCPTransport(conn)
-    bind, err := dcerpc.Bind(transport, mssrvs.MSRPCUuidSrvSvc, mssrvs.MSRPCSrvSvcMajorVersion, mssrvs.MSRPCSrvSvcMinorVersion, dcerpc.MSRPCUuidNdr)
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
-    rpccon := mssrvs.NewRPCCon(bind)
 
-    shares, err := rpccon.NetShareEnumAll(hostname)
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
+	bind, err := dcerpc.BindAuth(transport, msscmr.MSRPCUuidSvcCtl, msscmr.MSRPCSvcCtlMajorVersion, msscmr.MSRPCSvcCtlMinorVersion, dcerpc.MSRPCUuidNdr, dcerpc.RpcAuthnLevelPktPrivacy, initiator)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+    rpccon := msscmr.NewRPCCon(bind)
+	result, err := rpccon.EnumServicesStatus(uint32(16), uint32(3))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
-    fmt.Printf("\nShares:\n")
-    for _, share := range shares {
-        fmt.Printf("Name: %s\nComment: %s\nType: %s\n\n", share.Name, share.Comment, share.Type)
-    }
+	for _, service := range result {
+		fmt.Printf("\nDisplayName: %s\nServiceName: %s\nStatus: %s\n", service.DisplayName, service.ServiceName, msscmr.ServiceStatusMap[service.ServiceStatus.CurrentState])
+		break // Only print the first service
+	}
 }
 ```
