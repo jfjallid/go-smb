@@ -207,7 +207,7 @@ type LsaprUserRightSet struct {
 }
 
 func (s *SecurityQualityOfService) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarSecurityQualityOfService")
+	log.Traceln("In MarshalBinary for LsarSecurityQualityOfService")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -240,7 +240,7 @@ func (s *SecurityQualityOfService) MarshalBinary() (res []byte, err error) {
 }
 
 func (s *LsaprObjectAttributes) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarObjectAttributes")
+	log.Traceln("In MarshalBinary for LsarObjectAttributes")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -296,7 +296,7 @@ func (s *LsaprObjectAttributes) MarshalBinary() (res []byte, err error) {
 }
 
 func (s *LsaprAccountEnumBuffer) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for LsaprAccountEnumBufferRes")
+	log.Traceln("In UnmarshalBinary for LsaprAccountEnumBufferRes")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for LsaprAccountEnumBufferRes")
 	}
@@ -339,7 +339,7 @@ func (s *LsaprAccountEnumBuffer) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *LsaprUserRightSet) fromReader(r *bytes.Reader) (err error) {
-	log.Debugln("In fromReader for LsaprUserRightSet")
+	log.Traceln("In fromReader for LsaprUserRightSet")
 
 	err = binary.Read(r, le, &s.Entries)
 	if err != nil {
@@ -362,7 +362,7 @@ func (s *LsaprUserRightSet) fromReader(r *bytes.Reader) (err error) {
 }
 
 func (s *LsaprUserRightSet) toWriter(w io.Writer, refId *uint32) (err error) {
-	log.Debugln("In toWriter for LsaprUserRightSet")
+	log.Traceln("In toWriter for LsaprUserRightSet")
 
 	s.Entries = uint32(len(s.UserRights))
 
@@ -382,7 +382,7 @@ func (s *LsaprUserRightSet) toWriter(w io.Writer, refId *uint32) (err error) {
 }
 
 func (s *LsaprPolicyPrimaryDomInfo) fromReader(r *bytes.Reader) (err error) {
-	log.Debugln("In fromReader for LsaprPolicyPrimaryDomInfo")
+	log.Traceln("In fromReader for LsaprPolicyPrimaryDomInfo")
 
 	var count, maxCount uint16
 	err = binary.Read(r, le, &count)
@@ -424,7 +424,7 @@ func (s *LsaprPolicyPrimaryDomInfo) fromReader(r *bytes.Reader) (err error) {
 }
 
 func (s *LsaprPolicyPrimaryDomInfo) toWriter(w io.Writer, refId *uint32) (err error) {
-	log.Debugln("In toWriter for LsaprPolicyPrimaryInformation")
+	log.Traceln("In toWriter for LsaprPolicyPrimaryInformation")
 
 	offset, count, paddlen, unc := msdtyp.NewUnicodeStr(s.Name, false)
 	maxCount := count + 1
@@ -507,7 +507,7 @@ func (s *LsaprPolicyPrimaryDomInfo) toWriter(w io.Writer, refId *uint32) (err er
 }
 
 func (s *LsaprPolicyPrimaryDomInfo) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsaprPolicyPrimaryDomInfo")
+	log.Traceln("In MarshalBinary for LsaprPolicyPrimaryDomInfo")
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	refId := uint32(1)
@@ -521,13 +521,13 @@ func (s *LsaprPolicyPrimaryDomInfo) MarshalBinary() (res []byte, err error) {
 }
 
 func (s *LsaprPolicyPrimaryDomInfo) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for LsaprPolicyPrimaryDomInfo")
+	log.Traceln("In UnmarshalBinary for LsaprPolicyPrimaryDomInfo")
 	r := bytes.NewReader(buf)
 	return s.fromReader(r)
 }
 
 func (s *LsarCloseReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarCloseReq")
+	log.Traceln("In MarshalBinary for LsarCloseReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -546,7 +546,7 @@ func (s *LsarCloseReq) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *LsarQueryInformationPolicyReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarQueryInformationPolicyReq")
+	log.Traceln("In MarshalBinary for LsarQueryInformationPolicyReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -574,7 +574,7 @@ func (s *LsarQueryInformationPolicyRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *LsarQueryInformationPolicyRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for LsarQueryInformationPolicyRes")
+	log.Traceln("In UnmarshalBinary for LsarQueryInformationPolicyRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for LsarQueryInformationPolicyRes")
 	}
@@ -634,7 +634,7 @@ func (s *LsarQueryInformationPolicyRes) UnmarshalBinary(buf []byte) (err error) 
 }
 
 func (s *LsarCreateAccountReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarCreateAccountReq")
+	log.Traceln("In MarshalBinary for LsarCreateAccountReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -680,7 +680,7 @@ func (s *LsarCreateAccountRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *LsarCreateAccountRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for LsarCreateAccountRes")
+	log.Traceln("In UnmarshalBinary for LsarCreateAccountRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for LsarCreateAccountRes")
 	}
@@ -727,7 +727,7 @@ func (s *LsarCreateAccountRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *LsarEnumerateAccountsReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarEnumerateAccountsReq")
+	log.Traceln("In MarshalBinary for LsarEnumerateAccountsReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -761,7 +761,7 @@ func (s *LsarEnumerateAccountsRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *LsarEnumerateAccountsRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for LsarEnumerateAccountsRes")
+	log.Traceln("In UnmarshalBinary for LsarEnumerateAccountsRes")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for LsarEnumerateAccountsRes")
 	}
@@ -809,7 +809,7 @@ func (s *LsarEnumerateAccountsRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *LsarOpenAccountReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarOpenAccountReq")
+	log.Traceln("In MarshalBinary for LsarOpenAccountReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -855,7 +855,7 @@ func (s *LsarOpenAccountRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *LsarOpenAccountRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for LsarOpenAccountRes")
+	log.Traceln("In UnmarshalBinary for LsarOpenAccountRes")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for LsarOpenAccountRes")
 	}
@@ -901,7 +901,7 @@ func (s *LsarOpenAccountRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *LsarGetSystemAccessAccountReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarGetSystemAccessAccountReq")
+	log.Traceln("In MarshalBinary for LsarGetSystemAccessAccountReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -924,7 +924,7 @@ func (s *LsarGetSystemAccessAccountRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *LsarGetSystemAccessAccountRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for LsarGetSystemAccessAccountRes")
+	log.Traceln("In UnmarshalBinary for LsarGetSystemAccessAccountRes")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer to small for LsarGetSystemAccessAccountRes")
 	}
@@ -946,7 +946,7 @@ func (s *LsarGetSystemAccessAccountRes) UnmarshalBinary(buf []byte) (err error) 
 }
 
 func (s *LsarSetSystemAccessAccountReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarSetSystemAccessAccountReq")
+	log.Traceln("In MarshalBinary for LsarSetSystemAccessAccountReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -970,7 +970,7 @@ func (s *LsarSetSystemAccessAccountReq) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *LsarEnumerateAccountRightsReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarEnumerateAccountRightsReq")
+	log.Traceln("In MarshalBinary for LsarEnumerateAccountRightsReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1010,7 +1010,7 @@ func (s *LsarEnumerateAccountRightsRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *LsarEnumerateAccountRightsRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for LsarEnumerateAccountRightsRes")
+	log.Traceln("In UnmarshalBinary for LsarEnumerateAccountRightsRes")
 	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for LsarEnumerateAccountRightsRes")
 	}
@@ -1047,7 +1047,7 @@ func (s *LsarEnumerateAccountRightsRes) UnmarshalBinary(buf []byte) (err error) 
 }
 
 func (s *LsarAddAccountRightsReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarAddAccountRightsReq")
+	log.Traceln("In MarshalBinary for LsarAddAccountRightsReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1090,7 +1090,7 @@ func (s *LsarAddAccountRightsReq) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *LsarRemoveAccountRightsReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarRemoveAccountRightsReq")
+	log.Traceln("In MarshalBinary for LsarRemoveAccountRightsReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1143,7 +1143,7 @@ func (s *LsarRemoveAccountRightsReq) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *LsarOpenPolicy2Req) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for LsarOpenPolicy2Req")
+	log.Traceln("In MarshalBinary for LsarOpenPolicy2Req")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1188,7 +1188,7 @@ func (s *LsarOpenPolicy2Res) MarshalBinary() ([]byte, error) {
 }
 
 func (s *LsarOpenPolicy2Res) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for LsarOpenPolicy2Res")
+	log.Traceln("In UnmarshalBinary for LsarOpenPolicy2Res")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for LsarOpenPolicy2Res")
 	}

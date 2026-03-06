@@ -277,7 +277,7 @@ func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 }
 
 func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err error) {
-	log.Debugln("In decodeServiceConfig")
+	log.Traceln("In decodeServiceConfig")
 	if _, ok := ServiceTypeStatusMap[config.ServiceType]; !ok {
 		log.Infof("Could not identify returned service type for (%s): %d\n", config.DisplayName, config.ServiceType)
 		res.ServiceType = fmt.Sprintf("Unknown type 0x%x (%d)", config.ServiceType, config.ServiceType)
@@ -314,7 +314,7 @@ func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err er
 
 // NOTE That currently the config Dependencies cannot be modified
 func (sb *RPCCon) ChangeServiceConfigExt(serviceName string, config *ServiceConfig) (err error) {
-	log.Debugln("In ChangeServiceConfigExt")
+	log.Traceln("In ChangeServiceConfigExt")
 	var binaryPathName, serviceStartName, displayName string
 	var serviceType, startType, errorControl uint32
 
@@ -364,7 +364,7 @@ func (sb *RPCCon) ChangeServiceConfigExt(serviceName string, config *ServiceConf
 }
 
 func (sb *RPCCon) openSCManager(desiredAccess uint32) (handle []byte, err error) {
-	log.Debugln("In openSCManager")
+	log.Traceln("In openSCManager")
 	scReq := ROpenSCManagerWReq{
 		MachineName:   "DUMMY",
 		DatabaseName:  "ServicesActive",
@@ -405,7 +405,7 @@ func (sb *RPCCon) openSCManager(desiredAccess uint32) (handle []byte, err error)
 }
 
 func (sb *RPCCon) openService(scHandle []byte, serviceName string, desiredAccess uint32) (handle []byte, err error) {
-	log.Debugln("In openService")
+	log.Traceln("In openService")
 	serviceReq := ROpenServiceWReq{
 		SCContextHandle: scHandle,
 		ServiceName:     serviceName,
@@ -444,7 +444,7 @@ func (sb *RPCCon) openService(scHandle []byte, serviceName string, desiredAccess
 }
 
 func (sb *RPCCon) GetServiceStatus(serviceName string) (status uint32, err error) {
-	log.Debugln("In GetServiceStatus")
+	log.Traceln("In GetServiceStatus")
 	handle, err := sb.openSCManager(ServiceQueryStatus)
 	if err != nil {
 		return
@@ -490,7 +490,7 @@ func (sb *RPCCon) GetServiceStatus(serviceName string) (status uint32, err error
 }
 
 func (sb *RPCCon) StartService(serviceName string, args []string) (err error) {
-	log.Debugln("In StartService")
+	log.Traceln("In StartService")
 	handle, err := sb.openSCManager(ServiceStart)
 	if err != nil {
 		return
@@ -536,7 +536,7 @@ func (sb *RPCCon) StartService(serviceName string, args []string) (err error) {
 }
 
 func (sb *RPCCon) ControlService(serviceName string, control uint32) (err error) {
-	log.Debugln("In ControlService")
+	log.Traceln("In ControlService")
 	handle, err := sb.openSCManager(SCManagerConnect)
 	if err != nil {
 		return
@@ -584,7 +584,7 @@ func (sb *RPCCon) ControlService(serviceName string, control uint32) (err error)
 }
 
 func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, err error) {
-	log.Debugln("In GetServiceConfig")
+	log.Traceln("In GetServiceConfig")
 	handle, err := sb.openSCManager(ServiceQueryConfig)
 	if err != nil {
 		return
@@ -661,7 +661,7 @@ func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, er
 }
 
 func (sb *RPCCon) GetServiceConfig2(serviceName string, infoLevel uint32) (result []byte, err error) {
-	log.Debugln("In GetServiceConfig2")
+	log.Traceln("In GetServiceConfig2")
 	handle, err := sb.openSCManager(ServiceQueryConfig)
 	if err != nil {
 		return
@@ -745,7 +745,7 @@ func (sb *RPCCon) ChangeServiceConfig(
 	serviceType, startType, errorControl uint32,
 	binaryPathName, serviceStartName, password, displayName, loadOrderGroup, dependencies string, tagId uint32) (err error) {
 
-	log.Debugln("In ChangeServiceConfig")
+	log.Traceln("In ChangeServiceConfig")
 	if dependencies != "" {
 		return fmt.Errorf("Specifying dependencies when changing a service config is currently unsupported.")
 	}
@@ -823,7 +823,7 @@ func (sb *RPCCon) ChangeServiceConfig(
 }
 
 func (sb *RPCCon) ChangeServiceConfig2(serviceName string, info *ConfigInfoW) (err error) {
-	log.Debugln("In ChangeServiceConfig2")
+	log.Traceln("In ChangeServiceConfig2")
 	handle, err := sb.openSCManager(ServiceChangeConfig)
 	if err != nil {
 		return
@@ -875,7 +875,7 @@ func (sb *RPCCon) CreateService(
 	serviceType, startType, errorControl uint32,
 	binaryPathName, serviceStartName, password, displayName string, startService bool) (err error) {
 
-	log.Debugln("In CreateService")
+	log.Traceln("In CreateService")
 
 	scHandle, err := sb.openSCManager(SCManagerCreateService)
 	if err != nil {
@@ -1035,7 +1035,7 @@ func (sb *RPCCon) DeleteService(serviceName string) (err error) {
 }
 
 func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result []EnumServiceStatusW, err error) {
-	log.Debugln("In EnumServicesStatus")
+	log.Traceln("In EnumServicesStatus")
 
 	scHandle, err := sb.openSCManager(SCManagerEnumerateService)
 	if err != nil {
@@ -1123,7 +1123,7 @@ func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result [
 }
 
 func (sb *RPCCon) CloseServiceHandle(serviceHandle []byte) {
-	//log.Debugln("In CloseServiceHandle")
+	//log.Traceln("In CloseServiceHandle")
 	closeReq := RCloseServiceHandleReq{
 		ServiceHandle: serviceHandle,
 	}

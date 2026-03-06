@@ -84,7 +84,7 @@ const (
 )
 
 func (sb *RPCCon) LsarGetUserName() (username, domain string, err error) {
-	log.Debugln("In LsarGetUserName")
+	log.Traceln("In LsarGetUserName")
 
 	innerReq := LsarGetUserNameReq{
 		SystemName: "",
@@ -123,7 +123,7 @@ func (sb *RPCCon) LsarGetUserName() (username, domain string, err error) {
 }
 
 func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res SidTranslations, err error) {
-	log.Debugln("In LsarLookupSids2")
+	log.Traceln("In LsarLookupSids2")
 	if len(sids) == 0 {
 		err = fmt.Errorf("Must specify atleast one SID to lookup")
 		return
@@ -195,7 +195,7 @@ func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res Sid
 }
 
 func (sb *RPCCon) LsarLookupNames3(level LsapLookupLevel, names []string) (res NameTranslations, err error) {
-	log.Debugln("In LsarLookupNames3")
+	log.Traceln("In LsarLookupNames3")
 	if len(names) == 0 {
 		err = fmt.Errorf("Must specify atleast one Name to lookup")
 		return

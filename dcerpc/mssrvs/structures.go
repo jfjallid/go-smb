@@ -263,7 +263,7 @@ type NetrpGetFileSecurityRes struct {
 }
 
 func (s *NetServerGetInfoRequest) MarshalBinary() ([]byte, error) {
-	log.Debugln("In MarshalBinary for NetServerGetInfoRequest")
+	log.Traceln("In MarshalBinary for NetServerGetInfoRequest")
 
 	var ret []byte
 	var err error
@@ -304,7 +304,7 @@ func (s *NetServerGetInfoResponse) MarshalBinary() ([]byte, error) {
 }
 
 func (s *NetServerGetInfoResponse) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for NetServerGetInfoResponse")
+	log.Traceln("In UnmarshalBinary for NetServerGetInfoResponse")
 
 	r := bytes.NewReader(buf)
 	s.Info = &NetServerInfo{}
@@ -523,7 +523,7 @@ func (s *NetServerGetInfoResponse) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *NetSessionEnumRequest) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for NetSessionEnumRequest")
+	log.Traceln("In MarshalBinary for NetSessionEnumRequest")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -764,7 +764,7 @@ func (s *NetSessionEnumResponse) MarshalBinary() ([]byte, error) {
 }
 
 func (s *NetSessionEnumResponse) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for NetSessionEnumResponse")
+	log.Traceln("In UnmarshalBinary for NetSessionEnumResponse")
 
 	r := bytes.NewReader(buf)
 	// Skip the SessionEnum Union Discriminator (Level)

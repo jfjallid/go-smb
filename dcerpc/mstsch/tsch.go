@@ -230,7 +230,7 @@ func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 }
 
 func (r *RPCCon) RegisterTask(path, xml string, flags, logonType uint32) (actualPath string, err error) {
-	log.Debugln("In RegisterTask")
+	log.Traceln("In RegisterTask")
 
 	req := SchRpcRegisterTaskReq{
 		Path:      path,
@@ -275,7 +275,7 @@ func (r *RPCCon) RegisterTask(path, xml string, flags, logonType uint32) (actual
 }
 
 func (r *RPCCon) DeleteTask(path string, flags uint32) (err error) {
-	log.Debugln("In DeleteTask")
+	log.Traceln("In DeleteTask")
 
 	req := SchRpcDeleteReq{
 		Path:  path,
@@ -315,7 +315,7 @@ func (r *RPCCon) DeleteTask(path string, flags uint32) (err error) {
 }
 
 func (r *RPCCon) RunTask(path string, flags, sessionId uint32, user string) (guid [16]byte, err error) {
-	log.Debugln("In RunTask")
+	log.Traceln("In RunTask")
 
 	req := SchRpcRunReq{
 		Path:      path,
@@ -358,7 +358,7 @@ func (r *RPCCon) RunTask(path string, flags, sessionId uint32, user string) (gui
 }
 
 func (r *RPCCon) GetLastRunInfo(path string) (lastRunTime SYSTEMTIME, lastReturnCode uint32, err error) {
-	log.Debugln("In GetLastRunInfo")
+	log.Traceln("In GetLastRunInfo")
 
 	req := SchRpcGetLastRunInfoReq{
 		Path: path,
@@ -399,7 +399,7 @@ func (r *RPCCon) GetLastRunInfo(path string) (lastRunTime SYSTEMTIME, lastReturn
 }
 
 func (r *RPCCon) EnumInstances(path string, flags uint32) (guids [][16]byte, err error) {
-	log.Debugln("In EnumInstances")
+	log.Traceln("In EnumInstances")
 
 	req := SchRpcEnumInstancesReq{
 		Path:  path,
@@ -440,7 +440,7 @@ func (r *RPCCon) EnumInstances(path string, flags uint32) (guids [][16]byte, err
 }
 
 func (r *RPCCon) StopTask(path string, flags uint32) (err error) {
-	log.Debugln("In StopTask")
+	log.Traceln("In StopTask")
 
 	req := SchRpcStopReq{
 		Path:  path,
@@ -480,7 +480,7 @@ func (r *RPCCon) StopTask(path string, flags uint32) (err error) {
 }
 
 func (r *RPCCon) RetrieveTask(path string) (xml string, err error) {
-	log.Debugln("In RetrieveTask")
+	log.Traceln("In RetrieveTask")
 
 	req := SchRpcRetrieveTaskReq{
 		Path: path,

@@ -869,7 +869,7 @@ type QueryInfoRes struct {
 }
 
 func (s *QueryInfoReq) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
-	log.Debugln("In MarshalBinary for QueryInfoReq")
+	log.Traceln("In MarshalBinary for QueryInfoReq")
 	buf := make([]byte, 0, 40+len(s.Buffer))
 
 	hBuf, err := encoder.Marshal(s.Header)
@@ -917,7 +917,7 @@ func (s *QueryInfoRes) MarshalBinary(meta *encoder.Metadata) (ret []byte, err er
 }
 
 func (s *QueryInfoRes) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	log.Debugln("In UnmarshalBinary for QueryInfoRes")
+	log.Traceln("In UnmarshalBinary for QueryInfoRes")
 	err := encoder.Unmarshal(buf[:64], &s.Header)
 	if err != nil {
 		log.Errorln(err)
@@ -1099,7 +1099,7 @@ func calcCreditCharge(payloadSize uint32) uint16 {
 }
 
 func (s *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	log.Debugln("In MarshalBinary for NegotiateReq")
+	log.Traceln("In MarshalBinary for NegotiateReq")
 	buf := make([]byte, 0, 100)
 	padding := 0
 	hBuf, err := encoder.Marshal(s.Header)
@@ -1153,7 +1153,7 @@ padding = 8 - ((36 + len(s.Dialects)*2) % 8)
 }
 
 func (s *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	log.Debugln("In UnmarshalBinary for NegotiateReq")
+	log.Traceln("In UnmarshalBinary for NegotiateReq")
 	err := encoder.Unmarshal(buf[:64], &s.Header)
 	if err != nil {
 		log.Errorln(err)

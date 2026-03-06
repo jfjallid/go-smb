@@ -113,7 +113,7 @@ type NetWkstaUserEnumRes struct {
 }
 
 func (s *NetWkstaUserEnumReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for NetWkstaUserEnumReq")
+	log.Traceln("In MarshalBinary for NetWkstaUserEnumReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -169,7 +169,7 @@ func (s *NetWkstaUserEnumRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *NetWkstaUserEnumRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for NetWkstaUserEnumRes")
+	log.Traceln("In UnmarshalBinary for NetWkstaUserEnumRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for NetWkstaUserEnumRes")
 	}
@@ -224,7 +224,7 @@ func (s *NetWkstaUserEnumRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *WkstaUserEnum) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for WkstaUserEnum")
+	log.Traceln("In MarshalBinary for WkstaUserEnum")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -265,7 +265,7 @@ func (s *WkstaUserEnum) MarshalBinary() (res []byte, err error) {
 }
 
 func (s *WkstaUserEnum) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for WkstaUserEnum")
+	log.Traceln("In UnmarshalBinary for WkstaUserEnum")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for WkstaUserEnum")
 	}
@@ -303,7 +303,7 @@ func (s *WkstaUserEnum) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *WkstaUserInfo0Container) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for WkstaUserInfo0Container")
+	log.Traceln("In MarshalBinary for WkstaUserInfo0Container")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -343,7 +343,7 @@ func (s *WkstaUserInfo0Container) MarshalBinary() (res []byte, err error) {
 }
 
 func (s *WkstaUserInfo0Container) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for WkstaUserInfo0Container")
+	log.Traceln("In UnmarshalBinary for WkstaUserInfo0Container")
 	if len(buf) < 16 {
 		return fmt.Errorf("Buffer to small for WkstaUserInfo0Container")
 	}
@@ -388,7 +388,7 @@ func (s *WkstaUserInfo0Container) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *WkstaUserInfo1Container) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for WkstaUserInfo1Container")
+	log.Traceln("In MarshalBinary for WkstaUserInfo1Container")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -428,7 +428,7 @@ func (s *WkstaUserInfo1Container) MarshalBinary() (res []byte, err error) {
 }
 
 func (s *WkstaUserInfo1Container) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for WkstaUserInfo1Container")
+	log.Traceln("In UnmarshalBinary for WkstaUserInfo1Container")
 	if len(buf) < 16 {
 		return fmt.Errorf("Buffer to small for WkstaUserInfo1Container")
 	}

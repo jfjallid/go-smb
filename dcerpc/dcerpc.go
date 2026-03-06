@@ -228,7 +228,7 @@ func newHeader() Header {
 }
 
 func UUIDToBin(uuid string) ([]byte, error) {
-	//log.Debugln("In uuid_to_bin")
+	//log.Traceln("In uuid_to_bin")
 
 	if !strings.ContainsRune(uuid, '-') {
 		return hex.DecodeString(uuid)
@@ -281,7 +281,7 @@ func UUIDToBin(uuid string) ([]byte, error) {
 }
 
 func newBindReq(callId uint32, interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string, maxTransmitSize, maxRecvSize uint16) (req *BindReq, err error) {
-	log.Debugln("In newBindReq")
+	log.Traceln("In newBindReq")
 
 	serviceUUID, err := UUIDToBin(interfaceUUID)
 	if err != nil {
@@ -395,7 +395,7 @@ func parseAndValidateBindAck(response []byte, expectedCallId uint32) (*BindRes, 
 }
 
 func Bind(transport DCERPCTransport, interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string) (bind *ServiceBind, err error) {
-	log.Debugln("In Bind")
+	log.Traceln("In Bind")
 	if transport == nil {
 		return nil, fmt.Errorf("Transport argument cannot be nil")
 	}
@@ -507,7 +507,7 @@ func marshalSPNEGOResp(resp gss.NegTokenResp) ([]byte, error) {
 // For Kerberos, it wraps tokens in SPNEGO and uses Alter Context for the third
 // leg to finalize the security context.
 func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string, authLevel uint8, mechanism gss.Mechanism) (bind *ServiceBind, err error) {
-	log.Debugln("In BindAuth")
+	log.Traceln("In BindAuth")
 	if transport == nil {
 		return nil, fmt.Errorf("Transport argument cannot be nil")
 	}

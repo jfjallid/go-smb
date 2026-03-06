@@ -153,7 +153,7 @@ func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 }
 
 func (sb *RPCCon) LsarCloseHandle(handle []byte) (err error) {
-	log.Debugln("In LsarCloseHandle")
+	log.Traceln("In LsarCloseHandle")
 
 	innerReq := LsarCloseReq{
 		ObjectHandle: handle,
@@ -190,7 +190,7 @@ func (sb *RPCCon) LsarCloseHandle(handle []byte) (err error) {
 }
 
 func (sb *RPCCon) LsarQueryInformationPolicy(policyHandle []byte, informationClass uint16) (res LsaprPolicyInformation, err error) {
-	log.Debugln("In LsarQueryInformationPolicy")
+	log.Traceln("In LsarQueryInformationPolicy")
 	if informationClass != PolicyPrimaryDomainInformation {
 		err = fmt.Errorf("Currently, only informationClass PolicyPrimaryDomainInformation (%d) is supported", PolicyPrimaryDomainInformation)
 		return
@@ -228,7 +228,7 @@ func (sb *RPCCon) LsarQueryInformationPolicy(policyHandle []byte, informationCla
 }
 
 func (sb *RPCCon) LsarCreateAccount(policyHandle []byte, sid string, desiredAccess uint32) (accountHandle []byte, err error) {
-	log.Debugln("In LsarCreateAccount")
+	log.Traceln("In LsarCreateAccount")
 	if desiredAccess == 0 {
 		desiredAccess = MaximumAllowed
 	}
@@ -283,7 +283,7 @@ func (sb *RPCCon) LsarCreateAccount(policyHandle []byte, sid string, desiredAcce
 }
 
 func (sb *RPCCon) LsarEnumerateAccounts(policyHandle []byte) (accounts []msdtyp.SID, err error) {
-	log.Debugln("In LsarEnumerateAccounts")
+	log.Traceln("In LsarEnumerateAccounts")
 
 	innerReq := LsarEnumerateAccountsReq{
 		PolicyHandle:       policyHandle,
@@ -336,7 +336,7 @@ func (sb *RPCCon) LsarEnumerateAccounts(policyHandle []byte) (accounts []msdtyp.
 }
 
 func (sb *RPCCon) LsarOpenAccount(policyHandle []byte, sid *msdtyp.SID, desiredAccess uint32) (accountHandle []byte, err error) {
-	log.Debugln("In LsarOpenAccount")
+	log.Traceln("In LsarOpenAccount")
 	if desiredAccess == 0 {
 		desiredAccess = MaximumAllowed
 	}
@@ -385,7 +385,7 @@ func (sb *RPCCon) LsarOpenAccount(policyHandle []byte, sid *msdtyp.SID, desiredA
 }
 
 func (sb *RPCCon) LsarGetSystemAccessAccount(accountHandle []byte) (systemAccess uint32, err error) {
-	log.Debugln("In LsarGetSystemAccessAccount")
+	log.Traceln("In LsarGetSystemAccessAccount")
 
 	innerReq := LsarGetSystemAccessAccountReq{
 		AccountHandle: accountHandle,
@@ -429,7 +429,7 @@ func (sb *RPCCon) LsarGetSystemAccessAccount(accountHandle []byte) (systemAccess
 }
 
 func (sb *RPCCon) LsarSetSystemAccessAccount(accountHandle []byte, systemAccess uint32) (err error) {
-	log.Debugln("In LsarSetSystemAccessAccount")
+	log.Traceln("In LsarSetSystemAccessAccount")
 
 	innerReq := LsarSetSystemAccessAccountReq{
 		AccountHandle: accountHandle,
@@ -467,7 +467,7 @@ func (sb *RPCCon) LsarSetSystemAccessAccount(accountHandle []byte, systemAccess 
 }
 
 func (sb *RPCCon) LsarEnumerateAccountRights(policyHandle []byte, sid *msdtyp.SID) (rights []string, err error) {
-	log.Debugln("In LsarEnumerateAccountRights")
+	log.Traceln("In LsarEnumerateAccountRights")
 
 	innerReq := LsarEnumerateAccountRightsReq{
 		PolicyHandle: policyHandle,
@@ -515,7 +515,7 @@ func (sb *RPCCon) LsarEnumerateAccountRights(policyHandle []byte, sid *msdtyp.SI
 }
 
 func (sb *RPCCon) LsarAddAccountRights(policyHandle []byte, sid *msdtyp.SID, rights []string) (err error) {
-	log.Debugln("In LsarAddAccountRights")
+	log.Traceln("In LsarAddAccountRights")
 
 	innerReq := LsarAddAccountRightsReq{
 		PolicyHandle: policyHandle,
@@ -555,7 +555,7 @@ func (sb *RPCCon) LsarAddAccountRights(policyHandle []byte, sid *msdtyp.SID, rig
 }
 
 func (sb *RPCCon) LsarRemoveAccountRights(policyHandle []byte, sid *msdtyp.SID, rights []string, removeAllRights bool) (err error) {
-	log.Debugln("In LsarRemoveAccountRights")
+	log.Traceln("In LsarRemoveAccountRights")
 
 	innerReq := LsarRemoveAccountRightsReq{
 		PolicyHandle: policyHandle,
@@ -600,7 +600,7 @@ func (sb *RPCCon) LsarRemoveAccountRights(policyHandle []byte, sid *msdtyp.SID, 
 }
 
 func (sb *RPCCon) LsarOpenPolicy2(systemName string) (policyHandle []byte, err error) {
-	log.Debugln("In LsarOpenPolicy2")
+	log.Traceln("In LsarOpenPolicy2")
 
 	innerReq := LsarOpenPolicy2Req{
 		SystemName: systemName,
@@ -642,7 +642,7 @@ func (sb *RPCCon) LsarOpenPolicy2(systemName string) (policyHandle []byte, err e
 }
 
 func (sb *RPCCon) ListAccounts() (accounts []msdtyp.SID, err error) {
-	log.Debugln("In ListAccounts")
+	log.Traceln("In ListAccounts")
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
@@ -655,7 +655,7 @@ func (sb *RPCCon) ListAccounts() (accounts []msdtyp.SID, err error) {
 }
 
 func (sb *RPCCon) ListAccountRights(sid string) (rights []string, err error) {
-	log.Debugln("In ListAccountRights")
+	log.Traceln("In ListAccountRights")
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
@@ -673,7 +673,7 @@ func (sb *RPCCon) ListAccountRights(sid string) (rights []string, err error) {
 }
 
 func (sb *RPCCon) AddAccountRights(sid string, rights []string) (err error) {
-	log.Debugln("In AddAccountRights")
+	log.Traceln("In AddAccountRights")
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
@@ -691,7 +691,7 @@ func (sb *RPCCon) AddAccountRights(sid string, rights []string) (err error) {
 }
 
 func (sb *RPCCon) RemoveAccountRights(sid string, rights []string, removeAllRights bool) (err error) {
-	log.Debugln("In RemoveAccountRights")
+	log.Traceln("In RemoveAccountRights")
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
@@ -709,7 +709,7 @@ func (sb *RPCCon) RemoveAccountRights(sid string, rights []string, removeAllRigh
 }
 
 func (sb *RPCCon) GetSystemAccessAccount(accountSid string) (rights []string, err error) {
-	log.Debugln("In GetSystemAccessAccount")
+	log.Traceln("In GetSystemAccessAccount")
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
@@ -762,7 +762,7 @@ func (sb *RPCCon) GetSystemAccessAccount(accountSid string) (rights []string, er
 }
 
 func (sb *RPCCon) SetSystemAccessAccount(accountSid string, rights []string) (err error) {
-	log.Debugln("In SetSystemAccessAccount")
+	log.Traceln("In SetSystemAccessAccount")
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {

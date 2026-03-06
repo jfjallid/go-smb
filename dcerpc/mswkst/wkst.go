@@ -78,7 +78,7 @@ func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 }
 
 func (sb *RPCCon) EnumWkstLoggedOnUsers(level int) (res WkstaUserEnumUnion, err error) {
-	log.Debugln("In EnumWkstLoggedOnUsers")
+	log.Traceln("In EnumWkstLoggedOnUsers")
 	if level < 0 || level > 1 {
 		return nil, fmt.Errorf("Only levels 0 and 1 are valid")
 	}

@@ -62,7 +62,7 @@ type SMB1NegotiateReq struct {
 }
 
 func (s *SMB1NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	log.Debugln("In MarshalBinary for SMB1NegotiateReq")
+	log.Traceln("In MarshalBinary for SMB1NegotiateReq")
 	buf := make([]byte, 0, 46)
 	w := bytes.NewBuffer(buf)
 	hBuf, err := encoder.Marshal(s.Header)

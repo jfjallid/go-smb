@@ -170,7 +170,7 @@ Send a NetSessionEnum request to the server. Level can be 0, 1, 2, 10 or 502
 But so far only level 0, 10 and 502 are implemented
 */
 func (sb *RPCCon) NetSessionEnum(clientName, username string, level int) (res *SessionEnum, err error) {
-	log.Debugln("In NetServerGetInfo")
+	log.Traceln("In NetServerGetInfo")
 	if level < 0 {
 		return nil, fmt.Errorf("Only levels 0, 1, 2, 10 and 502 are valid")
 	}
@@ -232,7 +232,7 @@ func NewNetServerGetInfoRequest(serverName string, level int) *NetServerGetInfoR
 Send a NetServerGetInfo request to the server. Level can be 100, 101, or 102
 */
 func (sb *RPCCon) NetServerGetInfo(host string, level int) (res *NetServerInfo, err error) {
-	log.Debugln("In NetServerGetInfo")
+	log.Traceln("In NetServerGetInfo")
 	netReq := NewNetServerGetInfoRequest(host, level)
 	netBuf, err := netReq.MarshalBinary()
 	if err != nil {
@@ -275,7 +275,7 @@ func (sb *RPCCon) NetServerGetInfo(host string, level int) (res *NetServerInfo, 
 }
 
 func (sb *RPCCon) NetShareEnumAll(host string) (res []NetShare, err error) {
-	log.Debugln("In NetShareEnumAll")
+	log.Traceln("In NetShareEnumAll")
 	netReq := NewNetShareEnumAllRequest(host)
 	netBuf, err := netReq.MarshalBinary()
 	if err != nil {
@@ -369,7 +369,7 @@ func NewNetShareEnumAllRequest(serverName string) *NetShareEnumAllRequest {
 }
 
 func (s *NetShareEnumAllRequest) MarshalBinary() (ret []byte, err error) {
-	log.Debugln("In MarshalBinary for NetShareEnumAllRequest")
+	log.Traceln("In MarshalBinary for NetShareEnumAllRequest")
 
 	refId := uint32(1)
 
@@ -467,7 +467,7 @@ func (s *NetShareEnumAllResponse) MarshalBinary() ([]byte, error) {
 }
 
 func (s *NetShareEnumAllResponse) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for NetShareEnumAllResponse")
+	log.Traceln("In UnmarshalBinary for NetShareEnumAllResponse")
 	r := bytes.NewReader(buf)
 	s.InfoStruct = &NetShareEnum{}
 
@@ -582,7 +582,7 @@ func (s *NetShareEnumAllResponse) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (sb *RPCCon) NetGetFileSecurity(share, path string) (sd *msdtyp.SecurityDescriptor, err error) {
-	log.Debugln("In NetGetFileSecurity")
+	log.Traceln("In NetGetFileSecurity")
 	// TODO Validate path
 	netReq := NetrpGetFileSecurityReq{
 		ServerName:           "100.100.100.52",

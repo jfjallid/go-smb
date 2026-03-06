@@ -88,7 +88,7 @@ func NewClient(client *client.Client) *Client {
 }
 
 func (t *KRB5Token) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for KRB5Token")
+	log.Traceln("In MarshalBinary for KRB5Token")
 	res, err = asn1.Marshal(t.Oid)
 	if err != nil {
 		log.Errorln(err)
@@ -132,7 +132,7 @@ func (t *KRB5Token) MarshalBinary() (res []byte, err error) {
 }
 
 func (t *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for KRB5Token")
+	log.Traceln("In UnmarshalBinary for KRB5Token")
 
 	rest, err := asn1.UnmarshalWithParams(buf, &t.Oid, "application,explicit,tag:0")
 	if err != nil {

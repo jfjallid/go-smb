@@ -500,7 +500,7 @@ type SamrGroupMember struct {
 }
 
 func (s *SamrCloseHandleReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrCloseHandleReq")
+	log.Traceln("In MarshalBinary for SamrCloseHandleReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -514,7 +514,7 @@ func (s *SamrCloseHandleReq) MarshalBinary() (res []byte, err error) {
 }
 
 func (s *SamrConnect5Req) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrConnect5Req")
+	log.Traceln("In MarshalBinary for SamrConnect5Req")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -570,7 +570,7 @@ func (s *SamrConnect5Res) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrConnect5Res) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrConnect5Res")
+	log.Traceln("In UnmarshalBinary for SamrConnect5Res")
 	if len(buf) < 40 {
 		return fmt.Errorf("Buffer to small for SamrConnect5Res")
 	}
@@ -645,7 +645,7 @@ func (s *SamrConnect5Res) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrQueryInformationUser2Req) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrQueryInformationUser2Req")
+	log.Traceln("In MarshalBinary for SamrQueryInformationUser2Req")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -674,7 +674,7 @@ func (s *SamrQueryInformationUser2Res) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrQueryInformationUser2Res) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrQueryInformationUser2Res")
+	log.Traceln("In UnmarshalBinary for SamrQueryInformationUser2Res")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer to small for SamrQueryInformationUser2Res")
 	}
@@ -747,7 +747,7 @@ func (s *SamrQueryInformationUser2Res) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrCreateUser2InDomainReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrCreateUser2InDomainReq")
+	log.Traceln("In MarshalBinary for SamrCreateUser2InDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -789,7 +789,7 @@ func (s *SamrCreateUser2InDomainRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrCreateUser2InDomainRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrCreateUser2InDomainRes")
+	log.Traceln("In UnmarshalBinary for SamrCreateUser2InDomainRes")
 	if len(buf) < 28 {
 		return fmt.Errorf("Buffer to small for SamrCreateUser2InDomainRes")
 	}
@@ -848,7 +848,7 @@ func (s *SamrCreateUser2InDomainRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrUnicodeChangePasswordUser2Req) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrUnicodeChangePasswordUser2Req")
+	log.Traceln("In MarshalBinary for SamrUnicodeChangePasswordUser2Req")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -955,7 +955,7 @@ func (s *SamrUnicodeChangePasswordUser2Req) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *SamrSetInformationUser2Req) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrSetInformationUser2Req")
+	log.Traceln("In MarshalBinary for SamrSetInformationUser2Req")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -996,7 +996,7 @@ func (s *SamrSetInformationUser2Req) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *SamrLookupDomainReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrLookupDomainReq")
+	log.Traceln("In MarshalBinary for SamrLookupDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1041,7 +1041,7 @@ func (s *SamrLookupDomainRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrLookupDomainRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrLookupDomainRes")
+	log.Traceln("In UnmarshalBinary for SamrLookupDomainRes")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer to small for SamrLookupDomainRes")
 	}
@@ -1094,7 +1094,7 @@ func (s *SamrLookupDomainRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrAddMemberToGroupReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrAddMemberToGroupReq")
+	log.Traceln("In MarshalBinary for SamrAddMemberToGroupReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1127,7 +1127,7 @@ func (s *SamrAddMemberToGroupReq) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *SamrRemoveMemberFromGroupReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrRemoveMemberFromGroupReq")
+	log.Traceln("In MarshalBinary for SamrRemoveMemberFromGroupReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1154,7 +1154,7 @@ func (s *SamrRemoveMemberFromGroupReq) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *SamrOpenDomainReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrOpenDomainReq")
+	log.Traceln("In MarshalBinary for SamrOpenDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1201,7 +1201,7 @@ func (s *SamrOpenDomainRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrOpenDomainRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrOpenDomainRes")
+	log.Traceln("In UnmarshalBinary for SamrOpenDomainRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for SamrOpenDomainRes")
 	}
@@ -1248,7 +1248,7 @@ func (s *SamrOpenDomainRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrEnumerateGroupsInDomainReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrEnumerateGroupsInDomainReq")
+	log.Traceln("In MarshalBinary for SamrEnumerateGroupsInDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1283,7 +1283,7 @@ func (s *SamrEnumerateGroupsInDomainRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrEnumerateGroupsInDomainRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrEnumerateGroupsInDomainRes")
+	log.Traceln("In UnmarshalBinary for SamrEnumerateGroupsInDomainRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for SamrEnumerateGroupsInDomainRes")
 	}
@@ -1328,7 +1328,7 @@ func (s *SamrEnumerateGroupsInDomainRes) UnmarshalBinary(buf []byte) (err error)
 }
 
 func (s *SamrCreateUserInDomainReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrCreateUserInDomainReq")
+	log.Traceln("In MarshalBinary for SamrCreateUserInDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1364,7 +1364,7 @@ func (s *SamrCreateUserInDomainRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrCreateUserInDomainRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrCreateUserInDomainRes")
+	log.Traceln("In UnmarshalBinary for SamrCreateUserInDomainRes")
 	if len(buf) < 28 {
 		return fmt.Errorf("Buffer to small for SamrCreateUserInDomainRes")
 	}
@@ -1417,7 +1417,7 @@ func (s *SamrCreateUserInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrEnumDomainUsersReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrEnumDomainUsersReq")
+	log.Traceln("In MarshalBinary for SamrEnumDomainUsersReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1458,7 +1458,7 @@ func (s *SamrEnumDomainUsersRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrEnumDomainUsersRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrEnumDomainUsersRes")
+	log.Traceln("In UnmarshalBinary for SamrEnumDomainUsersRes")
 	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for SamrEnumDomainUsersRes")
 	}
@@ -1503,7 +1503,7 @@ func (s *SamrEnumDomainUsersRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrEnumAliasesInDomainReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrEnumAliasesInDomainReq")
+	log.Traceln("In MarshalBinary for SamrEnumAliasesInDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1538,7 +1538,7 @@ func (s *SamrEnumAliasesInDomainRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrEnumAliasesInDomainRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrEnumAliasesInDomainRes")
+	log.Traceln("In UnmarshalBinary for SamrEnumAliasesInDomainRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for SamrEnumAliasesInDomainRes")
 	}
@@ -1583,7 +1583,7 @@ func (s *SamrEnumAliasesInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrAddMemberToAliasReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrAddMemberToAliasReq")
+	log.Traceln("In MarshalBinary for SamrAddMemberToAliasReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1622,7 +1622,7 @@ func (s *SamrAddMemberToAliasReq) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *SamrRemoveMemberFromAliasReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrRemoveMemberFromAliasReq")
+	log.Traceln("In MarshalBinary for SamrRemoveMemberFromAliasReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1661,7 +1661,7 @@ func (s *SamrRemoveMemberFromAliasReq) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *SamrLookupNamesInDomainReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrLookupNamesInDomainReq")
+	log.Traceln("In MarshalBinary for SamrLookupNamesInDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1698,7 +1698,7 @@ func (s *SamrLookupNamesInDomainRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrLookupNamesInDomainRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrLookupNamesInDomainRes")
+	log.Traceln("In UnmarshalBinary for SamrLookupNamesInDomainRes")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for SamrLookupNamesInDomainRes")
 	}
@@ -1743,7 +1743,7 @@ func (s *SamrLookupNamesInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrLookupIdsInDomainReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrLookupIdsInDomainReq")
+	log.Traceln("In MarshalBinary for SamrLookupIdsInDomainReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1798,7 +1798,7 @@ func (s *SamrLookupIdsInDomainRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrLookupIdsInDomainRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrLookupIdsInDomainRes")
+	log.Traceln("In UnmarshalBinary for SamrLookupIdsInDomainRes")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for SamrLookupIdsInDomainRes")
 	}
@@ -1867,7 +1867,7 @@ func (s *SamrLookupIdsInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrOpenGroupReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrOpenGroupReq")
+	log.Traceln("In MarshalBinary for SamrOpenGroupReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1902,7 +1902,7 @@ func (s *SamrOpenGroupRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrOpenGroupRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrOpenGroupRes")
+	log.Traceln("In UnmarshalBinary for SamrOpenGroupRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for SamrOpenGroupRes")
 	}
@@ -1950,7 +1950,7 @@ func (s *SamrOpenGroupRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrOpenAliasReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrOpenAliasReq")
+	log.Traceln("In MarshalBinary for SamrOpenAliasReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1985,7 +1985,7 @@ func (s *SamrOpenAliasRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrOpenAliasRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrOpenAliasRes")
+	log.Traceln("In UnmarshalBinary for SamrOpenAliasRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for SamrOpenAliasRes")
 	}
@@ -2033,7 +2033,7 @@ func (s *SamrOpenAliasRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrGetMembersInAliasReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrGetMembersInAliasReq")
+	log.Traceln("In MarshalBinary for SamrGetMembersInAliasReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -2056,7 +2056,7 @@ func (s *SamrGetMembersInAliasRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrGetMembersInAliasRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrGetMembersInAliasRes")
+	log.Traceln("In UnmarshalBinary for SamrGetMembersInAliasRes")
 	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for SamrGetMembersInAliasRes")
 	}
@@ -2129,7 +2129,7 @@ func (s *SamrGetMembersInAliasRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrOpenUserReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrOpenUserReq")
+	log.Traceln("In MarshalBinary for SamrOpenUserReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -2163,7 +2163,7 @@ func (s *SamrOpenUserRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrOpenUserRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrOpenUserRes")
+	log.Traceln("In UnmarshalBinary for SamrOpenUserRes")
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer to small for SamrOpenUserRes")
 	}
@@ -2211,7 +2211,7 @@ func (s *SamrOpenUserRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrDeleteUserReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrDeleteUserReq")
+	log.Traceln("In MarshalBinary for SamrDeleteUserReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -2230,7 +2230,7 @@ func (s *SamrDeleteUserReq) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *SamrEnumDomainsReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrEnumDomainsReq")
+	log.Traceln("In MarshalBinary for SamrEnumDomainsReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -2265,7 +2265,7 @@ func (s *SamrEnumDomainsRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrEnumDomainsRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrEnumDomainsRes")
+	log.Traceln("In UnmarshalBinary for SamrEnumDomainsRes")
 	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for SamrEnumDomainsRes")
 	}
@@ -2318,7 +2318,7 @@ func (s *SamrEnumDomainsRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamprRevisionInfoV1) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamprRevisionInfoV1")
+	log.Traceln("In MarshalBinary for SamprRevisionInfoV1")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -2347,7 +2347,7 @@ func (s *SamprRevisionInfoV1) MarshalBinary() (res []byte, err error) {
 }
 
 func (s *SamprRevisionInfoV1) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamprRevisionInfoV1")
+	log.Traceln("In UnmarshalBinary for SamprRevisionInfoV1")
 	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for SamprRevisionInfoV1")
 	}
@@ -2376,7 +2376,7 @@ func (s *SamprRevisionInfoV1) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamprEnumerationBuffer) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamprEnumerationBuffer")
+	log.Traceln("In UnmarshalBinary for SamprEnumerationBuffer")
 	if len(buf) < 4 {
 		return fmt.Errorf("Buffer to small for SamprEnumerationBuffer")
 	}
@@ -2436,7 +2436,7 @@ func (s *SamprEnumerationBuffer) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrRidToSidReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrRidToSidReq")
+	log.Traceln("In MarshalBinary for SamrRidToSidReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -2465,7 +2465,7 @@ func (s *SamrRidToSidRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrRidToSidRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrRidToSidRes")
+	log.Traceln("In UnmarshalBinary for SamrRidToSidRes")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer to small for SamrRidToSidRes")
 	}
@@ -2513,7 +2513,7 @@ func (s *SamrRidToSidRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamrGetMembersInGroupReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamrGetMembersInGroupReq")
+	log.Traceln("In MarshalBinary for SamrGetMembersInGroupReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -2536,7 +2536,7 @@ func (s *SamrGetMembersInGroupRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *SamrGetMembersInGroupRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SamrGetMembersInGroupRes")
+	log.Traceln("In UnmarshalBinary for SamrGetMembersInGroupRes")
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer to small for SamrGetMembersInGroupRes")
 	}
@@ -2583,7 +2583,7 @@ func (s *SamrGetMembersInGroupRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *SamprUserInternal4Information) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamprUserInternal4Information")
+	log.Traceln("In MarshalBinary for SamprUserInternal4Information")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -2616,7 +2616,7 @@ func (s *SamprUserInternal4Information) MarshalBinary() (res []byte, err error) 
 }
 
 func (s *SamprUserAllInformation) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamprUserAllInformation")
+	log.Traceln("In MarshalBinary for SamprUserAllInformation")
 	var ret []byte
 	w := bytes.NewBuffer(ret)
 	refId := uint32(1)
@@ -2639,7 +2639,7 @@ func (s *SamprUserAllInformation) MarshalBinary() (res []byte, err error) {
 }
 
 func (s *SamprUserAllInformation) WriteSamprUserAllInformation(w io.Writer, refId *uint32) (err error) {
-	log.Debugln("In WriteSamprUserAllInformation")
+	log.Traceln("In WriteSamprUserAllInformation")
 
 	_, err = s.LastLogon.ToWriter(w)
 	if err != nil {
@@ -2860,7 +2860,7 @@ func (s *SamprUserAllInformation) WriteSamprUserAllInformation(w io.Writer, refI
 }
 
 func (s *SamprUserAllInformation) ReadSamprUserAllInformation(r *bytes.Reader) (err error) {
-	log.Debugln("In ReadSamprUserAllInformation")
+	log.Traceln("In ReadSamprUserAllInformation")
 
 	err = s.LastLogon.FromReader(r)
 	if err != nil {
@@ -3068,7 +3068,7 @@ func (s *SamprUserAllInformation) ReadSamprUserAllInformation(r *bytes.Reader) (
 }
 
 func (s *SamrLogonHours) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for SamprLogonHours")
+	log.Traceln("In MarshalBinary for SamprLogonHours")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -3098,7 +3098,7 @@ func (s *SamrLogonHours) MarshalBinary() (res []byte, err error) {
 }
 
 func (s *SamprGetMembersBuffer) fromReader(r *bytes.Reader) (err error) {
-	log.Debugln("In fromReader for SamprGetMembersBuffer")
+	log.Traceln("In fromReader for SamprGetMembersBuffer")
 	// Skip ref id ptr
 	_, err = r.Seek(4, io.SeekCurrent)
 	if err != nil {

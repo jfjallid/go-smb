@@ -336,7 +336,7 @@ func newUserPassword(pass string) (res *SamprUserPassword, err error) {
 }
 
 func (s *SamprUserPassword) EncryptRC4(key []byte) (res []byte, err error) {
-	log.Debugln("In EncryptRC4 for SamrUserPassword")
+	log.Traceln("In EncryptRC4 for SamrUserPassword")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -365,7 +365,7 @@ func (s *SamprUserPassword) EncryptRC4(key []byte) (res []byte, err error) {
 }
 
 func (sb *RPCCon) SamrConnect5(serverName string) (handle *SamrHandle, err error) {
-	log.Debugln("In SamrConnect5")
+	log.Traceln("In SamrConnect5")
 
 	innerReq := SamrConnect5Req{
 		ServerName:     serverName,
@@ -401,7 +401,7 @@ func (sb *RPCCon) SamrConnect5(serverName string) (handle *SamrHandle, err error
 }
 
 func (sb *RPCCon) SamrEnumDomains(handle *SamrHandle) (domains []string, err error) {
-	log.Debugln("In SamrEnumDomains")
+	log.Traceln("In SamrEnumDomains")
 	if err = validateHandle(handle, SamrHandleTypeServer); err != nil {
 		return
 	}
@@ -442,7 +442,7 @@ func (sb *RPCCon) SamrEnumDomains(handle *SamrHandle) (domains []string, err err
 }
 
 func (sb *RPCCon) SamrLookupDomain(handle *SamrHandle, name string) (domainId *msdtyp.SID, err error) {
-	log.Debugln("In SamrLookupDomain")
+	log.Traceln("In SamrLookupDomain")
 	if err = validateHandle(handle, SamrHandleTypeServer); err != nil {
 		return
 	}
@@ -484,7 +484,7 @@ func (sb *RPCCon) SamrLookupDomain(handle *SamrHandle, name string) (domainId *m
 }
 
 func (sb *RPCCon) SamrAddMemberToGroup(groupHandle *SamrHandle, rid, attributes uint32) (err error) {
-	log.Debugln("In SamrAddMemberToGroup")
+	log.Traceln("In SamrAddMemberToGroup")
 	if err = validateHandle(groupHandle, SamrHandleTypeGroup); err != nil {
 		return
 	}
@@ -527,7 +527,7 @@ func (sb *RPCCon) SamrAddMemberToGroup(groupHandle *SamrHandle, rid, attributes 
 }
 
 func (sb *RPCCon) SamrRemoveMemberFromGroup(groupHandle *SamrHandle, rid uint32) (err error) {
-	log.Debugln("In SamrRemoveMemberFromGroup")
+	log.Traceln("In SamrRemoveMemberFromGroup")
 	if err = validateHandle(groupHandle, SamrHandleTypeGroup); err != nil {
 		return
 	}
@@ -572,7 +572,7 @@ func (sb *RPCCon) SamrRemoveMemberFromGroup(groupHandle *SamrHandle, rid uint32)
 }
 
 func (sb *RPCCon) SamrGetMembersInGroup(groupHandle *SamrHandle) (members []SamrGroupMember, err error) {
-	log.Debugln("In SamrGetMembersInGroup")
+	log.Traceln("In SamrGetMembersInGroup")
 	if err = validateHandle(groupHandle, SamrHandleTypeGroup); err != nil {
 		return
 	}
@@ -610,7 +610,7 @@ func (sb *RPCCon) SamrGetMembersInGroup(groupHandle *SamrHandle) (members []Samr
 }
 
 func (sb *RPCCon) SamrOpenDomain(handle *SamrHandle, desiredAccess uint32, domainId *msdtyp.SID) (domainHandle *SamrHandle, err error) {
-	log.Debugln("In SamrOpenDomain")
+	log.Traceln("In SamrOpenDomain")
 	if err = validateHandle(handle, SamrHandleTypeServer); err != nil {
 		return
 	}
@@ -651,7 +651,7 @@ func (sb *RPCCon) SamrOpenDomain(handle *SamrHandle, desiredAccess uint32, domai
 }
 
 func (sb *RPCCon) SamrAddMemberToAlias(aliasHandle *SamrHandle, sid *msdtyp.SID) (err error) {
-	log.Debugln("In SamrAddMemberToAlias")
+	log.Traceln("In SamrAddMemberToAlias")
 	if err = validateHandle(aliasHandle, SamrHandleTypeAlias); err != nil {
 		return
 	}
@@ -693,7 +693,7 @@ func (sb *RPCCon) SamrAddMemberToAlias(aliasHandle *SamrHandle, sid *msdtyp.SID)
 }
 
 func (sb *RPCCon) SamrRemoveMemberFromAlias(aliasHandle *SamrHandle, sid *msdtyp.SID) (err error) {
-	log.Debugln("In SamrRemoveMemberFromAlias")
+	log.Traceln("In SamrRemoveMemberFromAlias")
 	if err = validateHandle(aliasHandle, SamrHandleTypeAlias); err != nil {
 		return
 	}
@@ -735,7 +735,7 @@ func (sb *RPCCon) SamrRemoveMemberFromAlias(aliasHandle *SamrHandle, sid *msdtyp
 }
 
 func (sb *RPCCon) SamrLookupNamesInDomain(domainHandle *SamrHandle, names []string) (result []SamrRidMapping, err error) {
-	log.Debugln("In SamrLookupNamesInDomain")
+	log.Traceln("In SamrLookupNamesInDomain")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
@@ -800,7 +800,7 @@ func (sb *RPCCon) SamrLookupNamesInDomain(domainHandle *SamrHandle, names []stri
 }
 
 func (sb *RPCCon) SamrLookupIdsInDomain(domainHandle *SamrHandle, ids []uint32) (names []SamrRidMapping, err error) {
-	log.Debugln("In SamrLookupIdsInDomain")
+	log.Traceln("In SamrLookupIdsInDomain")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
@@ -860,7 +860,7 @@ func (sb *RPCCon) SamrLookupIdsInDomain(domainHandle *SamrHandle, ids []uint32) 
 }
 
 func (sb *RPCCon) SamrOpenGroup(domainHandle *SamrHandle, desiredAccess, rid uint32) (aliasHandle *SamrHandle, err error) {
-	log.Debugln("In SamrOpenGroup")
+	log.Traceln("In SamrOpenGroup")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
@@ -909,7 +909,7 @@ func (sb *RPCCon) SamrOpenGroup(domainHandle *SamrHandle, desiredAccess, rid uin
 }
 
 func (sb *RPCCon) SamrOpenAlias(domainHandle *SamrHandle, desiredAccess, aliasId uint32) (aliasHandle *SamrHandle, err error) {
-	log.Debugln("In SamrOpenAlias")
+	log.Traceln("In SamrOpenAlias")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
@@ -958,7 +958,7 @@ func (sb *RPCCon) SamrOpenAlias(domainHandle *SamrHandle, desiredAccess, aliasId
 }
 
 func (sb *RPCCon) SamrGetMembersInAlias(aliasHandle *SamrHandle) (members []msdtyp.SID, err error) {
-	log.Debugln("In SamrGetMembersInAlias")
+	log.Traceln("In SamrGetMembersInAlias")
 	if err = validateHandle(aliasHandle, SamrHandleTypeAlias); err != nil {
 		return
 	}
@@ -998,7 +998,7 @@ func (sb *RPCCon) SamrGetMembersInAlias(aliasHandle *SamrHandle) (members []msdt
 }
 
 func (sb *RPCCon) SamrCloseHandle(handle *SamrHandle) (err error) {
-	log.Debugln("In SamrCloseHandle")
+	log.Traceln("In SamrCloseHandle")
 	if handle == nil {
 		return fmt.Errorf("Cannot close a nil SamrHandle")
 	}
@@ -1039,7 +1039,7 @@ func (sb *RPCCon) SamrCloseHandle(handle *SamrHandle) (err error) {
 }
 
 func (sb *RPCCon) SamrRidToSid(domainHandle *SamrHandle, rid uint32) (sid *msdtyp.SID, err error) {
-	log.Debugln("In SamrRidToSid")
+	log.Traceln("In SamrRidToSid")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
@@ -1076,7 +1076,7 @@ func (sb *RPCCon) SamrRidToSid(domainHandle *SamrHandle, rid uint32) (sid *msdty
 }
 
 func (sb *RPCCon) SamrCreateUserInDomain(domainHandle *SamrHandle, name string, desiredAccess uint32) (userHandle *SamrHandle, rid uint32, err error) {
-	log.Debugln("In SamrCreateUserInDomain")
+	log.Traceln("In SamrCreateUserInDomain")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
@@ -1116,7 +1116,7 @@ func (sb *RPCCon) SamrCreateUserInDomain(domainHandle *SamrHandle, name string, 
 }
 
 func (sb *RPCCon) SamrEnumDomainUsers(domainHandle *SamrHandle, accountFlags uint32, maxLength uint32) (users []SamprRidEnumeration, err error) {
-	log.Debugln("In SamrEnumDomainUsers")
+	log.Traceln("In SamrEnumDomainUsers")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
@@ -1194,7 +1194,7 @@ func (sb *RPCCon) SamrEnumDomainUsers(domainHandle *SamrHandle, accountFlags uin
 }
 
 func (sb *RPCCon) SamrEnumerateGroupsInDomain(domainHandle *SamrHandle, maxLength uint32) (groups []SamprRidEnumeration, err error) {
-	log.Debugln("In SamrEnumerateGroupsInDomain")
+	log.Traceln("In SamrEnumerateGroupsInDomain")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
@@ -1270,7 +1270,7 @@ func (sb *RPCCon) SamrEnumerateGroupsInDomain(domainHandle *SamrHandle, maxLengt
 }
 
 func (sb *RPCCon) SamrGetUserInfo2(userHandle *SamrHandle, informationClass uint16) (info SamprUserInfoBufferUnion, err error) {
-	log.Debugln("In SamrGetUserInfo2")
+	log.Traceln("In SamrGetUserInfo2")
 	if err = validateHandle(userHandle, SamrHandleTypeAccount); err != nil {
 		return
 	}
@@ -1305,7 +1305,7 @@ func (sb *RPCCon) SamrGetUserInfo2(userHandle *SamrHandle, informationClass uint
 }
 
 func (sb *RPCCon) SamrCreateUser2InDomain(domainHandle *SamrHandle, name string, accountType, desiredAccess uint32) (accountHandle *SamrHandle, rid uint32, err error) {
-	log.Debugln("In SamrCreateUser2InDomain")
+	log.Traceln("In SamrCreateUser2InDomain")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
@@ -1358,7 +1358,7 @@ func (sb *RPCCon) SamrCreateUser2InDomain(domainHandle *SamrHandle, name string,
 
 // Change password of user with knowledge of current PW or NT Hash of current PW
 func (sb *RPCCon) SamrChangePassword2(username, currPw, newPw string, currNTHash []byte) (err error) {
-	log.Debugln("In SamrChangePassword2")
+	log.Traceln("In SamrChangePassword2")
 	if (currPw == "") && (currNTHash == nil) {
 		err = fmt.Errorf("Have to supply current password or NT hash to change password")
 		return
@@ -1421,7 +1421,7 @@ func (sb *RPCCon) SamrChangePassword2(username, currPw, newPw string, currNTHash
 }
 
 func (sb *RPCCon) SamrSetUserInfo2(userHandle *SamrHandle, input *SamrUserInfoInput) (err error) {
-	log.Debugln("In SamrSetUserInfo2")
+	log.Traceln("In SamrSetUserInfo2")
 	if err = validateHandle(userHandle, SamrHandleTypeAccount); err != nil {
 		return
 	}
@@ -1527,7 +1527,7 @@ func (sb *RPCCon) SamrSetUserInfo2(userHandle *SamrHandle, input *SamrUserInfoIn
 }
 
 func (sb *RPCCon) SamrEnumAliasesInDomain(domainHandle *SamrHandle, maxLength uint32) (aliases []SamprRidEnumeration, err error) {
-	log.Debugln("In SamrEnumAliasesInDomain")
+	log.Traceln("In SamrEnumAliasesInDomain")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
@@ -1603,7 +1603,7 @@ func (sb *RPCCon) SamrEnumAliasesInDomain(domainHandle *SamrHandle, maxLength ui
 }
 
 func (sb *RPCCon) SamrOpenUser(domainHandle *SamrHandle, desiredAccess, rid uint32) (userHandle *SamrHandle, err error) {
-	log.Debugln("In SamrOpenUser")
+	log.Traceln("In SamrOpenUser")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}
@@ -1649,7 +1649,7 @@ func (sb *RPCCon) SamrOpenUser(domainHandle *SamrHandle, desiredAccess, rid uint
 }
 
 func (sb *RPCCon) SamrDeleteUser(userHandle *SamrHandle) (err error) {
-	log.Debugln("In SamrDeleteUser")
+	log.Traceln("In SamrDeleteUser")
 	if err = validateHandle(userHandle, SamrHandleTypeAccount); err != nil {
 		return
 	}
@@ -1689,7 +1689,7 @@ func (sb *RPCCon) SamrDeleteUser(userHandle *SamrHandle) (err error) {
 }
 
 func (sb *RPCCon) QueryUserAllInfo(domainHandle *SamrHandle, userRid uint32) (info *SamprUserAllInformation, err error) {
-	log.Debugln("In SamrQueryUserAllInfo")
+	log.Traceln("In SamrQueryUserAllInfo")
 	if err = validateHandle(domainHandle, SamrHandleTypeDomain); err != nil {
 		return
 	}

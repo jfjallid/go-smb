@@ -93,7 +93,7 @@ type SchRpcRegisterTaskReq struct {
 }
 
 func (s *SchRpcRegisterTaskReq) MarshalBinary() ([]byte, error) {
-	log.Debugln("In MarshalBinary for SchRpcRegisterTaskReq")
+	log.Traceln("In MarshalBinary for SchRpcRegisterTaskReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -157,7 +157,7 @@ type SchRpcRegisterTaskRes struct {
 }
 
 func (s *SchRpcRegisterTaskRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SchRpcRegisterTaskRes")
+	log.Traceln("In UnmarshalBinary for SchRpcRegisterTaskRes")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer too small for SchRpcRegisterTaskRes")
 	}
@@ -225,7 +225,7 @@ type SchRpcEnumInstancesReq struct {
 }
 
 func (s *SchRpcEnumInstancesReq) MarshalBinary() ([]byte, error) {
-	log.Debugln("In MarshalBinary for SchRpcEnumInstancesReq")
+	log.Traceln("In MarshalBinary for SchRpcEnumInstancesReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -255,7 +255,7 @@ type SchRpcEnumInstancesRes struct {
 }
 
 func (s *SchRpcEnumInstancesRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SchRpcEnumInstancesRes")
+	log.Traceln("In UnmarshalBinary for SchRpcEnumInstancesRes")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer too small for SchRpcEnumInstancesRes")
 	}
@@ -315,7 +315,7 @@ type SchRpcStopReq struct {
 }
 
 func (s *SchRpcStopReq) MarshalBinary() ([]byte, error) {
-	log.Debugln("In MarshalBinary for SchRpcStopReq")
+	log.Traceln("In MarshalBinary for SchRpcStopReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -350,7 +350,7 @@ type SchRpcDeleteReq struct {
 }
 
 func (s *SchRpcDeleteReq) MarshalBinary() ([]byte, error) {
-	log.Debugln("In MarshalBinary for SchRpcDeleteReq")
+	log.Traceln("In MarshalBinary for SchRpcDeleteReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -384,7 +384,7 @@ type SchRpcGetLastRunInfoReq struct {
 }
 
 func (s *SchRpcGetLastRunInfoReq) MarshalBinary() ([]byte, error) {
-	log.Debugln("In MarshalBinary for SchRpcGetLastRunInfoReq")
+	log.Traceln("In MarshalBinary for SchRpcGetLastRunInfoReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -406,7 +406,7 @@ type SchRpcGetLastRunInfoRes struct {
 }
 
 func (s *SchRpcGetLastRunInfoRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SchRpcGetLastRunInfoRes")
+	log.Traceln("In UnmarshalBinary for SchRpcGetLastRunInfoRes")
 	// SYSTEMTIME (16 bytes) + LastReturnCode (4 bytes) + HRESULT (4 bytes) = 24 bytes
 	if len(buf) < 24 {
 		return fmt.Errorf("Buffer too small for SchRpcGetLastRunInfoRes")
@@ -453,7 +453,7 @@ type SchRpcRunReq struct {
 }
 
 func (s *SchRpcRunReq) MarshalBinary() ([]byte, error) {
-	log.Debugln("In MarshalBinary for SchRpcRunReq")
+	log.Traceln("In MarshalBinary for SchRpcRunReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -510,7 +510,7 @@ type SchRpcRunRes struct {
 }
 
 func (s *SchRpcRunRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SchRpcRunRes")
+	log.Traceln("In UnmarshalBinary for SchRpcRunRes")
 	// GUID (16 bytes) + HRESULT (4 bytes) = 20 bytes
 	if len(buf) < 20 {
 		return fmt.Errorf("Buffer too small for SchRpcRunRes")
@@ -545,7 +545,7 @@ type SchRpcRetrieveTaskReq struct {
 }
 
 func (s *SchRpcRetrieveTaskReq) MarshalBinary() ([]byte, error) {
-	log.Debugln("In MarshalBinary for SchRpcRetrieveTaskReq")
+	log.Traceln("In MarshalBinary for SchRpcRetrieveTaskReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -580,7 +580,7 @@ type SchRpcRetrieveTaskRes struct {
 }
 
 func (s *SchRpcRetrieveTaskRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for SchRpcRetrieveTaskRes")
+	log.Traceln("In UnmarshalBinary for SchRpcRetrieveTaskRes")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer too small for SchRpcRetrieveTaskRes")
 	}

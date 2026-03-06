@@ -382,7 +382,7 @@ type REnumServicesStatusWRes struct {
 }
 
 func (s *ROpenSCManagerWReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for ROpenSCManagerWReq")
+	log.Traceln("In MarshalBinary for ROpenSCManagerWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -420,7 +420,7 @@ func (s *ROpenSCManagerWRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *ROpenSCManagerWRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for ROpenSCManagerWRes")
+	log.Traceln("In UnmarshalBinary for ROpenSCManagerWRes")
 
 	r := bytes.NewReader(buf)
 	err = binary.Read(r, le, &s.ContextHandle)
@@ -438,7 +438,7 @@ func (s *ROpenSCManagerWRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *ROpenServiceWReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for ROpenServiceWReq")
+	log.Traceln("In MarshalBinary for ROpenServiceWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -478,7 +478,7 @@ func (s *ROpenServiceWRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *ROpenServiceWRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for ROpenServiceWRes")
+	log.Traceln("In UnmarshalBinary for ROpenServiceWRes")
 
 	s.ContextHandle = make([]byte, 20)
 	r := bytes.NewReader(buf)
@@ -497,7 +497,7 @@ func (s *ROpenServiceWRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *RCloseServiceHandleReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for RCloseServiceHandleReq")
+	log.Traceln("In MarshalBinary for RCloseServiceHandleReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -524,7 +524,7 @@ func (s *RCloseServiceHandleRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *RCloseServiceHandleRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for RCloseServiceHandleRes")
+	log.Traceln("In UnmarshalBinary for RCloseServiceHandleRes")
 
 	s.ContextHandle = make([]byte, 20)
 	r := bytes.NewReader(buf)
@@ -543,7 +543,7 @@ func (s *RCloseServiceHandleRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *RQueryServiceStatusReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for RQueryServiceStatusReq")
+	log.Traceln("In MarshalBinary for RQueryServiceStatusReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -570,7 +570,7 @@ func (s *RQueryServiceStatusRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *RQueryServiceStatusRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for RQueryServiceStatusRes")
+	log.Traceln("In UnmarshalBinary for RQueryServiceStatusRes")
 	r := bytes.NewReader(buf)
 
 	// Not sure why there is no RefId Ptr for the ServiceStatus struct ptr
@@ -621,7 +621,7 @@ func (s *RQueryServiceStatusRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *RQueryServiceConfigWReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for RQueryServiceConfigWReq")
+	log.Traceln("In MarshalBinary for RQueryServiceConfigWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -654,7 +654,7 @@ func (s *RQueryServiceConfigWRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *RQueryServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for RQueryServiceConfigWRes")
+	log.Traceln("In UnmarshalBinary for RQueryServiceConfigWRes")
 	if len(buf) < 44 {
 		return fmt.Errorf("Buffer to small for RQueryServiceConfigWRes")
 	}
@@ -766,7 +766,7 @@ func (s *RQueryServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *RChangeServiceConfig2WReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for RChangeServiceConfig2WReq")
+	log.Traceln("In MarshalBinary for RChangeServiceConfig2WReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -806,7 +806,7 @@ func (s *RChangeServiceConfig2WReq) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *RQueryServiceConfig2WReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for RQueryServiceConfig2WReq")
+	log.Traceln("In MarshalBinary for RQueryServiceConfig2WReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -845,7 +845,7 @@ func (s *RQueryServiceConfig2WRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *RQueryServiceConfig2WRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for RQueryServiceConfig2WRes")
+	log.Traceln("In UnmarshalBinary for RQueryServiceConfig2WRes")
 	if len(buf) < 12 {
 		return fmt.Errorf("Buffer to small for RQueryServiceConfig2WRes")
 	}
@@ -901,7 +901,7 @@ func (s *RQueryServiceConfig2WRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *RChangeServiceConfigWReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for RChangeServiceConfigWReq")
+	log.Traceln("In MarshalBinary for RChangeServiceConfigWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1033,7 +1033,7 @@ func (s *RChangeServiceConfigWRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *RChangeServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for RChangeServiceConfigWRes")
+	log.Traceln("In UnmarshalBinary for RChangeServiceConfigWRes")
 	if len(buf) < 8 {
 		return fmt.Errorf("Buffer to small for RchangeServiceConfigWRes")
 	}
@@ -1062,7 +1062,7 @@ func (s *RChangeServiceConfigWRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *RControlServiceReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for RControlServiceReq")
+	log.Traceln("In MarshalBinary for RControlServiceReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1095,7 +1095,7 @@ func (s *RControlServiceRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *RControlServiceRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for RControlServiceRes")
+	log.Traceln("In UnmarshalBinary for RControlServiceRes")
 
 	// Skip implementing the same decoding function twice
 	res := &RQueryServiceStatusRes{}
@@ -1111,7 +1111,7 @@ func (s *RControlServiceRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *RDeleteServiceReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for RDeleteServiceReq")
+	log.Traceln("In MarshalBinary for RDeleteServiceReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1192,7 +1192,7 @@ func (s *RStartServiceWReq) UnmarshalBinary(buf []byte) error {
 }
 
 func (s *RCreateServiceWReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for RCreateServiceWReq")
+	log.Traceln("In MarshalBinary for RCreateServiceWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1329,7 +1329,7 @@ func (s *RCreateServiceWRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *RCreateServiceWRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for RCreateServiceWRes")
+	log.Traceln("In UnmarshalBinary for RCreateServiceWRes")
 	if len(buf) < 28 {
 		return fmt.Errorf("Buffer to small for RchangeServiceConfigWRes")
 	}
@@ -1358,7 +1358,7 @@ func (s *RCreateServiceWRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *REnumServicesStatusWReq) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for REnumServicesStatusWReq")
+	log.Traceln("In MarshalBinary for REnumServicesStatusWReq")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1417,7 +1417,7 @@ func (s *REnumServicesStatusWRes) MarshalBinary() ([]byte, error) {
 }
 
 func (s *REnumServicesStatusWRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for REnumServicesStatusWRes")
+	log.Traceln("In UnmarshalBinary for REnumServicesStatusWRes")
 	if len(buf) < 16 {
 		return fmt.Errorf("Buffer to small for REnumServicesStatusWRes")
 	}
@@ -1613,7 +1613,7 @@ func (s *REnumServicesStatusWRes) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *ConfigInfoW) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for ConfigInfoW")
+	log.Traceln("In MarshalBinary for ConfigInfoW")
 
 	var ret []byte
 	w := bytes.NewBuffer(ret)
@@ -1646,7 +1646,7 @@ func (s *ConfigInfoW) MarshalBinary() (res []byte, err error) {
 }
 
 func (s *ServiceDescription) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for ServiceDescription")
+	log.Traceln("In MarshalBinary for ServiceDescription")
 
 	// MS-SCMR Section 2.2.22 SC_RPC_CONFIG_INFOW
 	var ret []byte
