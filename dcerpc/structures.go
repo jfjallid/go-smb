@@ -41,6 +41,8 @@ type ServiceBind struct {
 	// callId always contains the last used value, so call Add(1) first
 	callId    *atomic.Uint32 // Use it with callId.Add(1)
 	transport DCERPCTransport
+	// Presentation context ID for this binding (0 for initial bind)
+	contextId uint16
 	// Max size of fragment the server accepts
 	maxFragTransmitSize uint16
 	// Max size of fragment server should send
@@ -50,6 +52,8 @@ type ServiceBind struct {
 	authLevel     uint8
 	authContextId uint32
 	sealer        Sealer // non-nil when authLevel >= PktIntegrity
+	// Next presentation context ID for AlterContext (shared across clones)
+	nextContextId *uint16
 }
 
 // AuthVerifier represents the auth_verifier structure appended to DCERPC PDUs
@@ -289,16 +293,17 @@ func (s *Auth3Req) MarshalBinary() (ret []byte, err error) {
 }
 
 // C706 Section 12.6.4.9
-type RequestReq struct { // 24 + optional fields + len of Buffer
+type RequestReq struct { // 24 + optional ObjectUUID (16) + len of Buffer
 	Header // 16 bytes
 	// AllocHint is an optional field useful for hinting required space when
 	// sending fragmented requests
 	AllocHint uint32
 	ContextId uint16 // Data representation
 	Opnum     uint16
-	// Optional field object uuid_t
+	// Optional field object uuid_t (16 bytes)
 	// Only present if PfcObjectUUID is set in the header flags
-	Buffer []byte
+	ObjectUUID []byte
+	Buffer     []byte
 	// Auth verifier? An optional field if AuthLength != 0
 }
 
@@ -808,6 +813,13 @@ func (s *RequestReq) MarshalBinary() (ret []byte, err error) {
 	if err != nil {
 		log.Errorln(err)
 		return
+	}
+	if len(s.ObjectUUID) > 0 {
+		_, err = w.Write(s.ObjectUUID)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
 	}
 	_, err = w.Write(s.Buffer)
 	if err != nil {

@@ -78,6 +78,13 @@ type KRB5Initiator struct {
 	unsealSeqNum uint64
 }
 
+// SetSPN overrides the SPN used for Kerberos ticket requests.
+// This is needed for DCOM where the dynamic port server process may run
+// under a different identity than the machine account.
+func (i *KRB5Initiator) SetSPN(spn string) {
+	i.SPN = spn
+}
+
 // EnableDCEStyle enables the GSS_C_DCE_STYLE flag in the AP_REQ authenticator
 // checksum. This causes Windows to return a bare AP_REP (not KRB5Token-wrapped)
 // in the NegTokenResp, which is required for DCERPC TCP but must NOT be set for

@@ -61,6 +61,15 @@ const (
 // defaultMaxFragSize is the MS-RPCE minimum max fragment size (section 3.3.1.5.2).
 const defaultMaxFragSize uint16 = 4280
 
+// BindNakError is returned when the server rejects a Bind request.
+type BindNakError struct {
+	Reason uint16
+}
+
+func (e *BindNakError) Error() string {
+	return fmt.Sprintf("Received Bind_Nak with reason: 0x%x", e.Reason)
+}
+
 var responseCodeMap = map[uint32]error{
 	ErrorSuccess:         fmt.Errorf("The operation completed successfully"),
 	ErrorAccessDenied:    fmt.Errorf("Access denied!"),
@@ -72,6 +81,9 @@ const PDUHeaderCommonSize int = 16
 
 // MSRPC Request header size (header + AllocHint + ContextId + Opnum)
 const RequestHeaderSize int = 24
+
+// MSRPC Request header size when PfcObjectUUID flag is set (24 + 16 byte UUID)
+const RequestHeaderWithObjectUUIDSize int = 40
 
 // MSRPC Packet Types
 const (
@@ -340,17 +352,28 @@ func newBindReq(callId uint32, interfaceUUID string, majorVersion, minorVersion 
 	return
 }
 
-func newRequestReq(callId uint32, op uint16) (*RequestReq, error) {
+func newRequestReq(callId uint32, op uint16, objectUUID []byte) (*RequestReq, error) {
 	header := newHeader()
 	header.Type = PacketTypeRequest
 	header.CallId = callId
 
-	return &RequestReq{
+	req := &RequestReq{
 		Header:    header,
 		AllocHint: 0,
 		ContextId: 0,
 		Opnum:     op,
-	}, nil
+	}
+
+	if len(objectUUID) > 0 {
+		if len(objectUUID) != 16 {
+			return nil, fmt.Errorf("ObjectUUID must be exactly 16 bytes, got %d", len(objectUUID))
+		}
+		req.Flags |= PfcObjectUUID
+		req.ObjectUUID = make([]byte, 16)
+		copy(req.ObjectUUID, objectUUID)
+	}
+
+	return req, nil
 }
 // parseAndValidateCommonHeader validates a BindAck or AlterContext response PDU Common Header.
 // It checks the CallId and the packet type
@@ -365,7 +388,7 @@ func parseAndValidateCommonHeader(response []byte, expectedCallId uint32) error 
 	}
 	switch h.Type {
 	case PacketTypeBindNak:
-		return fmt.Errorf("Received Bind_Nak with reason: 0x%x", le.Uint16(response[16:18])) // Should it be Little Endian?
+		return &BindNakError{Reason: le.Uint16(response[16:18])}
 	case PacketTypeBindAck,PacketTypeAlterContextResp:
 	default:
 		return fmt.Errorf("Invalid response from server: %v\n", h)
@@ -443,11 +466,13 @@ func Bind(transport DCERPCTransport, interfaceUUID string, majorVersion, minorVe
 
 	// MaxSendFragSize is the max the server will send to us (our receive limit);
 	// MaxRecvFragSize is the max the server can receive from us (our transmit limit).
+	nextCtx := uint16(1)
 	return &ServiceBind{
 		callId:              &callId,
 		transport:           transport,
 		maxFragReceiveSize:  bindRes.MaxSendFragSize,
 		maxFragTransmitSize: bindRes.MaxRecvFragSize,
+		nextContextId:       &nextCtx,
 	}, nil
 }
 
@@ -717,6 +742,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 
 	// MaxSendFragSize is the max the server will send to us (our receive limit);
 	// MaxRecvFragSize is the max the server can receive from us (our transmit limit).
+	nextCtx := uint16(1)
 	return &ServiceBind{
 		callId:              &callId,
 		transport:           transport,
@@ -726,6 +752,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 		authLevel:           authLevel,
 		authContextId:       authContextId,
 		sealer:              sealer,
+		nextContextId:       &nextCtx,
 	}, nil
 }
 
@@ -733,16 +760,122 @@ func (sb *ServiceBind) GetSessionKey() (sessionKey []byte) {
 	return sb.transport.GetSessionKey()
 }
 
+// AlterContext adds a new presentation context for a different interface on
+// the same connection. Returns a new ServiceBind that shares the underlying
+// transport and auth state but uses the new context ID for requests.
+func (sb *ServiceBind) AlterContext(interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string) (*ServiceBind, error) {
+	ctxId := *sb.nextContextId
+	*sb.nextContextId++
+
+	serviceUUID, err := UUIDToBin(interfaceUUID)
+	if err != nil {
+		return nil, err
+	}
+	transferSyntaxUUID, err := UUIDToBin(transferUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	callId := sb.callId.Add(1)
+	header := newHeader()
+	header.Type = PacketTypeAlterContext
+	header.CallId = callId
+	ctxItem := ContextItem{
+		Id: ctxId,
+		AbstractSyntax: SyntaxId{
+			UUID:    serviceUUID,
+			Version: (uint32(minorVersion) << 16) | uint32(majorVersion),
+		},
+		TransferSyntax: []SyntaxId{
+			{
+				UUID:    transferSyntaxUUID,
+				Version: 2,
+			},
+		},
+	}
+	ctxList := ContextList{
+		Count: 1,
+		Items: []ContextItem{ctxItem},
+	}
+
+	alterReq := &BindReq{
+		Header:          header,
+		MaxSendFragSize: sb.maxFragReceiveSize,
+		MaxRecvFragSize: sb.maxFragTransmitSize,
+		Association:     0,
+		ContextList:     ctxList,
+	}
+
+	buf, err := alterReq.MarshalBinary()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal AlterContext: %w", err)
+	}
+	binary.LittleEndian.PutUint16(buf[8:10], uint16(len(buf)))
+
+	response, err := sb.transport.Transceive(buf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send AlterContext: %w", err)
+	}
+
+	if err := parseAndValidateCommonHeader(response, callId); err != nil {
+		return nil, fmt.Errorf("AlterContext response validation failed: %w", err)
+	}
+
+	var alterRes BindRes
+	if err := alterRes.UnmarshalBinary(response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal AlterContext response: %w", err)
+	}
+
+	if len(alterRes.ResultList.Items) == 0 {
+		return nil, fmt.Errorf("AlterContext response has no context items")
+	}
+	if alterRes.ResultList.Items[0].Result != 0 {
+		return nil, fmt.Errorf("AlterContext rejected: result=%d reason=%d",
+			alterRes.ResultList.Items[0].Result, alterRes.ResultList.Items[0].Reason)
+	}
+
+	return &ServiceBind{
+		callId:              sb.callId,
+		transport:           sb.transport,
+		contextId:           ctxId,
+		maxFragReceiveSize:  sb.maxFragReceiveSize,
+		maxFragTransmitSize: sb.maxFragTransmitSize,
+		authType:            sb.authType,
+		authLevel:           sb.authLevel,
+		authContextId:       sb.authContextId,
+		sealer:              sb.sealer,
+		nextContextId:       sb.nextContextId,
+	}, nil
+}
+
 func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byte, err error) {
+	return sb.makeRequestInternal(opcode, nil, innerBuf)
+}
+
+func (sb *ServiceBind) MakeRequestWithObjectUUID(opcode uint16, objectUUID []byte, innerBuf []byte) (result []byte, err error) {
+	return sb.makeRequestInternal(opcode, objectUUID, innerBuf)
+}
+
+func (sb *ServiceBind) makeRequestInternal(opcode uint16, objectUUID []byte, innerBuf []byte) (result []byte, err error) {
 	callId := sb.callId.Add(1)
 	totalPayloadLen := len(innerBuf)
 	authOverhead := 0
 	if sb.sealer != nil {
 		// 8 = auth verifier header + worst-case signature + worst-case auth padding (3 bytes)
 		// + encryption overhead (0 for both NTLM and Kerberos)
-		authOverhead = 8 + sb.sealer.SignatureSize() + 3 + sb.sealer.EncryptionOverhead()
+		sigSize := sb.sealer.SignatureSize()
+		encOverhead := sb.sealer.EncryptionOverhead()
+		if sb.authLevel == RpcAuthnLevelPktIntegrity {
+			sigSize = sb.sealer.MICSignatureSize()
+			encOverhead = 0
+		}
+		authOverhead = 8 + sigSize + 3 + encOverhead
 	}
-	maxStub := int(sb.maxFragTransmitSize) - RequestHeaderSize - authOverhead
+	reqHeaderSize := RequestHeaderSize
+	if len(objectUUID) == 16 {
+		reqHeaderSize = RequestHeaderWithObjectUUIDSize
+	}
+	maxStub := int(sb.maxFragTransmitSize) - reqHeaderSize - authOverhead
 	if maxStub <= 0 {
 		maxStub = totalPayloadLen
 	}
@@ -753,16 +886,17 @@ func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byt
 	if !needsSendFragmentation {
 		// Single fragment: send via Transceive and get response
 		var req *RequestReq
-		req, err = newRequestReq(callId, opcode)
+		req, err = newRequestReq(callId, opcode, objectUUID)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 
+		req.ContextId = sb.contextId
 		req.Buffer = make([]byte, len(innerBuf))
 		copy(req.Buffer, innerBuf)
 		req.AllocHint = uint32(totalPayloadLen)
-		req.FragLength = uint16(len(innerBuf) + RequestHeaderSize)
+		req.FragLength = uint16(len(innerBuf) + reqHeaderSize)
 
 		var buf []byte
 		buf, err = req.MarshalBinary()
@@ -802,16 +936,17 @@ func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byt
 		lastFrag := (offset + chunkSize) >= totalPayloadLen
 
 		var req *RequestReq
-		req, err = newRequestReq(callId, opcode)
+		req, err = newRequestReq(callId, opcode, objectUUID)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 
+		req.ContextId = sb.contextId
 		req.Buffer = make([]byte, chunkSize)
 		copy(req.Buffer, innerBuf[offset:offset+chunkSize])
 		req.AllocHint = uint32(totalPayloadLen)
-		req.FragLength = uint16(chunkSize + RequestHeaderSize)
+		req.FragLength = uint16(chunkSize + reqHeaderSize)
 
 		// Set fragmentation flags
 		req.Flags = 0
@@ -820,6 +955,9 @@ func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byt
 		}
 		if lastFrag {
 			req.Flags |= PfcLastFrag
+		}
+		if len(objectUUID) == 16 {
+			req.Flags |= PfcObjectUUID
 		}
 
 		var buf []byte
@@ -873,7 +1011,16 @@ func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
 		return nil, fmt.Errorf("PDU too short to seal: %d bytes", len(pdu))
 	}
 
+	// Determine header size based on PfcObjectUUID flag (byte offset 3 = Flags)
 	hdrSize := RequestHeaderSize
+	if pdu[3]&PfcObjectUUID != 0 {
+		hdrSize = RequestHeaderWithObjectUUIDSize
+	}
+
+	if len(pdu) < hdrSize {
+		return nil, fmt.Errorf("PDU too short to seal with object UUID: %d bytes", len(pdu))
+	}
+
 	stub := pdu[hdrSize:]
 
 	// Compute auth padding to align (header + stub + padding) to 4-byte boundary
