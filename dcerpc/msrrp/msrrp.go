@@ -715,7 +715,7 @@ func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 
 func (r *RPCCon) QueryValueExt(hKey []byte, name string) (result any, dataType uint32, err error) {
 	var data []byte
-	data, dataType, err = r.QueryValue2(hKey, name)
+	data, dataType, _, err = r.QueryValue2(hKey, name)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -773,7 +773,7 @@ func (r *RPCCon) QueryValueExt(hKey []byte, name string) (result any, dataType u
 	return
 }
 
-func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType uint32, err error) {
+func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType uint32, found bool, err error) {
 	// If I send the parameter Data (lpData) as nil and the DataLen(lpcbData) and MaxSize(lpcbLen) to 0
 	// The server will respond with the size of the requested value in the lpcbData parameter.
 
@@ -838,20 +838,24 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 				err = fmt.Errorf("Provided name of registry key value not found")
 			}
 		}
-		log.Errorln(err)
+		log.Debugln(err)
 		return
 	}
 
-	return res.Data, res.Type, nil
+	return res.Data, res.Type, true, nil
 }
 
 func (r *RPCCon) QueryValue(hKey []byte, name string) (result []byte, err error) {
-	result, _, err = r.QueryValue2(hKey, name)
+	result, _, _, err = r.QueryValue2(hKey, name)
 	return
 }
 
 func (r *RPCCon) QueryValueString(hKey []byte, name string) (result string, err error) {
-	data, dataType, err := r.QueryValue2(hKey, name)
+	data, dataType, found, err := r.QueryValue2(hKey, name)
+	if !found {
+		// No need to log a missing reg key as an error here
+		return
+	}
 	if err != nil {
 		log.Errorln(err)
 		return

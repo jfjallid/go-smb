@@ -1966,7 +1966,7 @@ func (s *Connection) WriteIoCtlReq(req *IoCtlReq) (res IoCtlRes, err error) {
 			return
 		}
 		err = status
-		log.Errorf("IoCtlRequest failed with status: %s\n", status)
+		log.Debugf("IoCtlRequest failed with status: %s\n", status)
 		return
 	}
 
