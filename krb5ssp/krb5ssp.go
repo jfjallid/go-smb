@@ -22,6 +22,7 @@
 package krb5ssp
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
@@ -539,6 +540,84 @@ func (client *Client) WrapDCE(plaintext []byte, seqNum uint64) (body, authValue 
 // seqNum is the expected sequence number for replay/reorder detection.
 func (client *Client) UnwrapDCE(body, authValue []byte, seqNum uint64) (plaintext []byte, err error) {
 	return UnwrapDCE(client.sessionSubKey, gss.KGUsageAcceptorSeal, body, authValue, seqNum)
+}
+
+// GetMICDCE computes a MIC token (RFC 4121 Section 4.2.6.1) over data
+// using the acceptor subkey (sessionSubKey). Used for DCE-RPC PktIntegrity.
+func (client *Client) GetMICDCE(data []byte, seqNum uint64) ([]byte, error) {
+	micToken := MICToken{
+		TokenId:      0x0404,
+		Flags:        0x04, // AcceptorSubkey
+		Filler:       []byte{0xff, 0xff, 0xff, 0xff, 0xff},
+		SenderSeqNum: seqNum,
+		Payload:      data,
+	}
+	buf := make([]byte, MICTokenHdrLen+len(data))
+	copy(buf, data)
+	copy(buf[len(data):], micToken.MarshalHeader())
+
+	encType, err := crypto.GetEtype(client.sessionSubKey.KeyType)
+	if err != nil {
+		return nil, fmt.Errorf("GetMICDCE: failed to get etype: %w", err)
+	}
+	checksum, err := encType.GetChecksumHash(client.sessionSubKey.KeyValue, buf, gss.KGUsageInitiatorSign)
+	if err != nil {
+		return nil, fmt.Errorf("GetMICDCE: checksum failed: %w", err)
+	}
+	micToken.Checksum = checksum
+	return micToken.MarshalBinary()
+}
+
+// VerifyMICDCE verifies a MIC token received from the acceptor using the
+// acceptor subkey (sessionSubKey). Used for DCE-RPC PktIntegrity.
+func (client *Client) VerifyMICDCE(data, token []byte, expectedSeqNum uint64) error {
+	if len(token) < MICTokenHdrLen {
+		return fmt.Errorf("VerifyMICDCE: token too short: %d bytes", len(token))
+	}
+
+	gotSeqNum := be.Uint64(token[8:16])
+	if gotSeqNum != expectedSeqNum {
+		return fmt.Errorf("VerifyMICDCE: sequence number mismatch: got %d, want %d", gotSeqNum, expectedSeqNum)
+	}
+
+	receivedChecksum := token[MICTokenHdrLen:]
+
+	// Rebuild the MIC header with received fields
+	micToken := MICToken{
+		TokenId:      0x0404,
+		Flags:        token[2],
+		Filler:       token[3:8],
+		SenderSeqNum: gotSeqNum,
+		Payload:      data,
+	}
+	buf := make([]byte, MICTokenHdrLen+len(data))
+	copy(buf, data)
+	copy(buf[len(data):], micToken.MarshalHeader())
+
+	encType, err := crypto.GetEtype(client.sessionSubKey.KeyType)
+	if err != nil {
+		return fmt.Errorf("VerifyMICDCE: failed to get etype: %w", err)
+	}
+	// Acceptor sends with AcceptorSign usage
+	expectedChecksum, err := encType.GetChecksumHash(client.sessionSubKey.KeyValue, buf, gss.KGUsageAcceptorSign)
+	if err != nil {
+		return fmt.Errorf("VerifyMICDCE: checksum failed: %w", err)
+	}
+
+	if !bytes.Equal(receivedChecksum, expectedChecksum) {
+		return fmt.Errorf("VerifyMICDCE: checksum mismatch")
+	}
+	return nil
+}
+
+// MICTokenSize returns the MIC token size for the current session key type.
+func (client *Client) MICTokenSize() int {
+	encType, err := crypto.GetEtype(client.sessionSubKey.KeyType)
+	if err != nil {
+		log.Errorf("MICTokenSize failed: %v\n", err)
+		return 0
+	}
+	return MICTokenHdrLen + encType.GetHMACBitLength()/8
 }
 
 // WrapTokenOverhead returns the signature size and encryption overhead

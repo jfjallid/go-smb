@@ -150,14 +150,31 @@ type Sealer interface {
 	// and signature (auth_value bytes). toSign is the full PDU for NTLM
 	// MAC; Kerberos ignores it. The returned ciphertext may be larger
 	// than toEncrypt by EncryptionOverhead() bytes.
-	Seal(toEncrypt, toSign []byte) (ciphertext, signature []byte)
+	// Used for PktPrivacy.
+	Seal(toEncrypt, toSign []byte) (ciphertext, signature []byte, err error)
 	// Unseal decrypts ciphertext and verifies integrity.
 	// signature is the auth_value bytes. pduHeader and secTrailer are
 	// provided for NTLM (which MACs the full PDU); Kerberos ignores them.
+	// Used for PktPrivacy.
 	Unseal(ciphertext, signature, pduHeader, secTrailer []byte) (plaintext []byte, err error)
-	// SignatureSize returns the maximum auth_value size
+	// Sign computes a signature over the data without encrypting.
+	// data is the stub + auth_pad (same as toEncrypt in Seal).
+	// toSign is the full PDU (header + data + sec_trailer) for NTLM MAC;
+	// Kerberos ignores toSign and computes a MIC over data instead.
+	// Used for PktIntegrity.
+	Sign(data, toSign []byte) ([]byte, error)
+	// VerifySign verifies the signature without decrypting.
+	// data is the plaintext stub + auth_pad.
+	// pduHeader and secTrailer are provided for NTLM MAC reconstruction.
+	// Used for PktIntegrity.
+	VerifySign(data, signature, pduHeader, secTrailer []byte) error
+	// SignatureSize returns the maximum auth_value size for PktPrivacy
 	// (NTLM=16, Kerberos=16+16+RRC+maxPad).
 	SignatureSize() int
+	// MICSignatureSize returns the auth_value size for PktIntegrity.
+	// For NTLM this equals SignatureSize (16). For Kerberos this is
+	// the MIC token size (smaller than the Wrap token).
+	MICSignatureSize() int
 	// EncryptionOverhead returns extra ciphertext bytes beyond plaintext
 	// size (0 for both NTLM and Kerberos).
 	EncryptionOverhead() int
@@ -845,26 +862,30 @@ func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byt
 	return
 }
 
-// sealRequestPDU encrypts the stub data in a marshaled Request PDU and appends
-// an AuthVerifier. The input pdu must be a complete marshaled RequestReq
-// (header + AllocHint + CtxId + Opnum + plaintext stub).
+// sealRequestPDU encrypts and/or signs the stub data in a marshaled Request
+// PDU and appends an AuthVerifier. The input pdu must be a complete marshaled
+// RequestReq (header + AllocHint + CtxId + Opnum + plaintext stub).
 //
-// Per MS-RPCE, the MAC covers the full PDU (header + plaintext stub + auth_pad
-// + sec_trailer) while only stub + auth_pad is encrypted.
+// For PktPrivacy: encrypts stub + auth_pad, computes MAC.
+// For PktIntegrity: computes MAC only (stub remains plaintext).
 func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
 	if len(pdu) < RequestHeaderSize {
 		return nil, fmt.Errorf("PDU too short to seal: %d bytes", len(pdu))
 	}
 
-	stub := pdu[RequestHeaderSize:]
+	hdrSize := RequestHeaderSize
+	stub := pdu[hdrSize:]
 
 	// Compute auth padding to align (header + stub + padding) to 4-byte boundary
 	authPad := (4 - (len(pdu) % 4)) % 4
-	toEncrypt := make([]byte, len(stub)+authPad)
-	copy(toEncrypt, stub)
+	stubPadded := make([]byte, len(stub)+authPad)
+	copy(stubPadded, stub)
 	// padding bytes are zero (already zero from make)
 
 	sigSize := sb.sealer.SignatureSize()
+	if sb.authLevel == RpcAuthnLevelPktIntegrity {
+		sigSize = sb.sealer.MICSignatureSize()
+	}
 
 	// Build sec_trailer (8 bytes) for inclusion in signed data
 	secTrailer := AuthVerifier{
@@ -881,40 +902,53 @@ func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
 	// secTrailerBytes is 8 bytes (no AuthValue)
 
 	// Pre-compute FragLength for the header used in NTLM signing.
-	// For both NTLM and Kerberos, ciphertext length equals toEncrypt length,
-	// but actual signature size may differ from sigSize — we fix the header below.
-	preFragLen := uint16(RequestHeaderSize + len(toEncrypt) + len(secTrailerBytes) + sigSize)
+	preFragLen := uint16(hdrSize + len(stubPadded) + len(secTrailerBytes) + sigSize)
 
 	// Build the header with pre-computed FragLength and AuthLength
-	header := make([]byte, RequestHeaderSize)
-	copy(header, pdu[:RequestHeaderSize])
+	header := make([]byte, hdrSize)
+	copy(header, pdu[:hdrSize])
 	binary.LittleEndian.PutUint16(header[8:10], preFragLen)
 	binary.LittleEndian.PutUint16(header[10:12], uint16(sigSize))
 
 	// Build toSign: header + plaintext stub+pad + sec_trailer
 	// This is the full PDU minus the auth_value (signature).
 	// Used by NTLM for MAC; Kerberos ignores it.
-	toSign := make([]byte, 0, RequestHeaderSize+len(toEncrypt)+len(secTrailerBytes))
+	toSign := make([]byte, 0, hdrSize+len(stubPadded)+len(secTrailerBytes))
 	toSign = append(toSign, header...)
-	toSign = append(toSign, toEncrypt...)
+	toSign = append(toSign, stubPadded...)
 	toSign = append(toSign, secTrailerBytes...)
 
-	// Encrypt toEncrypt, compute MAC over toSign
-	ciphertext, signature := sb.sealer.Seal(toEncrypt, toSign)
+	var bodyData []byte
+	var signature []byte
 
-	// Compute actual FragLength from Seal output sizes.
-	// len(ciphertext)==len(toEncrypt) for both NTLM and Kerberos.
-	// len(signature) may differ from sigSize (Kerberos varies by padding).
-	actualFragLen := uint16(RequestHeaderSize + len(ciphertext) + len(secTrailerBytes) + len(signature))
+	if sb.authLevel == RpcAuthnLevelPktPrivacy {
+		// PktPrivacy: encrypt stub+pad, compute MAC
+		var ciphertext []byte
+		ciphertext, signature, err = sb.sealer.Seal(stubPadded, toSign)
+		if err != nil {
+			return nil, fmt.Errorf("failed to seal request PDU: %w", err)
+		}
+		bodyData = ciphertext
+	} else {
+		// PktIntegrity: sign only, stub remains plaintext
+		signature, err = sb.sealer.Sign(stubPadded, toSign)
+		if err != nil {
+			return nil, fmt.Errorf("failed to sign request PDU: %w", err)
+		}
+		bodyData = stubPadded
+	}
+
+	// Compute actual FragLength from output sizes.
+	actualFragLen := uint16(hdrSize + len(bodyData) + len(secTrailerBytes) + len(signature))
 	binary.LittleEndian.PutUint16(header[8:10], actualFragLen)
 	binary.LittleEndian.PutUint16(header[10:12], uint16(len(signature)))
 
-	// Assemble sealed PDU: header + ciphertext + sec_trailer + signature
+	// Assemble sealed PDU: header + body + sec_trailer + signature
 	sealed := make([]byte, int(actualFragLen))
-	copy(sealed[:RequestHeaderSize], header)
-	copy(sealed[RequestHeaderSize:], ciphertext)
-	copy(sealed[RequestHeaderSize+len(ciphertext):], secTrailerBytes)
-	copy(sealed[RequestHeaderSize+len(ciphertext)+len(secTrailerBytes):], signature)
+	copy(sealed[:hdrSize], header)
+	copy(sealed[hdrSize:], bodyData)
+	copy(sealed[hdrSize+len(bodyData):], secTrailerBytes)
+	copy(sealed[hdrSize+len(bodyData)+len(secTrailerBytes):], signature)
 
 	return sealed, nil
 }
@@ -923,11 +957,12 @@ func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
 // (common header 16 + AllocHint 4 + ContextId 2 + CancelCount 1 + Reserved 1).
 const ResponseHeaderSize int = 24
 
-// unsealResponsePDU decrypts the stub data in a Response PDU and returns a
-// clean buffer that RequestRes.UnmarshalBinary can parse (with auth stripped).
+// unsealResponsePDU decrypts and/or verifies the stub data in a Response PDU
+// and returns a clean buffer that RequestRes.UnmarshalBinary can parse
+// (with auth stripped).
 //
-// Per MS-RPCE, the MAC covers the full PDU (header + plaintext stub + auth_pad
-// + sec_trailer) while only stub + auth_pad is encrypted.
+// For PktPrivacy: decrypts stub + auth_pad, verifies MAC.
+// For PktIntegrity: verifies MAC only (stub is already plaintext).
 func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, error) {
 	fragLen := int(header.FragLength)
 	authTotalLen := int(header.AuthLength) + 8
@@ -949,15 +984,24 @@ func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, er
 		return nil, fmt.Errorf("Failed to unmarshal response AuthVerifier: %w", err)
 	}
 
-	// Encrypted data is between response header and sec_trailer
-	encryptedData := pdu[ResponseHeaderSize:authStart]
+	// Data between response header and sec_trailer
+	bodyData := pdu[ResponseHeaderSize:authStart]
 
-	// Decrypt and verify integrity in one step.
-	// NTLM uses pduHeader and secTrailer for MAC verification.
-	// Kerberos verifies integrity inside DecryptMessage.
-	plaintext, err := sb.sealer.Unseal(encryptedData, signature, pdu[:ResponseHeaderSize], secTrailerBytes)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to unseal response PDU: %w", err)
+	var plaintext []byte
+
+	if sb.authLevel == RpcAuthnLevelPktPrivacy {
+		// PktPrivacy: decrypt and verify integrity
+		plaintext, err = sb.sealer.Unseal(bodyData, signature, pdu[:ResponseHeaderSize], secTrailerBytes)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to unseal response PDU: %w", err)
+		}
+	} else {
+		// PktIntegrity: verify signature only (data is plaintext)
+		err = sb.sealer.VerifySign(bodyData, signature, pdu[:ResponseHeaderSize], secTrailerBytes)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to verify response PDU signature: %w", err)
+		}
+		plaintext = bodyData
 	}
 
 	// Strip auth padding

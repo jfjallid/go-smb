@@ -275,14 +275,13 @@ func (i *KRB5Initiator) DCEProcessAPRep(rawAPRep []byte) error {
 // Seal encrypts toEncrypt for DCE-RPC using Kerberos Wrap Token.
 // toSign is ignored (Kerberos integrity is built into the encryption).
 // Implements the dcerpc.Sealer interface.
-func (i *KRB5Initiator) Seal(toEncrypt, toSign []byte) (ciphertext, signature []byte) {
+func (i *KRB5Initiator) Seal(toEncrypt, toSign []byte) (ciphertext, signature []byte, err error) {
 	body, authValue, err := i.client.WrapDCE(toEncrypt, i.sealSeqNum)
 	if err != nil {
-		log.Errorf("KRB5Initiator.Seal failed: %v\n", err)
-		return nil, nil
+		return nil, nil, fmt.Errorf("KRB5Initiator.Seal: %w", err)
 	}
 	i.sealSeqNum++
-	return body, authValue
+	return body, authValue, nil
 }
 
 // Unseal decrypts ciphertext and verifies integrity using Kerberos Wrap Token.
@@ -297,11 +296,39 @@ func (i *KRB5Initiator) Unseal(ciphertext, signature, pduHeader, secTrailer []by
 	return plaintext, nil
 }
 
+// Sign computes a MIC token over data without encrypting.
+// Implements the dcerpc.Sealer interface for PktIntegrity.
+func (i *KRB5Initiator) Sign(data, toSign []byte) ([]byte, error) {
+	token, err := i.client.GetMICDCE(data, i.sealSeqNum)
+	if err != nil {
+		return nil, fmt.Errorf("KRB5Initiator.Sign: %w", err)
+	}
+	i.sealSeqNum++
+	return token, nil
+}
+
+// VerifySign verifies a MIC token without decrypting.
+// Implements the dcerpc.Sealer interface for PktIntegrity.
+func (i *KRB5Initiator) VerifySign(data, signature, pduHeader, secTrailer []byte) error {
+	err := i.client.VerifyMICDCE(data, signature, i.unsealSeqNum)
+	if err != nil {
+		return err
+	}
+	i.unsealSeqNum++
+	return nil
+}
+
 // SignatureSize returns the auth_value size for Kerberos Wrap Token.
 // Implements the dcerpc.Sealer interface.
 func (i *KRB5Initiator) SignatureSize() int {
 	sigSize, _ := i.client.WrapTokenOverhead()
 	return sigSize
+}
+
+// MICSignatureSize returns the MIC token size for PktIntegrity.
+// Implements the dcerpc.Sealer interface.
+func (i *KRB5Initiator) MICSignatureSize() int {
+	return i.client.MICTokenSize()
 }
 
 // EncryptionOverhead returns extra ciphertext bytes beyond plaintext size.

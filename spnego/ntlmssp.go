@@ -124,10 +124,10 @@ func (i *NTLMInitiator) GetUsername() string {
 
 // Seal encrypts toEncrypt and computes a MAC over toSign.
 // Implements the dcerpc.Sealer interface for per-PDU encryption.
-func (i *NTLMInitiator) Seal(toEncrypt, toSign []byte) (ciphertext, signature []byte) {
+func (i *NTLMInitiator) Seal(toEncrypt, toSign []byte) (ciphertext, signature []byte, err error) {
 	ct, sig, newSeqNum := i.ntlm.Session().EncryptAndSign(toEncrypt, toSign, i.sealSeqNum)
 	i.sealSeqNum = newSeqNum
-	return ct, sig
+	return ct, sig, nil
 }
 
 // Unseal decrypts ciphertext and verifies the MAC over the full PDU.
@@ -146,9 +146,37 @@ func (i *NTLMInitiator) Unseal(ciphertext, signature, pduHeader, secTrailer []by
 	return plaintext, nil
 }
 
+// Sign computes a MAC over toSign without encrypting data.
+// Implements the dcerpc.Sealer interface for PktIntegrity.
+func (i *NTLMInitiator) Sign(data, toSign []byte) ([]byte, error) {
+	sig, newSeqNum := i.ntlm.Session().SignOnly(toSign, i.sealSeqNum)
+	i.sealSeqNum = newSeqNum
+	return sig, nil
+}
+
+// VerifySign verifies the MAC without decrypting data.
+// Implements the dcerpc.Sealer interface for PktIntegrity.
+func (i *NTLMInitiator) VerifySign(data, signature, pduHeader, secTrailer []byte) error {
+	signData := make([]byte, 0, len(pduHeader)+len(data)+len(secTrailer))
+	signData = append(signData, pduHeader...)
+	signData = append(signData, data...)
+	signData = append(signData, secTrailer...)
+	newSeqNum, err := i.ntlm.Session().VerifyMACOnly(signData, signature, i.unsealSeqNum)
+	if err != nil {
+		return err
+	}
+	i.unsealSeqNum = newSeqNum
+	return nil
+}
+
 // SignatureSize returns the NTLM signature size (always 16 bytes).
 // Implements the dcerpc.Sealer interface.
 func (i *NTLMInitiator) SignatureSize() int { return 16 }
+
+// MICSignatureSize returns the NTLM MIC signature size (always 16 bytes).
+// For NTLM, this is the same as SignatureSize.
+// Implements the dcerpc.Sealer interface.
+func (i *NTLMInitiator) MICSignatureSize() int { return 16 }
 
 // EncryptionOverhead returns 0 because NTLM RC4 is size-preserving.
 // Implements the dcerpc.Sealer interface.

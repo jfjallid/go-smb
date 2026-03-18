@@ -159,6 +159,33 @@ func (s *Session) DecryptOnly(ciphertext []byte) []byte {
 	return plaintext
 }
 
+// SignOnly computes a MAC over toSign without encrypting any data.
+// Used for DCERPC PktIntegrity where the stub is signed but not encrypted.
+func (s *Session) SignOnly(toSign []byte, seqNum uint32) (signature []byte, newSeqNum uint32) {
+	if s.isClientSide {
+		signature, newSeqNum = mac(nil, s.negotiateFlags, s.clientHandle, s.clientSigningKey, seqNum, toSign)
+	} else {
+		signature, newSeqNum = mac(nil, s.negotiateFlags, s.serverHandle, s.serverSigningKey, seqNum, toSign)
+	}
+	return
+}
+
+// VerifyMACOnly computes a MAC over signData and compares it with the expected
+// signature, without any prior decryption step. Used for DCERPC PktIntegrity
+// where the stub was not encrypted.
+func (s *Session) VerifyMACOnly(signData, expectedSig []byte, seqNum uint32) (uint32, error) {
+	var computedSig []byte
+	if s.isClientSide {
+		computedSig, seqNum = mac(nil, s.negotiateFlags, s.serverHandle, s.serverSigningKey, seqNum, signData)
+	} else {
+		computedSig, seqNum = mac(nil, s.negotiateFlags, s.clientHandle, s.clientSigningKey, seqNum, signData)
+	}
+	if !bytes.Equal(expectedSig, computedSig) {
+		return 0, fmt.Errorf("Signature mismatch")
+	}
+	return seqNum, nil
+}
+
 // VerifyMAC computes a MAC over signData and compares it with the expected
 // signature. Must be called after DecryptOnly so the receive-side RC4 handle
 // is at the correct keystream position.
