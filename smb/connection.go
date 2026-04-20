@@ -389,7 +389,7 @@ func NewConnection(opt Options) (c *Connection, err error) {
 	go c.runSender()
 	go c.runReceiver()
 
-	log.Debugln("Negotiating protocol")
+	log.Traceln("Negotiating protocol")
 	err = c.NegotiateProtocol()
 	if err != nil {
 		return

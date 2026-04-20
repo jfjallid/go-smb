@@ -1542,7 +1542,7 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 		return
 	}
 
-	log.Debugln("Sending ReadFile requests")
+	log.Traceln("Sending ReadFile requests")
 	data := make([]byte, s.maxReadSize)
 	fileSize := res.EndOfFile
 
@@ -1605,7 +1605,6 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 		return
 	}
 
-	log.Debugln("Reading response")
 	var h Header
 	if err := encoder.Unmarshal(buf[:64], &h); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
@@ -1735,7 +1734,7 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 	}
 	defer f.CloseFile()
 
-	log.Debugln("Sending WriteFile requests")
+	log.Traceln("Sending WriteFile requests")
 
 	writeOffset := offset
 	for {
