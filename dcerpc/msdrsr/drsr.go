@@ -26,7 +26,6 @@
 package msdrsr
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"strings"
@@ -88,19 +87,19 @@ const (
 
 // GetNCChanges request flags
 const (
-	DrsInitSync             uint32 = 0x00000020
-	DrsWritRep              uint32 = 0x00000010
-	DrsNeverSynced          uint32 = 0x00200000
-	DrsFullSyncNow          uint32 = 0x08000000
-	DrsFullSyncInProgress   uint32 = 0x10000000
-	DrsSyncUrgent           uint32 = 0x00080000
-	DrsGetAnc               uint32 = 0x00000800
+	DrsInitSync              uint32 = 0x00000020
+	DrsWritRep               uint32 = 0x00000010
+	DrsNeverSynced           uint32 = 0x00200000
+	DrsFullSyncNow           uint32 = 0x08000000
+	DrsFullSyncInProgress    uint32 = 0x10000000
+	DrsSyncUrgent            uint32 = 0x00080000
+	DrsGetAnc                uint32 = 0x00000800
 	DrsSyncForcedReplication uint32 = 0x00000040
 )
 
 // Extended operation codes
 const (
-	ExopNone   uint32 = 0
+	ExopNone    uint32 = 0
 	ExopReplObj uint32 = 6
 )
 
@@ -129,40 +128,40 @@ func (a DCSyncAttrs) Has(flag DCSyncAttrs) bool {
 
 // DS_NAME_FORMAT constants for DRSCrackNames
 const (
-	DSUnknownName          uint32 = 0
-	DSFQDNATTName          uint32 = 1
-	DSNT4AccountName       uint32 = 2
-	DSDisplayName          uint32 = 3
-	DSUniqueIdName         uint32 = 6
-	DSCanonicalName        uint32 = 7
-	DSUserPrincipalName    uint32 = 8
-	DSSidOrSidHistoryName  uint32 = 11
-	DSDnsName              uint32 = 12
+	DSUnknownName         uint32 = 0
+	DSFQDNATTName         uint32 = 1
+	DSNT4AccountName      uint32 = 2
+	DSDisplayName         uint32 = 3
+	DSUniqueIdName        uint32 = 6
+	DSCanonicalName       uint32 = 7
+	DSUserPrincipalName   uint32 = 8
+	DSSidOrSidHistoryName uint32 = 11
+	DSDnsName             uint32 = 12
 )
 
 // DS_NAME_FLAGS
 const (
-	DsNameNoFlags    uint32 = 0
+	DsNameNoFlags             uint32 = 0
 	DsNameFlagSyntacticalOnly uint32 = 1
 )
 
 // CrackNames result status
 const (
-	DsNameNoError             uint32 = 0
-	DsNameErrorResolving      uint32 = 1
-	DsNameErrorNotFound       uint32 = 2
-	DsNameErrorNotUnique      uint32 = 3
-	DsNameErrorNoMapping      uint32 = 4
-	DsNameErrorDomainOnly     uint32 = 5
-	DsNameErrorNoSyntactical  uint32 = 6
-	DsNameErrorTrustReferral  uint32 = 7
+	DsNameNoError            uint32 = 0
+	DsNameErrorResolving     uint32 = 1
+	DsNameErrorNotFound      uint32 = 2
+	DsNameErrorNotUnique     uint32 = 3
+	DsNameErrorNoMapping     uint32 = 4
+	DsNameErrorDomainOnly    uint32 = 5
+	DsNameErrorNoSyntactical uint32 = 6
+	DsNameErrorTrustReferral uint32 = 7
 )
 
 // DRSUAPI return codes
 const (
-	ErrorSuccess       uint32 = 0
-	ErrorMoreData      uint32 = 234
-	DrsuapiExopErr     uint32 = 8437 // ERROR_DS_DRA_NOT_SUPPORTED
+	ErrorSuccess   uint32 = 0
+	ErrorMoreData  uint32 = 234
+	DrsuapiExopErr uint32 = 8437 // ERROR_DS_DRA_NOT_SUPPORTED
 )
 
 var ResponseCodeMap = map[uint32]error{
@@ -180,7 +179,7 @@ var ResponseCodeMap = map[uint32]error{
 
 type RPCCon struct {
 	*dcerpc.ServiceBind
-	drsHandle         []byte   // 20-byte context handle from DRSBind
+	drsHandle         []byte // 20-byte context handle from DRSBind
 	serverCaps        uint32
 	sessionKey        []byte
 	ntdsDsaObjectGuid [16]byte // NTDS DSA GUID for the target DC, set by DCSync
@@ -203,153 +202,63 @@ func (c *RPCCon) DRSBind() error {
 		Flags: DrsExtGetchgReqV6 | DrsExtGetchgReplyV6 |
 			DrsExtGetchgReqV8 | DrsExtStrongEncryption |
 			DrsExtNondomainNcs,
-		SiteObjGuid:     [16]byte{},
+		SiteObjGuid:      [16]byte{},
 		Pid:              0,
 		ReplicationEpoch: 0,
 		FlagsExt:         0,
 		ConfigObjGuid:    [16]byte{},
 	}
 
-	extBytes, err := clientExt.MarshalBinary()
+	extBytes, err := clientExt.Marshal()
 	if err != nil {
 		return fmt.Errorf("failed to marshal DRS_EXTENSIONS_INT: %w", err)
 	}
 
-	//TODO Figure out what is required to use dynamic ndr encoder for this
-	// DRSBind request layout (NDR, two top-level [in, unique] pointer params):
-	//
-	// Parameter 1: puuidClientDsa ([in, unique] UUID *)
-	//   [4 bytes]  referent ID (non-zero → has data)
-	//   [16 bytes] GUID (NTDSAPI_CLIENT_GUID, deferred)
-	//
-	// Parameter 2: pextClient ([in, unique] DRS_EXTENSIONS *)
-	//   [4 bytes]  referent ID (non-zero → has data)
-	//   [4 bytes]  conformant array max_count (hoisted from rgb[])
-	//   [4 bytes]  cb (byte count of DRS_EXTENSIONS blob)
-	//   [cb bytes] DRS_EXTENSIONS_INT data
-	//   [padding]  4-byte alignment padding
-	w := bytes.NewBuffer(make([]byte, 0, 128))
-
-	// puuidClientDsa - unique pointer to NTDSAPI_CLIENT_GUID
-	// {e24d201a-4fd6-11d1-a3da-0000f875ae0d}
+	// NTDSAPI_CLIENT_GUID {e24d201a-4fd6-11d1-a3da-0000f875ae0d}
 	ntdsapiGuid := [16]byte{
 		0x1a, 0x20, 0x4d, 0xe2, 0xd6, 0x4f, 0xd1, 0x11,
 		0xa3, 0xda, 0x00, 0x00, 0xf8, 0x75, 0xae, 0x0d,
 	}
-	err = binary.Write(w, le, uint32(1)) // referent ID
-	if err != nil {
-		return fmt.Errorf("failed to write puuidClientDsa refId: %w", err)
+	req := &DRSBindReq{
+		PuuidClientDsa: &ntdsapiGuid,
+		PextClient: &DRSExtensionsBlob{
+			Cb:  uint32(len(extBytes)),
+			Rgb: extBytes,
+		},
 	}
-	_, err = w.Write(ntdsapiGuid[:]) // deferred UUID data
+	reqBytes, err := req.Marshal()
 	if err != nil {
-		return fmt.Errorf("failed to write puuidClientDsa GUID: %w", err)
+		return fmt.Errorf("failed to marshal DRSBind request: %w", err)
 	}
 
-	// pextClient - unique pointer to DRS_EXTENSIONS
-	cb := uint32(len(extBytes))
-	err = binary.Write(w, le, uint32(2)) // referent ID
-	if err != nil {
-		return fmt.Errorf("failed to write pextClient refId: %w", err)
-	}
-
-	// DRS_EXTENSIONS is a conformant struct: max_count is hoisted before cb
-	err = binary.Write(w, le, cb) // conformant array max_count (for rgb[])
-	if err != nil {
-		return fmt.Errorf("failed to write max_count: %w", err)
-	}
-
-	err = binary.Write(w, le, cb) // cb field
-	if err != nil {
-		return fmt.Errorf("failed to write cb: %w", err)
-	}
-
-	// Extension bytes (rgb[] array data)
-	_, err = w.Write(extBytes)
-	if err != nil {
-		return fmt.Errorf("failed to write extension bytes: %w", err)
-	}
-
-	// Pad to 4-byte alignment
-	if pad := (4 - (cb % 4)) % 4; pad > 0 {
-		w.Write(make([]byte, pad))
-	}
-
-	buffer, err := c.MakeRequest(OpDRSBind, w.Bytes())
+	buffer, err := c.MakeRequest(OpDRSBind, reqBytes)
 	if err != nil {
 		return fmt.Errorf("DRSBind MakeRequest failed: %w", err)
 	}
 
-	// Parse response:
-	// [4 bytes]  ppextServer referent ID (or 0 if null)
-	// [4 bytes]  conformant array max_count (hoisted from rgb[]; equals cb)
-	// [4 bytes]  cb
-	// [cb bytes] DRS_EXTENSIONS_INT server data
-	// [pad]      alignment padding
-	// [20 bytes] phDrs (DRS_HANDLE)
-	// [4 bytes]  return code
-	if len(buffer) < 28 {
-		return fmt.Errorf("DRSBind response too short: %d bytes", len(buffer))
+	var resp DRSBindRes
+	if err = resp.Unmarshal(buffer); err != nil {
+		return fmt.Errorf("failed to unmarshal DRSBind response: %w", err)
 	}
 
-	r := bytes.NewReader(buffer)
-
-	var serverRefId uint32
-	if err = binary.Read(r, le, &serverRefId); err != nil {
-		return fmt.Errorf("failed to read server refId: %w", err)
-	}
-
-	// A null referent means the server returned no extensions; skip to the DRS_HANDLE.
-	if serverRefId != 0 {
-		var serverCb uint32
-		if err = binary.Read(r, le, &serverCb); err != nil {
-			return fmt.Errorf("failed to read server cb: %w", err)
-		}
-
-		var serverMaxCount uint32
-		if err = binary.Read(r, le, &serverMaxCount); err != nil {
-			return fmt.Errorf("failed to read server max_count: %w", err)
-		}
-
-		if int(serverCb) > r.Len()-24 {
-			return fmt.Errorf("server extension cb %d exceeds remaining buffer", serverCb)
-		}
-
-		serverExtData := make([]byte, serverCb)
-		if _, err = r.Read(serverExtData); err != nil {
-			return fmt.Errorf("failed to read server extension data: %w", err)
-		}
-
+	if resp.PpextServer != nil && len(resp.PpextServer.Rgb) > 0 {
 		var serverExt DRSExtensionsInt
-		if err = serverExt.UnmarshalBinary(serverExtData); err != nil {
+		if err = serverExt.Unmarshal(resp.PpextServer.Rgb); err != nil {
 			log.Warningf("Failed to fully parse server DRS_EXTENSIONS_INT: %v", err)
 		}
 		c.serverCaps = serverExt.Flags
-
-		// Skip alignment padding
-		if pad := (4 - (serverCb % 4)) % 4; pad > 0 {
-			r.Seek(int64(pad), 1)
-		}
 	}
 
-	// Read DRS_HANDLE (20 bytes)
-	c.drsHandle = make([]byte, 20)
-	if _, err = r.Read(c.drsHandle); err != nil {
-		return fmt.Errorf("failed to read DRS_HANDLE: %w", err)
-	}
-
-	// Read return code
-	var returnCode uint32
-	if err = binary.Read(r, le, &returnCode); err != nil {
-		return fmt.Errorf("failed to read return code: %w", err)
-	}
-
-	if returnCode != ErrorSuccess {
-		status, found := ResponseCodeMap[returnCode]
+	if resp.ReturnCode != ErrorSuccess {
+		status, found := ResponseCodeMap[resp.ReturnCode]
 		if !found {
-			return fmt.Errorf("DRSBind returned unknown error code: 0x%x (%d)", returnCode, returnCode)
+			return fmt.Errorf("DRSBind returned unknown error code: 0x%x (%d)", resp.ReturnCode, resp.ReturnCode)
 		}
 		return fmt.Errorf("DRSBind failed: %w", status)
 	}
+
+	c.drsHandle = make([]byte, 20)
+	copy(c.drsHandle, resp.PhDrs[:])
 
 	log.Infof("DRSBind successful, server caps: 0x%08x", c.serverCaps)
 	return nil
@@ -361,24 +270,27 @@ func (c *RPCCon) DRSUnbind() error {
 		return fmt.Errorf("no valid DRS_HANDLE to unbind")
 	}
 
-	w := bytes.NewBuffer(make([]byte, 0, 20))
-	w.Write(c.drsHandle)
+	req := &DRSUnbindReq{}
+	copy(req.PhDrs[:], c.drsHandle)
+	reqBytes, err := req.Marshal()
+	if err != nil {
+		return fmt.Errorf("failed to marshal DRSUnbind request: %w", err)
+	}
 
-	buffer, err := c.MakeRequest(OpDRSUnbind, w.Bytes())
+	buffer, err := c.MakeRequest(OpDRSUnbind, reqBytes)
 	if err != nil {
 		return fmt.Errorf("DRSUnbind MakeRequest failed: %w", err)
 	}
 
-	if len(buffer) < 24 {
-		return fmt.Errorf("DRSUnbind response too short: %d bytes", len(buffer))
+	var resp DRSUnbindRes
+	if err = resp.Unmarshal(buffer); err != nil {
+		return fmt.Errorf("failed to unmarshal DRSUnbind response: %w", err)
 	}
 
-	// Response: [20 bytes] phDrs (zeroed handle) + [4 bytes] return code
-	returnCode := le.Uint32(buffer[20:24])
-	if returnCode != ErrorSuccess {
-		status, found := ResponseCodeMap[returnCode]
+	if resp.ReturnCode != ErrorSuccess {
+		status, found := ResponseCodeMap[resp.ReturnCode]
 		if !found {
-			return fmt.Errorf("DRSUnbind returned unknown error code: 0x%x", returnCode)
+			return fmt.Errorf("DRSUnbind returned unknown error code: 0x%x", resp.ReturnCode)
 		}
 		return fmt.Errorf("DRSUnbind failed: %w", status)
 	}
@@ -402,22 +314,59 @@ func (c *RPCCon) DRSCrackNames(formatOffered, formatDesired uint32, names []stri
 		return nil, fmt.Errorf("DRSBind must be called before DRSCrackNames")
 	}
 
-	innerBuf, err := marshalCrackNamesReq(c.drsHandle, formatOffered, formatDesired, names)
+	rpNames := make([]LPWSTR, len(names))
+	for i, n := range names {
+		rpNames[i] = LPWSTR{Value: n}
+	}
+	req := &DRSCrackNamesReq{
+		PmsgIn: DRSMsgCrackReqUnion{
+			Level: 1,
+			Level1: DRSMsgCrackReqV1{
+				DwFlags:       DsNameNoFlags,
+				FormatOffered: formatOffered,
+				FormatDesired: formatDesired,
+				CNames:        uint32(len(names)),
+				RpNames:       rpNames,
+			},
+		},
+	}
+	copy(req.HDrs[:], c.drsHandle)
+	reqBytes, err := req.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal DRSCrackNames request: %w", err)
 	}
 
-	buffer, err := c.MakeRequest(OpDRSCrackNames, innerBuf)
+	buffer, err := c.MakeRequest(OpDRSCrackNames, reqBytes)
 	if err != nil {
 		return nil, fmt.Errorf("DRSCrackNames MakeRequest failed: %w", err)
 	}
 
-	results, err := unmarshalCrackNamesResp(buffer)
-	if err != nil {
+	var resp DRSCrackNamesRes
+	if err = resp.Unmarshal(buffer); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal DRSCrackNames response: %w", err)
 	}
 
-	return results, nil
+	if resp.ReturnCode != ErrorSuccess {
+		status, found := ResponseCodeMap[resp.ReturnCode]
+		if !found {
+			return nil, fmt.Errorf("DRSCrackNames returned unknown error code: 0x%x", resp.ReturnCode)
+		}
+		return nil, fmt.Errorf("DRSCrackNames failed: %w", status)
+	}
+
+	result := resp.PmsgOut.Level1.PResult
+	if result == nil {
+		return nil, nil
+	}
+	out := make([]CrackedName, len(result.RItems))
+	for i, it := range result.RItems {
+		out[i] = CrackedName{
+			Status: it.Status,
+			Name:   it.PName,
+			Domain: it.PDomain,
+		}
+	}
+	return out, nil
 }
 
 // DCInfo holds information about a domain controller returned by DRSDomainControllerInfo.
@@ -437,28 +386,93 @@ type DCInfo struct {
 }
 
 // DRSDomainControllerInfo performs IDL_DRSDomainControllerInfo (opnum 16) to
-// retrieve information about domain controllers.
+// retrieve information about domain controllers. Only info level 2 is parsed
+// into DCInfo results; other levels return the raw union for the caller to
+// inspect via PmsgOut.
 func (c *RPCCon) DRSDomainControllerInfo(domain string, infoLevel uint32) ([]DCInfo, error) {
 	if len(c.drsHandle) != 20 {
 		return nil, fmt.Errorf("DRSBind must be called before DRSDomainControllerInfo")
 	}
 
-	innerBuf, err := marshalDCInfoReq(c.drsHandle, domain, infoLevel)
+	req := &DRSDCInfoReq{
+		PmsgIn: DRSMsgDCInfoReqUnion{
+			Level: 1,
+			Level1: DRSMsgDCInfoReqV1{
+				Domain:    domain,
+				InfoLevel: infoLevel,
+			},
+		},
+	}
+	copy(req.HDrs[:], c.drsHandle)
+	reqBytes, err := req.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal DRSDomainControllerInfo request: %w", err)
 	}
 
-	buffer, err := c.MakeRequest(OpDRSDomainControllerInfo, innerBuf)
+	buffer, err := c.MakeRequest(OpDRSDomainControllerInfo, reqBytes)
 	if err != nil {
 		return nil, fmt.Errorf("DRSDomainControllerInfo MakeRequest failed: %w", err)
 	}
 
-	results, err := unmarshalDCInfoResp(buffer, infoLevel)
-	if err != nil {
+	var resp DRSDCInfoRes
+	if err = resp.Unmarshal(buffer); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal DRSDomainControllerInfo response: %w", err)
 	}
 
-	return results, nil
+	if resp.ReturnCode != ErrorSuccess {
+		status, found := ResponseCodeMap[resp.ReturnCode]
+		if !found {
+			return nil, fmt.Errorf("DRSDomainControllerInfo returned unknown error code: 0x%x", resp.ReturnCode)
+		}
+		return nil, fmt.Errorf("DRSDomainControllerInfo failed: %w", status)
+	}
+
+	var items []DSDomainControllerInfo2W
+	switch resp.PmsgOut.Level {
+	case 2:
+		items = resp.PmsgOut.Level2.RItems
+	case 3:
+		// V3 adds fIsRodc; map the shared fields into DCInfo.
+		out := make([]DCInfo, len(resp.PmsgOut.Level3.RItems))
+		for i, it := range resp.PmsgOut.Level3.RItems {
+			out[i] = DCInfo{
+				NetbiosName:        it.NetbiosName,
+				DnsHostName:        it.DnsHostName,
+				SiteName:           it.SiteName,
+				SiteObjectName:     it.SiteObjectName,
+				ComputerObjectDN:   it.ComputerObjectName,
+				ServerObjectDN:     it.ServerObjectName,
+				SiteObjectGuid:     it.SiteObjectGuid,
+				ComputerObjectGuid: it.ComputerObjectGuid,
+				ServerObjectGuid:   it.ServerObjectGuid,
+				NtdsDsaObjectGuid:  it.NtdsDsaObjectGuid,
+				IsPDC:              it.FIsPdc != 0,
+				IsGC:               it.FIsGc != 0,
+			}
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("unsupported DCInfo response version: %d", resp.PmsgOut.Level)
+	}
+
+	out := make([]DCInfo, len(items))
+	for i, it := range items {
+		out[i] = DCInfo{
+			NetbiosName:        it.NetbiosName,
+			DnsHostName:        it.DnsHostName,
+			SiteName:           it.SiteName,
+			SiteObjectName:     it.SiteObjectName,
+			ComputerObjectDN:   it.ComputerObjectName,
+			ServerObjectDN:     it.ServerObjectName,
+			SiteObjectGuid:     it.SiteObjectGuid,
+			ComputerObjectGuid: it.ComputerObjectGuid,
+			ServerObjectGuid:   it.ServerObjectGuid,
+			NtdsDsaObjectGuid:  it.NtdsDsaObjectGuid,
+			IsPDC:              it.FIsPdc != 0,
+			IsGC:               it.FIsGc != 0,
+		}
+	}
+	return out, nil
 }
 
 // ReplicatedUser holds the decrypted credentials and metadata for a single
@@ -490,10 +504,15 @@ func (c *RPCCon) DRSGetNCChanges(ncDN string, objectGuid [16]byte, extendedOp ui
 	var usnFrom USNVector
 	var uptodateVec *UPTODATEVectorV2
 
+	var handle [20]byte
+	copy(handle[:], c.drsHandle)
+
 	for {
-		// Always use V8 request format for maximum compatibility.
-		// V10 adds ulMoreFlags but some servers handle it differently.
-		innerBuf, err := marshalGetNCChangesReq(c.drsHandle, ncDN, objectGuid, c.ntdsDsaObjectGuid, extendedOp, usnFrom, uptodateVec, false, attrs)
+		req, err := buildGetNCChangesReqV8(handle, ncDN, objectGuid, c.ntdsDsaObjectGuid, extendedOp, usnFrom, uptodateVec, attrs)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to build GetNCChanges request: %w", err)
+		}
+		innerBuf, err := req.Marshal()
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to marshal GetNCChanges request: %w", err)
 		}
@@ -503,24 +522,43 @@ func (c *RPCCon) DRSGetNCChanges(ncDN string, objectGuid [16]byte, extendedOp ui
 			return nil, nil, fmt.Errorf("DRSGetNCChanges MakeRequest failed: %w", err)
 		}
 
-		resp, err := unmarshalGetNCChangesResp(buffer)
-		if err != nil {
+		var resp DRSGetNCChangesRes
+		if err = resp.Unmarshal(buffer); err != nil {
 			return nil, nil, fmt.Errorf("failed to unmarshal GetNCChanges response: %w", err)
 		}
 
-		if prefixTable == nil {
-			prefixTable = &resp.PrefixTableSrc
+		if resp.ReturnCode != ErrorSuccess && resp.ReturnCode != ErrorMoreData {
+			status, found := ResponseCodeMap[resp.ReturnCode]
+			if !found {
+				return nil, nil, fmt.Errorf("DRSGetNCChanges returned unknown error code: 0x%x (%d)", resp.ReturnCode, resp.ReturnCode)
+			}
+			return nil, nil, fmt.Errorf("DRSGetNCChanges failed: %w", status)
 		}
 
-		allEntries = append(allEntries, resp.Entries...)
+		if prefixTable == nil {
+			pt := resp.PrefixTableSrc()
+			prefixTable = &pt
+		}
 
-		if !resp.FMoreData {
+		if len(resp.LinkedValues) > 0 {
+			log.Debugf("DRSGetNCChanges returned %d linked values (unused)", len(resp.LinkedValues))
+			fmt.Printf("LinkedValues: \n")
+			for _, item := range resp.LinkedValues {
+				fmt.Printf("%+v\n", item)
+			}
+		}
+
+		for i := range resp.Entries {
+			allEntries = append(allEntries, resp.Entries[i].Entinf)
+		}
+
+		if !resp.FMoreData() {
 			break
 		}
 
 		// Update cursor for next page
-		usnFrom = resp.UsnvecTo
-		uptodateVec = resp.UpToDateVec
+		usnFrom = resp.UsnvecTo()
+		uptodateVec = resp.UpToDateVec()
 	}
 
 	return allEntries, prefixTable, nil
@@ -821,4 +859,3 @@ func domainFromDN(dn string) string {
 	}
 	return strings.Join(parts, ".")
 }
-

@@ -420,8 +420,8 @@ type contextHandle struct {
 
 // eptMapRequestNDR is the NDR wire representation of ept_map [in] parameters.
 type eptMapRequestNDR struct {
-	Object      *[16]byte     `ndr:"toppointer,fullpointer"` // uuid_p_t (nullable)
-	MapTower    *towerNDR     `ndr:"toppointer,fullpointer"` // twr_p_t (nullable)
+	Object      *[16]byte     `ndr:"toplevel,fullpointer"` // uuid_p_t (nullable)
+	MapTower    *towerNDR     `ndr:"toplevel,fullpointer"` // twr_p_t (nullable)
 	EntryHandle contextHandle // ept_lookup_handle_t
 	MaxTowers   uint32
 }
@@ -430,7 +430,7 @@ type eptMapRequestNDR struct {
 type eptMapResponseNDR struct {
 	EntryHandle [20]byte
 	NumTowers   uint32
-	Towers      []towerPtrNDR `ndr:"toppointer,conformant,varying"`
+	Towers      []towerPtrNDR `ndr:"toplevel,conformant,varying"`
 	Status      uint32
 }
 

@@ -27,26 +27,11 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"strings"
+	"unicode/utf16"
 
-	"github.com/jfjallid/go-smb/msdtyp"
+	"github.com/jfjallid/ndr"
 )
-
-// ndrAlign pads the write buffer to the given alignment boundary.
-func ndrAlign(w *bytes.Buffer, alignment int) {
-	if pad := (alignment - (w.Len() % alignment)) % alignment; pad > 0 {
-		w.Write(make([]byte, pad))
-	}
-}
-
-// ndrAlignReader skips padding bytes in the reader to reach the given alignment.
-func ndrAlignReader(r *bytes.Reader, alignment int64) {
-	pos, _ := r.Seek(0, io.SeekCurrent)
-	if pad := (alignment - (pos % alignment)) % alignment; pad > 0 {
-		r.Seek(pad, io.SeekCurrent)
-	}
-}
 
 // Well-known attribute IDs (MS-DRSR / MS-ADA*)
 type ATTRTYP uint32
@@ -79,7 +64,10 @@ type DRSExtensionsInt struct {
 	ConfigObjGuid    [16]byte
 }
 
-func (e *DRSExtensionsInt) MarshalBinary() ([]byte, error) {
+// Marshal serializes DRS_EXTENSIONS_INT as the opaque blob payload carried
+// inside DRS_EXTENSIONS.rgb. Hand-coded because the wire format is variable-
+// length and not strictly NDR (cb governs which trailing fields are present).
+func (e *DRSExtensionsInt) Marshal() ([]byte, error) {
 	w := bytes.NewBuffer(make([]byte, 0, 52))
 	binary.Write(w, le, e.Flags)
 	w.Write(e.SiteObjGuid[:])
@@ -90,7 +78,7 @@ func (e *DRSExtensionsInt) MarshalBinary() ([]byte, error) {
 	return w.Bytes(), nil
 }
 
-func (e *DRSExtensionsInt) UnmarshalBinary(data []byte) error {
+func (e *DRSExtensionsInt) Unmarshal(data []byte) error {
 	r := bytes.NewReader(data)
 	if len(data) >= 4 {
 		binary.Read(r, le, &e.Flags)
@@ -114,77 +102,59 @@ func (e *DRSExtensionsInt) UnmarshalBinary(data []byte) error {
 }
 
 // DSNAME represents a directory object name (MS-DRSR 4.1.10.2.9).
+//
+// IDL: struct { ULONG StructLen; ULONG SidLen; GUID Guid; NT4SID Sid;
+//
+//	ULONG NameLen; [size_is(NameLen+1)] WCHAR StringName[]; }
+//
+// StringName is a conformant-ONLY (not varying) WCHAR array: the NDR wire
+// format places the hoisted max_count at the struct head and then writes the
+// UTF-16 code units directly, with no offset/actual_count header. To achieve
+// this, StringName is stored as []uint16 (a conformant primitive slice) —
+// using a `string` field would trigger ndr's conformant-varying string path
+// and emit an extra 8-byte offset/count header that the IDL does not allow.
+// Use Name()/SetName() for Go string interop.
 type DSNAME struct {
 	StructLen  uint32
 	SidLen     uint32
 	Guid       [16]byte
 	Sid        [28]byte // Fixed 28-byte buffer, zero-padded
-	NameLen    uint32   // Character count including null terminator
-	StringName string
+	NameLen    uint32   // Character count NOT including null terminator
+	StringName []uint16 `ndr:"conformant"`
 }
 
-func (d *DSNAME) MarshalBinary() ([]byte, error) {
-	nameUtf16 := msdtyp.ToUnicode(d.StringName)
-	// Add null terminator
-	nameUtf16 = append(nameUtf16, 0, 0)
-	nameLen := uint32(len(d.StringName)) // chars NOT including null (MS-DRSR 4.1.10.2.9)
-
-	// StructLen = fixed fields (4+4+16+28+4) + name bytes
-	structLen := uint32(56 + len(nameUtf16))
-
-	w := bytes.NewBuffer(make([]byte, 0, structLen))
-	binary.Write(w, le, structLen)
-	binary.Write(w, le, d.SidLen)
-	w.Write(d.Guid[:])
-	w.Write(d.Sid[:])
-	binary.Write(w, le, nameLen)
-	w.Write(nameUtf16)
-
-	return w.Bytes(), nil
+// Name returns StringName as a Go string, stripping any trailing null.
+func (d *DSNAME) Name() string {
+	if len(d.StringName) == 0 {
+		return ""
+	}
+	end := len(d.StringName)
+	if d.StringName[end-1] == 0 {
+		end--
+	}
+	return string(utf16.Decode(d.StringName[:end]))
 }
 
-func unmarshalDSNAME(r io.Reader) (*DSNAME, error) {
-	d := &DSNAME{}
-	if err := binary.Read(r, le, &d.StructLen); err != nil {
-		return nil, fmt.Errorf("failed to read DSNAME.StructLen: %w", err)
-	}
-	if err := binary.Read(r, le, &d.SidLen); err != nil {
-		return nil, fmt.Errorf("failed to read DSNAME.SidLen: %w", err)
-	}
-	if _, err := io.ReadFull(r, d.Guid[:]); err != nil {
-		return nil, fmt.Errorf("failed to read DSNAME.Guid: %w", err)
-	}
-	if _, err := io.ReadFull(r, d.Sid[:]); err != nil {
-		return nil, fmt.Errorf("failed to read DSNAME.Sid: %w", err)
-	}
-	if err := binary.Read(r, le, &d.NameLen); err != nil {
-		return nil, fmt.Errorf("failed to read DSNAME.NameLen: %w", err)
-	}
-
-	// StringName is [size_is(NameLen+1)] WCHAR — always at least 1 WCHAR
-	// (the null terminator), even when NameLen == 0.
-	nameWchars := d.NameLen + 1
-	nameBytes := make([]byte, nameWchars*2)
-	if _, err := io.ReadFull(r, nameBytes); err != nil {
-		return nil, fmt.Errorf("failed to read DSNAME.StringName: %w", err)
-	}
-	if d.NameLen > 0 {
-		d.StringName, _ = msdtyp.FromUnicodeString(nameBytes[:d.NameLen*2])
-	}
-
-	return d, nil
+// SetName sets StringName from a Go string (adding a trailing null terminator)
+// and recomputes NameLen and StructLen so they are consistent for marshaling.
+func (d *DSNAME) SetName(name string) {
+	d.StringName = append(utf16.Encode([]rune(name)), 0)
+	d.NameLen = uint32(len(name))
+	d.StructLen = 56 + 2*uint32(len(d.StringName))
 }
 
 // ATTRVAL represents a single attribute value (MS-DRSR 4.1.10.2.2).
+// IDL: struct { ULONG valLen; [size_is(valLen)] BYTE* pVal; }
 type ATTRVAL struct {
 	ValLen uint32
-	PVal   []byte
+	PVal   []byte `ndr:"pointer,conformant,maxcount:ValLen"`
 }
 
 // ATTRVALBLOCK represents a block of attribute values (MS-DRSR 4.1.10.2.3).
+// IDL: struct { ULONG valCount; [size_is(valCount)] ATTRVAL* pAVal; }
 type ATTRVALBLOCK struct {
 	ValCount uint32
-	PVal     []ATTRVAL
+	PVal     []ATTRVAL `ndr:"pointer,conformant,maxcount:ValCount"`
 }
 
 // ATTR represents a single attribute with its type and values (MS-DRSR 4.1.10.2.4).
@@ -194,50 +164,88 @@ type ATTR struct {
 }
 
 // ATTRBLOCK represents a block of attributes (MS-DRSR 4.1.10.2.5).
+// IDL: struct { ULONG attrCount; [size_is(attrCount)] ATTR* pAttr; }
 type ATTRBLOCK struct {
 	AttrCount uint32
-	PAttr     []ATTR
+	PAttr     []ATTR `ndr:"pointer,fullpointer,conformant,maxcount:AttrCount"`
 }
 
 // ENTINF represents a replicated directory entry with its attributes (MS-DRSR 4.1.10.2.10).
 type ENTINF struct {
-	PName    *DSNAME
-	UlFlags  uint32
+	PName     *DSNAME `ndr:"pointer"`
+	UlFlags   uint32
 	AttrBlock ATTRBLOCK
 }
 
 // USNVector represents a replication cursor (MS-DRSR 4.1.10.2.18).
+// All-int64 struct: ndr's structAlignment=8 handles the 8-byte alignment.
 type USNVector struct {
 	UsnHighObjUpdate  int64
 	UsnReserved       int64
 	UsnHighPropUpdate int64
 }
 
+// UPTODATEVectorV1 — MS-DRSR 4.1.10.2.19 UPTODATE_VECTOR_V1_EXT.
+// Returned by DRS_MSG_GETCHGREPLY_V1.
+type UPTODATEVectorV1 struct {
+	Version  uint32
+	Reserved uint32
+	Count    uint32
+	Cursors  []UPTODATECursorV1 `ndr:"conformant,maxcount:Count"`
+}
+
+// UPTODATECursorV1 — MS-DRSR 4.1.10.2.20 UPTODATE_CURSOR_V1.
+type UPTODATECursorV1 struct {
+	UuidDsa           [16]byte
+	UsnHighPropUpdate int64
+}
+
 // UPTODATEVectorV2 represents the up-to-date vector for replication cursors.
+// IDL: conformant struct with [size_is(cNumCursors)] rgCursors[]
 type UPTODATEVectorV2 struct {
 	Version  uint32
 	Reserved uint32
 	Count    uint32
-	Cursors  []UPTODATECursorV2
+	Cursors  []UPTODATECursorV2 `ndr:"conformant,maxcount:Count"`
 }
 
 // UPTODATECursorV2 represents a single replication cursor entry.
 type UPTODATECursorV2 struct {
-	UuidDsa            [16]byte
-	UsnHighPropUpdate  int64
+	UuidDsa             [16]byte
+	UsnHighPropUpdate   int64
 	TimeLastSyncSuccess int64
 }
 
 // OIDPrefix represents a single entry in the prefix table (MS-DRSR 4.1.10.2.13).
+// IDL: struct { DWORD ndxVal; [range(0,10000)] DWORD length;
+//
+//	[size_is(length)] BYTE* element; }
 type OIDPrefix struct {
-	NdxVal uint32
-	Prefix []byte
+	NdxVal    uint32
+	PrefixLen uint32
+	Prefix    []byte `ndr:"pointer,conformant,maxcount:PrefixLen"`
 }
 
 // SchemaPrefixTable maps server-local ATTRTYP values to OID-based attribute IDs (MS-DRSR 4.1.10.2.14).
+// IDL: struct { DWORD PrefixCount; [size_is(PrefixCount)] PrefixTableEntry* pPrefixEntry; }
 type SchemaPrefixTable struct {
 	PrefixCount uint32
-	Entries     []OIDPrefix
+	Entries     []OIDPrefix `ndr:"pointer,fullpointer,conformant,maxcount:PrefixCount"`
+}
+
+// PropertyMetaDataExt — MS-DRSR 4.1.10.2.16 PROPERTY_META_DATA_EXT.
+type PropertyMetaDataExt struct {
+	DwVersion          uint32
+	FTimeChanged       int64 // FILETIME (8-byte aligned)
+	UuidDsaOriginating [16]byte
+	UsnOriginating     int64 // USN (8-byte aligned)
+}
+
+// PropertyMetaDataExtVector — MS-DRSR 4.1.10.2.17 PROPERTY_META_DATA_EXT_VECTOR.
+// IDL: conformant struct with [size_is(cNumProps)] rgMetaData[]
+type PropertyMetaDataExtVector struct {
+	CNumProps  uint32
+	RgMetaData []PropertyMetaDataExt `ndr:"conformant,maxcount:CNumProps"`
 }
 
 // AttIdFromPrefixTable resolves a server-local ATTRTYP to a well-known ATTRTYP
@@ -401,21 +409,14 @@ func oidEqual(a, b []uint32) bool {
 	return true
 }
 
-// GetNCChangesResponse holds the parsed response from DRSGetNCChanges.
-type GetNCChangesResponse struct {
-	Entries        []ENTINF
-	FMoreData      bool
-	UsnvecTo       USNVector
-	PrefixTableSrc SchemaPrefixTable
-	UpToDateVec    *UPTODATEVectorV2
-}
-
 // PartialAttrSet represents PARTIAL_ATTR_VECTOR_V1_EXT (MS-DRSR 4.1.10.2.12).
+// PartialAttrSet — MS-DRSR 4.1.10.2.12 PARTIAL_ATTR_VECTOR_V1_EXT.
+// IDL: conformant struct with [size_is(cAttrs)] rgPartialAttr[]
 type PartialAttrSet struct {
 	Version  uint32
 	Reserved uint32
 	Count    uint32
-	Attrs    []ATTRTYP
+	Attrs    []ATTRTYP `ndr:"conformant,maxcount:Count"`
 }
 
 func (p *PartialAttrSet) MarshalBinary() ([]byte, error) {
@@ -427,153 +428,6 @@ func (p *PartialAttrSet) MarshalBinary() ([]byte, error) {
 		binary.Write(w, le, uint32(a))
 	}
 	return w.Bytes(), nil
-}
-
-// marshalCrackNamesReq creates the request buffer for IDL_DRSCrackNames.
-// Request structure (manual NDR):
-//   [20 bytes] DRS_HANDLE
-//   [4 bytes]  dwInVersion (1)
-//   [4 bytes]  dwInVersion union switch
-//   -- DRS_MSG_CRACKREQ_V1:
-//   [4 bytes]  CodePage (0)
-//   [4 bytes]  LocaleId (0)
-//   [4 bytes]  dwFlags
-//   [4 bytes]  formatOffered
-//   [4 bytes]  formatDesired
-//   [4 bytes]  cNames
-//   [4 bytes]  rpNames referent ID
-//   -- deferred rpNames:
-//   [4 bytes]  conformant max_count
-//   [N * 4 bytes] referent IDs for each string
-//   -- deferred strings
-func marshalCrackNamesReq(handle []byte, formatOffered, formatDesired uint32, names []string) ([]byte, error) {
-	w := bytes.NewBuffer(make([]byte, 0, 256))
-
-	// DRS_HANDLE
-	w.Write(handle)
-
-	// dwInVersion = 1
-	binary.Write(w, le, uint32(1))
-	// Union switch = 1
-	binary.Write(w, le, uint32(1))
-
-	// DRS_MSG_CRACKREQ_V1
-	binary.Write(w, le, uint32(0)) // CodePage
-	binary.Write(w, le, uint32(0)) // LocaleId
-	binary.Write(w, le, uint32(DsNameNoFlags)) // dwFlags
-	binary.Write(w, le, formatOffered)
-	binary.Write(w, le, formatDesired)
-	binary.Write(w, le, uint32(len(names))) // cNames
-
-	// rpNames referent ID
-	var refId uint32 = 1
-	binary.Write(w, le, refId)
-
-	// Conformant array max_count
-	binary.Write(w, le, uint32(len(names)))
-
-	// Referent IDs for each string pointer
-	for range names {
-		refId++
-		binary.Write(w, le, refId)
-	}
-
-	// Deferred strings (conformant varying strings)
-	for _, name := range names {
-		msdtyp.WriteConformantVaryingString(w, name, true)
-	}
-
-	return w.Bytes(), nil
-}
-
-// unmarshalCrackNamesResp parses the response from IDL_DRSCrackNames.
-// Response structure:
-//   [4 bytes]  dwOutVersion (must be 1)
-//   [4 bytes]  union switch (1)
-//   -- DRS_MSG_CRACKREPLY_V1:
-//   [4 bytes]  pResult referent ID
-//   -- deferred pResult (DS_NAME_RESULTW):
-//   [4 bytes]  cItems
-//   [4 bytes]  rItems referent ID
-//   -- deferred rItems (conformant array of DS_NAME_RESULT_ITEMW):
-//   [4 bytes]  max_count
-//   [N * (4+4+4) bytes] items: status, pDomain refId, pName refId
-//   -- deferred strings for each item
-//   [4 bytes]  return code (at end)
-func unmarshalCrackNamesResp(data []byte) ([]CrackedName, error) {
-	if len(data) < 12 {
-		return nil, fmt.Errorf("DRSCrackNames response too short: %d bytes", len(data))
-	}
-
-	r := bytes.NewReader(data)
-
-	var outVersion uint32
-	binary.Read(r, le, &outVersion)
-	if outVersion != 1 {
-		return nil, fmt.Errorf("unexpected DRSCrackNames outVersion: %d", outVersion)
-	}
-
-	var unionSwitch uint32
-	binary.Read(r, le, &unionSwitch)
-
-	// pResult referent ID
-	var pResultRef uint32
-	binary.Read(r, le, &pResultRef)
-
-	if pResultRef == 0 {
-		// Check return code at end
-		return nil, fmt.Errorf("DRSCrackNames returned null result")
-	}
-
-	// DS_NAME_RESULTW
-	var cItems uint32
-	binary.Read(r, le, &cItems)
-
-	var rItemsRef uint32
-	binary.Read(r, le, &rItemsRef)
-
-	if rItemsRef == 0 || cItems == 0 {
-		return nil, nil
-	}
-
-	// Conformant array max_count
-	var maxCount uint32
-	binary.Read(r, le, &maxCount)
-
-	type itemEntry struct {
-		Status     uint32
-		DomainRef  uint32
-		NameRef    uint32
-	}
-
-	items := make([]itemEntry, cItems)
-	for i := uint32(0); i < cItems; i++ {
-		binary.Read(r, le, &items[i].Status)
-		binary.Read(r, le, &items[i].DomainRef)
-		binary.Read(r, le, &items[i].NameRef)
-	}
-
-	// Read deferred strings
-	results := make([]CrackedName, cItems)
-	for i := uint32(0); i < cItems; i++ {
-		results[i].Status = items[i].Status
-		if items[i].DomainRef != 0 {
-			s, err := msdtyp.ReadConformantVaryingString(r, true)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read domain string %d: %w", i, err)
-			}
-			results[i].Domain = s
-		}
-		if items[i].NameRef != 0 {
-			s, err := msdtyp.ReadConformantVaryingString(r, true)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read name string %d: %w", i, err)
-			}
-			results[i].Name = s
-		}
-	}
-
-	return results, nil
 }
 
 // buildPrefixTableAndConvertAttrs creates a SCHEMA_PREFIX_TABLE from the given
@@ -605,8 +459,9 @@ func buildPrefixTableAndConvertAttrs(attrs []ATTRTYP) (SchemaPrefixTable, []ATTR
 			ndx = nextIdx
 			prefixMap[key] = ndx
 			entries = append(entries, OIDPrefix{
-				NdxVal: ndx,
-				Prefix: prefixBytes,
+				NdxVal:    ndx,
+				PrefixLen: uint32(len(prefixBytes)),
+				Prefix:    prefixBytes,
 			})
 			nextIdx++
 		}
@@ -618,187 +473,6 @@ func buildPrefixTableAndConvertAttrs(attrs []ATTRTYP) (SchemaPrefixTable, []ATTR
 		PrefixCount: uint32(len(entries)),
 		Entries:     entries,
 	}, convertedAttrs
-}
-
-// marshalPrefixTableDeferred writes the deferred portion of a SCHEMA_PREFIX_TABLE.
-func marshalPrefixTableDeferred(w *bytes.Buffer, pt *SchemaPrefixTable) {
-	if pt.PrefixCount == 0 {
-		return
-	}
-
-	// Conformant array max_count
-	binary.Write(w, le, pt.PrefixCount)
-
-	// Per entry inline: NdxVal(4) + PrefixLen(4) + PrefixRef(4)
-	for i, entry := range pt.Entries {
-		binary.Write(w, le, entry.NdxVal)
-		binary.Write(w, le, uint32(len(entry.Prefix)))
-		binary.Write(w, le, uint32(i+1)) // non-zero referent ID for the byte array
-	}
-
-	// Per entry deferred: conformant byte array + padding
-	for _, entry := range pt.Entries {
-		binary.Write(w, le, uint32(len(entry.Prefix))) // max_count
-		w.Write(entry.Prefix)
-		// Pad to 4-byte alignment
-		if pad := (4 - (len(entry.Prefix) % 4)) % 4; pad > 0 {
-			w.Write(make([]byte, pad))
-		}
-	}
-}
-
-// marshalGetNCChangesReq creates the request buffer for IDL_DRSGetNCChanges.
-func marshalGetNCChangesReq(handle []byte, ncDN string, objectGuid [16]byte, dsaObjGuid [16]byte, extendedOp uint32, usnFrom USNVector, uptodateVec *UPTODATEVectorV2, useV10 bool, attrs DCSyncAttrs) ([]byte, error) {
-	w := bytes.NewBuffer(make([]byte, 0, 512))
-
-	// DRS_HANDLE
-	w.Write(handle)
-
-	// dwInVersion
-	var version uint32 = 8
-	if useV10 {
-		version = 10
-	}
-	binary.Write(w, le, version)
-	// Union switch
-	binary.Write(w, le, version)
-
-	// Build the DSNAME for the NC
-	dsname := &DSNAME{
-		Guid:       objectGuid,
-		StringName: ncDN,
-	}
-	dsnameBytes, err := dsname.MarshalBinary()
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal DSNAME: %w", err)
-	}
-
-	// DRS_MSG_GETCHGREQ_V8 arm
-	// 64-bit fields (USN_VECTOR, liFsmoInfo) require 8-byte alignment.
-	// The V8 struct alignment is 8 (max of member alignments),
-	// so the arm body is also padded to 8 after the union discriminant.
-	ndrAlign(w, 8) // align V8 arm body after union discriminant
-
-	// [16 bytes] uuidDsaObjDest - NTDS DSA object GUID of target DC
-	w.Write(dsaObjGuid[:])
-
-	// [16 bytes] uuidInvocIdSrc - invocation ID (same as DSA GUID)
-	w.Write(dsaObjGuid[:])
-
-	// pNC referent ID
-	var refId uint32 = 1
-	binary.Write(w, le, refId)
-
-	// usnvecFrom (USN_VECTOR) — 3 × int64, alignment 8
-	ndrAlign(w, 8)
-	binary.Write(w, le, usnFrom.UsnHighObjUpdate)
-	binary.Write(w, le, usnFrom.UsnReserved)
-	binary.Write(w, le, usnFrom.UsnHighPropUpdate)
-
-	// pUpToDateVecDest referent ID (NULL for first request)
-	if uptodateVec != nil {
-		refId++
-		binary.Write(w, le, refId)
-	} else {
-		binary.Write(w, le, uint32(0))
-	}
-
-	// ulFlags — for EXOP_REPL_OBJ (single user)
-	// DRS_INIT_SYNC | DRS_WRIT_REP; for full NC sync add more flags.
-	var flags uint32
-	var cMaxObjects uint32
-	var cMaxBytes uint32
-	if extendedOp == ExopReplObj {
-		flags = DrsInitSync | DrsWritRep
-		cMaxObjects = 1
-		cMaxBytes = 0
-	} else {
-		flags = DrsInitSync | DrsWritRep | DrsNeverSynced | DrsFullSyncNow | DrsFullSyncInProgress
-		cMaxObjects = 1000
-		cMaxBytes = 0x00a00000
-	}
-	binary.Write(w, le, flags)
-
-	// cMaxObjects
-	binary.Write(w, le, cMaxObjects)
-	// cMaxBytes
-	binary.Write(w, le, cMaxBytes)
-	// ulExtendedOp
-	binary.Write(w, le, extendedOp)
-
-	// liFsmoInfo (ULARGE_INTEGER / NDRUHYPER, alignment 8)
-	ndrAlign(w, 8)
-	binary.Write(w, le, uint64(0)) // liFsmoInfo
-
-	// Build prefix table and convert ATTRTYPs to use it
-	partialAttrs := partialAttrSetForAttrs(attrs)
-	prefixTable, convertedAttrs := buildPrefixTableAndConvertAttrs(partialAttrs.Attrs)
-	partialAttrs.Attrs = convertedAttrs
-	partialBytes, err := partialAttrs.MarshalBinary()
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal PartialAttrSet: %w", err)
-	}
-
-	// pPartialAttrSet referent ID
-	refId++
-	binary.Write(w, le, refId)
-
-	// pPartialAttrSetEx referent ID (NULL)
-	binary.Write(w, le, uint32(0))
-
-	// PrefixTableDest (inline: PrefixCount + pPrefixEntry pointer)
-	binary.Write(w, le, prefixTable.PrefixCount)
-	if prefixTable.PrefixCount > 0 {
-		refId++
-		binary.Write(w, le, refId)
-	} else {
-		binary.Write(w, le, uint32(0))
-	}
-
-	if useV10 {
-		// ulMoreFlags (DRS_MSG_GETCHGREQ_V10 additional field)
-		binary.Write(w, le, uint32(0))
-	}
-
-	// -- Deferred data --
-
-	// pNC (DSNAME) - preceded by conformant max_count for the StringName array
-	// The DSNAME is embedded as a conformant structure with max_count = NameLen
-	nameLen := uint32(len(ncDN) + 1)
-	binary.Write(w, le, nameLen) // conformant max_count
-	w.Write(dsnameBytes)
-
-	// NDR alignment: pad to 4-byte boundary after DSNAME deferred data.
-	// DSNAME length depends on the DN string and may not end 4-byte aligned.
-	if pad := (4 - (w.Len() % 4)) % 4; pad > 0 {
-		w.Write(make([]byte, pad))
-	}
-
-	// pUpToDateVecDest deferred data
-	if uptodateVec != nil {
-		binary.Write(w, le, uptodateVec.Version)
-		binary.Write(w, le, uptodateVec.Reserved)
-		binary.Write(w, le, uptodateVec.Count)
-		for _, cursor := range uptodateVec.Cursors {
-			w.Write(cursor.UuidDsa[:])
-			binary.Write(w, le, cursor.UsnHighPropUpdate)
-			binary.Write(w, le, cursor.TimeLastSyncSuccess)
-		}
-
-		// NDR alignment: pad to 4-byte boundary after uptodateVec deferred data
-		if pad := (4 - (w.Len() % 4)) % 4; pad > 0 {
-			w.Write(make([]byte, pad))
-		}
-	}
-
-	// pPartialAttrSet deferred data (conformant max_count for Attrs array)
-	binary.Write(w, le, uint32(len(partialAttrs.Attrs)))
-	w.Write(partialBytes)
-
-	// PrefixTableDest deferred data
-	marshalPrefixTableDeferred(w, &prefixTable)
-
-	return w.Bytes(), nil
 }
 
 func partialAttrSetForAttrs(flags DCSyncAttrs) *PartialAttrSet {
@@ -817,617 +491,52 @@ func partialAttrSetForAttrs(flags DCSyncAttrs) *PartialAttrSet {
 	if flags.Has(AttrKerberos) {
 		attrList = append(attrList, AttSupplementalCredentials)
 	}
-	return &PartialAttrSet{Version: 1, Attrs: attrList}
+	return &PartialAttrSet{Version: 1, Count: uint32(len(attrList)), Attrs: attrList}
 }
 
-// unmarshalGetNCChangesResp parses the response from IDL_DRSGetNCChanges.
-// This is the most complex unmarshaling in the package due to the linked-list
-// REPLENTINFLIST structure and nested NDR pointers.
-//
-// Supports DRS_MSG_GETCHGREPLY versions:
-//   - V1: Basic reply (dwInVersion 4/5/7 or server fallback)
-//   - V6: Extended reply with compression blob (dwInVersion 8/10)
-//   - V9: V6 + dwDRSError (dwInVersion 11)
-func unmarshalGetNCChangesResp(data []byte) (*GetNCChangesResponse, error) {
-	if len(data) < 8 {
-		return nil, fmt.Errorf("GetNCChanges response too short: %d bytes", len(data))
+// buildGetNCChangesReqV8 assembles a DRSGetNCChangesReq with Version=8 and
+// all V8 sub-structures populated: DSNAME for the NC, a prefix table keyed
+// on the requested attributes, and a PartialAttrSet whose ATTRTYPs have
+// been rewritten to use the prefix table indices.
+func buildGetNCChangesReqV8(handle [20]byte, ncDN string, objectGuid [16]byte, dsaObjGuid [16]byte, extendedOp uint32, usnFrom USNVector, uptodateVec *UPTODATEVectorV2, attrs DCSyncAttrs) (*DRSGetNCChangesReq, error) {
+	dsname := &DSNAME{Guid: objectGuid}
+	dsname.SetName(ncDN)
+
+	partialAttrs := partialAttrSetForAttrs(attrs)
+	prefixTable, convertedAttrs := buildPrefixTableAndConvertAttrs(partialAttrs.Attrs)
+	partialAttrs.Attrs = convertedAttrs
+	partialAttrs.Count = uint32(len(convertedAttrs))
+
+	var flags, cMaxObjects, cMaxBytes uint32
+	if extendedOp == ExopReplObj {
+		flags = DrsInitSync | DrsWritRep
+		cMaxObjects = 1
+		cMaxBytes = 0
+	} else {
+		flags = DrsInitSync | DrsWritRep | DrsNeverSynced | DrsFullSyncNow | DrsFullSyncInProgress
+		cMaxObjects = 1000
+		cMaxBytes = 0x00a00000
 	}
 
-	r := bytes.NewReader(data)
-
-	var outVersion uint32
-	binary.Read(r, le, &outVersion)
-	if outVersion != 1 && outVersion != 6 && outVersion != 9 {
-		return nil, fmt.Errorf("unexpected GetNCChanges outVersion: %d", outVersion)
-	}
-
-	var unionSwitch uint32
-	binary.Read(r, le, &unionSwitch)
-
-	resp := &GetNCChangesResponse{}
-
-	// DRS_MSG_GETCHGREPLY_V1/V6 share the same initial layout:
-	// [16 bytes] uuidDsaObjSrc
-	var uuidDsaObjSrc [16]byte
-	r.Read(uuidDsaObjSrc[:])
-
-	// [16 bytes] uuidInvocIdSrc
-	var uuidInvocIdSrc [16]byte
-	r.Read(uuidInvocIdSrc[:])
-
-	// pNC referent ID
-	var pNCRef uint32
-	binary.Read(r, le, &pNCRef)
-
-	// NDR alignment: USN_VECTOR contains HYPER fields (alignment 8)
-	ndrAlignReader(r, 8)
-
-	// usnvecFrom (read and discard; we only need usnvecTo for paging)
-	var usnvecFrom USNVector
-	binary.Read(r, le, &usnvecFrom.UsnHighObjUpdate)
-	binary.Read(r, le, &usnvecFrom.UsnReserved)
-	binary.Read(r, le, &usnvecFrom.UsnHighPropUpdate)
-
-	// usnvecTo
-	binary.Read(r, le, &resp.UsnvecTo.UsnHighObjUpdate)
-	binary.Read(r, le, &resp.UsnvecTo.UsnReserved)
-	binary.Read(r, le, &resp.UsnvecTo.UsnHighPropUpdate)
-
-	// pUpToDateVecSrc referent ID
-	var uptodateVecRef uint32
-	binary.Read(r, le, &uptodateVecRef)
-
-	// PrefixTableSrc
-	err := unmarshalPrefixTable(r, &resp.PrefixTableSrc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal PrefixTableSrc: %w", err)
-	}
-
-	// ulExtendedRet
-	var ulExtendedRet uint32
-	binary.Read(r, le, &ulExtendedRet)
-
-	// cNumObjects
-	var cNumObjects uint32
-	binary.Read(r, le, &cNumObjects)
-
-	// cNumBytes
-	var cNumBytes uint32
-	binary.Read(r, le, &cNumBytes)
-
-	// pObjects referent ID (pointer to first REPLENTINFLIST)
-	var pObjectsRef uint32
-	binary.Read(r, le, &pObjectsRef)
-
-	// fMoreData
-	var fMoreData uint32
-	binary.Read(r, le, &fMoreData)
-	resp.FMoreData = fMoreData != 0
-
-	log.Debugf("GetNCChanges response: ulExtendedRet=%d cNumObjects=%d cNumBytes=%d pObjectsRef=0x%x fMoreData=%v",
-		ulExtendedRet, cNumObjects, cNumBytes, pObjectsRef, resp.FMoreData)
-
-	// V6/V9 have extra inline fields after fMoreData
-	if outVersion == 6 || outVersion == 9 {
-		// cbReplicationDataGranularity
-		var cbRepGranularity uint32
-		binary.Read(r, le, &cbRepGranularity)
-
-		// DRS_COMPRESSED_BLOB inline part:
-		// cbUncompressedSize (4) + cbCompressedSize (4) + pbCompressedData ref (4)
-		var cbUncompressedSize, cbCompressedSize, compressedRef uint32
-		binary.Read(r, le, &cbUncompressedSize)
-		binary.Read(r, le, &cbCompressedSize)
-		binary.Read(r, le, &compressedRef)
-
-		if outVersion == 9 {
-			// dwDRSError (V9 only)
-			var dwDRSError uint32
-			binary.Read(r, le, &dwDRSError)
-		}
-	}
-
-	// In NDR, the function return value is serialized as the last inline
-	// field (after all [out] parameters) before deferred pointer data.
-	var returnCode uint32
-	binary.Read(r, le, &returnCode)
-
-	// -- Deferred data --
-
-	// pNC deferred (DSNAME — conformant struct, max_count hoisted)
-	if pNCRef != 0 {
-		// Conformant max_count for DSNAME StringName
-		var dsnameMaxCount uint32
-		binary.Read(r, le, &dsnameMaxCount)
-
-		_, err := unmarshalDSNAME(r)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal pNC DSNAME: %w", err)
-		}
-		// Pad to 4-byte alignment after variable-length DSNAME
-		ndrAlignReader(r, 4)
-	}
-
-	// pUpToDateVecSrc deferred — UPTODATE_VECTOR_V1/V2_EXT is a conformant
-	// struct (rgCursors is [size_is(cNumCursors)]), so the hoisted max_count
-	// comes first.
-	if uptodateVecRef != 0 {
-		// Conformant max_count (hoisted from rgCursors[])
-		var utdvMaxCount uint32
-		binary.Read(r, le, &utdvMaxCount)
-
-		utdv := &UPTODATEVectorV2{}
-		binary.Read(r, le, &utdv.Version)
-		binary.Read(r, le, &utdv.Reserved)
-
-		var cNumCursors uint32
-		binary.Read(r, le, &cNumCursors)
-		utdv.Count = cNumCursors
-
-		_ = utdvMaxCount // conformance max_count consumed; actual count read below
-
-		// NDR alignment: UPTODATE_CURSOR_V2 contains int64 fields (alignment 8)
-		ndrAlignReader(r, 8)
-
-		utdv.Cursors = make([]UPTODATECursorV2, cNumCursors)
-		for i := uint32(0); i < cNumCursors; i++ {
-			r.Read(utdv.Cursors[i].UuidDsa[:])
-			binary.Read(r, le, &utdv.Cursors[i].UsnHighPropUpdate)
-			if outVersion != 1 {
-				// V6/V9: UPTODATE_CURSOR_V2 has TimeLastSyncSuccess
-				binary.Read(r, le, &utdv.Cursors[i].TimeLastSyncSuccess)
-			}
-			// V1: UPTODATE_CURSOR_V1 has no TimeLastSyncSuccess
-		}
-		resp.UpToDateVec = utdv
-	}
-
-	// PrefixTableSrc deferred (prefix entries)
-	err = unmarshalPrefixTableDeferred(r, &resp.PrefixTableSrc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal PrefixTableSrc entries: %w", err)
-	}
-
-	// pObjects deferred - linked list of REPLENTINFLIST
-	if pObjectsRef != 0 {
-		entries, err := unmarshalREPLENTINFLIST(r, cNumObjects)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal REPLENTINFLIST: %w", err)
-		}
-		resp.Entries = entries
-	}
-
-	return resp, nil
-}
-
-// unmarshalPrefixTable reads the inline (non-deferred) part of the prefix table.
-func unmarshalPrefixTable(r *bytes.Reader, pt *SchemaPrefixTable) error {
-	binary.Read(r, le, &pt.PrefixCount)
-
-	// pPrefixEntry referent ID
-	var prefixEntryRef uint32
-	binary.Read(r, le, &prefixEntryRef)
-
-	// Actual entries are deferred
-	return nil
-}
-
-// unmarshalPrefixTableDeferred reads the deferred prefix table entries.
-func unmarshalPrefixTableDeferred(r *bytes.Reader, pt *SchemaPrefixTable) error {
-	if pt.PrefixCount == 0 {
-		return nil
-	}
-
-	// Conformant array max_count
-	var maxCount uint32
-	binary.Read(r, le, &maxCount)
-
-	pt.Entries = make([]OIDPrefix, pt.PrefixCount)
-
-	// Read all entries inline: NdxVal + prefix length + referent ID
-	type prefixHdr struct {
-		NdxVal    uint32
-		PrefixLen uint32
-		PrefixRef uint32
-	}
-
-	hdrs := make([]prefixHdr, pt.PrefixCount)
-	for i := uint32(0); i < pt.PrefixCount; i++ {
-		binary.Read(r, le, &hdrs[i].NdxVal)
-		binary.Read(r, le, &hdrs[i].PrefixLen)
-		binary.Read(r, le, &hdrs[i].PrefixRef)
-		pt.Entries[i].NdxVal = hdrs[i].NdxVal
-	}
-
-	// Read deferred prefix byte arrays
-	for i := uint32(0); i < pt.PrefixCount; i++ {
-		if hdrs[i].PrefixRef == 0 {
-			continue
-		}
-		// Conformant array: max_count + data
-		var arrMaxCount uint32
-		binary.Read(r, le, &arrMaxCount)
-
-		prefixData := make([]byte, hdrs[i].PrefixLen)
-		r.Read(prefixData)
-		pt.Entries[i].Prefix = prefixData
-
-		// Pad to 4-byte alignment
-		if pad := (4 - (hdrs[i].PrefixLen % 4)) % 4; pad > 0 {
-			r.Seek(int64(pad), io.SeekCurrent)
-		}
-	}
-
-	return nil
-}
-
-// unmarshalREPLENTINFLIST walks the linked list of replicated entries.
-func unmarshalREPLENTINFLIST(r *bytes.Reader, expectedCount uint32) ([]ENTINF, error) {
-	var entries []ENTINF
-
-	for i := uint32(0); i < expectedCount; i++ {
-		entry, hasNext, err := unmarshalOneReplEntInf(r)
-		if err != nil {
-			return entries, fmt.Errorf("failed to unmarshal entry %d: %w", i, err)
-		}
-		if entry != nil {
-			entries = append(entries, *entry)
-		}
-		if !hasNext {
-			break
-		}
-	}
-
-	return entries, nil
-}
-
-// unmarshalOneReplEntInf reads a single REPLENTINFLIST entry from the stream.
-func unmarshalOneReplEntInf(r *bytes.Reader) (*ENTINF, bool, error) {
-	// pNextEntInf referent ID (pointer to next entry, or 0 for end of list)
-	var nextRef uint32
-	if err := binary.Read(r, le, &nextRef); err != nil {
-		return nil, false, fmt.Errorf("failed to read pNextEntInf: %w", err)
-	}
-
-	entry := &ENTINF{}
-
-	// ENTINF.pName referent ID
-	var pNameRef uint32
-	binary.Read(r, le, &pNameRef)
-
-	// ENTINF.ulFlags
-	binary.Read(r, le, &entry.UlFlags)
-
-	// ENTINF.AttrBlock
-	binary.Read(r, le, &entry.AttrBlock.AttrCount)
-
-	// pAttr referent ID
-	var pAttrRef uint32
-	binary.Read(r, le, &pAttrRef)
-
-	// fIsNCPrefix
-	var fIsNCPrefix uint32
-	binary.Read(r, le, &fIsNCPrefix)
-
-	// pParentGuid referent ID (MS-DRSR 4.1.10.2.11)
-	var pParentGuidRef uint32
-	binary.Read(r, le, &pParentGuidRef)
-
-	// pMetaDataExt referent ID (PROPERTY_META_DATA_EXT_VECTOR*)
-	var pMetaDataExtRef uint32
-	binary.Read(r, le, &pMetaDataExtRef)
-
-	// -- Deferred data for this entry --
-	// NDR deferred pointer order: pNextEntInf, pName, pAttr, pParentGuid, pMetaDataExt
-
-	// pName (DSNAME — conformant struct, max_count hoisted)
-	if pNameRef != 0 {
-		var maxCount uint32
-		binary.Read(r, le, &maxCount)
-		dsname, err := unmarshalDSNAME(r)
-		if err != nil {
-			return nil, false, fmt.Errorf("failed to unmarshal ENTINF DSNAME: %w", err)
-		}
-		entry.PName = dsname
-		ndrAlignReader(r, 4)
-	}
-
-	// ATTRBLOCK (array of ATTRs)
-	if pAttrRef != 0 && entry.AttrBlock.AttrCount > 0 {
-		err := unmarshalATTRBLOCK(r, &entry.AttrBlock)
-		if err != nil {
-			return nil, false, fmt.Errorf("failed to unmarshal ATTRBLOCK: %w", err)
-		}
-	}
-
-	// pParentGuid deferred (16-byte GUID)
-	if pParentGuidRef != 0 {
-		var guid [16]byte
-		io.ReadFull(r, guid[:])
-	}
-
-	// pMetaDataExt deferred (PROPERTY_META_DATA_EXT_VECTOR — conformant struct)
-	if pMetaDataExtRef != 0 {
-		if err := skipPropertyMetaDataExtVector(r); err != nil {
-			return nil, false, fmt.Errorf("failed to skip pMetaDataExt: %w", err)
-		}
-	}
-
-	return entry, nextRef != 0, nil
-}
-
-// skipPropertyMetaDataExtVector consumes a PROPERTY_META_DATA_EXT_VECTOR from
-// the NDR stream. Each entry is PROPERTY_META_DATA_EXT:
-//
-//	DWORD dwVersion (4) + FILETIME timeChanged (8) + UUID uuidDsaOriginating (16) + USN usnOriginating (8) = 36 bytes
-//
-// The struct is conformant (rgMetaData is [size_is(cNumProps)]).
-func skipPropertyMetaDataExtVector(r *bytes.Reader) error {
-	// Hoisted conformant max_count
-	var maxCount uint32
-	binary.Read(r, le, &maxCount)
-
-	// cNumProps
-	var cNumProps uint32
-	binary.Read(r, le, &cNumProps)
-
-	// Each PROPERTY_META_DATA_EXT: dwVersion(4) + timeChanged(8) + uuid(16) + usn(8)
-	// USN is UHYPER (8-byte aligned), so pad after uuid: offset 28 → aligned to 32
-	// Entry size = 4 + 8 + 16 + 4(pad) + 8 = 40? No...
-	// Actually: dwVersion at 0, timeChanged at 4, uuid at 12, usn at 28.
-	// 28 is not 8-aligned, so pad 4 → usn at 32. Total per entry = 40.
-	// But array elements are tightly packed after the first, with stride = struct size.
-	// Let's align before the array for the first entry's UHYPER.
-	ndrAlignReader(r, 8)
-
-	// Each entry is 40 bytes (with 4 bytes padding before USN)
-	const entrySize = 40
-	skip := int64(cNumProps) * entrySize
-	_, err := r.Seek(skip, io.SeekCurrent)
-	return err
-}
-
-// unmarshalATTRBLOCK reads the attribute block for a replicated entry.
-func unmarshalATTRBLOCK(r *bytes.Reader, ab *ATTRBLOCK) error {
-	// Conformant array max_count
-	var maxCount uint32
-	binary.Read(r, le, &maxCount)
-
-	ab.PAttr = make([]ATTR, ab.AttrCount)
-
-	// Read inline ATTR headers: AttrTyp + ValCount + pVal referent ID
-	type attrHdr struct {
-		AttrTyp  uint32
-		ValCount uint32
-		PValRef  uint32
-	}
-
-	hdrs := make([]attrHdr, ab.AttrCount)
-	for i := uint32(0); i < ab.AttrCount; i++ {
-		binary.Read(r, le, &hdrs[i].AttrTyp)
-		binary.Read(r, le, &hdrs[i].ValCount)
-		binary.Read(r, le, &hdrs[i].PValRef)
-		ab.PAttr[i].AttrTyp = ATTRTYP(hdrs[i].AttrTyp)
-		ab.PAttr[i].AttrVal.ValCount = hdrs[i].ValCount
-	}
-
-	// Read deferred ATTRVALBLOCK data
-	for i := uint32(0); i < ab.AttrCount; i++ {
-		if hdrs[i].PValRef == 0 || hdrs[i].ValCount == 0 {
-			continue
-		}
-		err := unmarshalATTRVALBLOCK(r, &ab.PAttr[i].AttrVal)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal ATTRVALBLOCK for attr %d: %w", i, err)
-		}
-	}
-
-	return nil
-}
-
-// unmarshalATTRVALBLOCK reads the value block for a single attribute.
-func unmarshalATTRVALBLOCK(r *bytes.Reader, avb *ATTRVALBLOCK) error {
-	// Conformant array max_count
-	var maxCount uint32
-	binary.Read(r, le, &maxCount)
-
-	avb.PVal = make([]ATTRVAL, avb.ValCount)
-
-	// Read inline ATTRVAL headers: ValLen + pVal referent ID
-	type valHdr struct {
-		ValLen uint32
-		PRef   uint32
-	}
-
-	hdrs := make([]valHdr, avb.ValCount)
-	for i := uint32(0); i < avb.ValCount; i++ {
-		binary.Read(r, le, &hdrs[i].ValLen)
-		binary.Read(r, le, &hdrs[i].PRef)
-		avb.PVal[i].ValLen = hdrs[i].ValLen
-	}
-
-	// Read deferred value data
-	for i := uint32(0); i < avb.ValCount; i++ {
-		if hdrs[i].PRef == 0 {
-			continue
-		}
-		// Conformant array max_count
-		var arrMaxCount uint32
-		binary.Read(r, le, &arrMaxCount)
-
-		valData := make([]byte, hdrs[i].ValLen)
-		r.Read(valData)
-		avb.PVal[i].PVal = valData
-
-		// Pad to 4-byte alignment
-		if pad := (4 - (hdrs[i].ValLen % 4)) % 4; pad > 0 {
-			r.Seek(int64(pad), io.SeekCurrent)
-		}
-	}
-
-	return nil
-}
-
-// marshalDCInfoReq creates the request buffer for IDL_DRSDomainControllerInfo.
-func marshalDCInfoReq(handle []byte, domain string, infoLevel uint32) ([]byte, error) {
-	w := bytes.NewBuffer(make([]byte, 0, 128))
-
-	// DRS_HANDLE
-	w.Write(handle)
-
-	// dwInVersion = 1
-	binary.Write(w, le, uint32(1))
-	// Union switch = 1
-	binary.Write(w, le, uint32(1))
-
-	// DRS_MSG_DCINFOREQ_V1:
-	// Domain referent ID
-	var refId uint32 = 1
-	binary.Write(w, le, refId)
-
-	// InfoLevel
-	binary.Write(w, le, infoLevel)
-
-	// Deferred domain string
-	msdtyp.WriteConformantVaryingString(w, domain, true)
-
-	return w.Bytes(), nil
-}
-
-// unmarshalDCInfoResp parses the response from IDL_DRSDomainControllerInfo.
-func unmarshalDCInfoResp(data []byte, infoLevel uint32) ([]DCInfo, error) {
-	if len(data) < 8 {
-		return nil, fmt.Errorf("DCInfo response too short: %d bytes", len(data))
-	}
-
-	r := bytes.NewReader(data)
-
-	var outVersion uint32
-	binary.Read(r, le, &outVersion)
-
-	var unionSwitch uint32
-	binary.Read(r, le, &unionSwitch)
-
-	// cItems
-	var cItems uint32
-	binary.Read(r, le, &cItems)
-
-	// rItems referent ID
-	var rItemsRef uint32
-	binary.Read(r, le, &rItemsRef)
-
-	if rItemsRef == 0 || cItems == 0 {
-		return nil, nil
-	}
-
-	// Conformant array max_count
-	var maxCount uint32
-	binary.Read(r, le, &maxCount)
-
-	if outVersion == 2 || outVersion == 3 {
-		return unmarshalDCInfoV2Items(r, cItems)
-	}
-
-	return nil, fmt.Errorf("unsupported DCInfo response version: %d", outVersion)
-}
-
-// unmarshalDCInfoV2Items parses DS_DOMAIN_CONTROLLER_INFO_2W items.
-// Wire layout per item (MS-DRSR 4.1.10.2.6):
-//   7 string pointers + 3 BOOLs + 4 GUIDs (SiteObj, Computer, Server, NtdsDsa)
-func unmarshalDCInfoV2Items(r *bytes.Reader, count uint32) ([]DCInfo, error) {
-	type dcInfoHdr struct {
-		NetbiosNameRef     uint32
-		DnsHostNameRef     uint32
-		SiteNameRef        uint32
-		SiteObjectRef      uint32
-		ComputerObjDNRef   uint32
-		ServerObjDNRef     uint32
-		NtdsDsaObjDNRef    uint32
-		FIsPDC             uint32
-		FDsEnabled         uint32
-		FIsGC              uint32
-		SiteObjectGuid     [16]byte
-		ComputerObjectGuid [16]byte
-		ServerObjectGuid   [16]byte
-		NtdsDsaObjectGuid  [16]byte
-	}
-
-	hdrs := make([]dcInfoHdr, count)
-	for i := uint32(0); i < count; i++ {
-		binary.Read(r, le, &hdrs[i].NetbiosNameRef)
-		binary.Read(r, le, &hdrs[i].DnsHostNameRef)
-		binary.Read(r, le, &hdrs[i].SiteNameRef)
-		binary.Read(r, le, &hdrs[i].SiteObjectRef)
-		binary.Read(r, le, &hdrs[i].ComputerObjDNRef)
-		binary.Read(r, le, &hdrs[i].ServerObjDNRef)
-		binary.Read(r, le, &hdrs[i].NtdsDsaObjDNRef)
-		binary.Read(r, le, &hdrs[i].FIsPDC)
-		binary.Read(r, le, &hdrs[i].FDsEnabled)
-		binary.Read(r, le, &hdrs[i].FIsGC)
-		r.Read(hdrs[i].SiteObjectGuid[:])
-		r.Read(hdrs[i].ComputerObjectGuid[:])
-		r.Read(hdrs[i].ServerObjectGuid[:])
-		r.Read(hdrs[i].NtdsDsaObjectGuid[:])
-	}
-
-	results := make([]DCInfo, count)
-	for i := uint32(0); i < count; i++ {
-		results[i].SiteObjectGuid = hdrs[i].SiteObjectGuid
-		results[i].ComputerObjectGuid = hdrs[i].ComputerObjectGuid
-		results[i].ServerObjectGuid = hdrs[i].ServerObjectGuid
-		results[i].NtdsDsaObjectGuid = hdrs[i].NtdsDsaObjectGuid
-		results[i].IsPDC = hdrs[i].FIsPDC != 0
-		results[i].IsGC = hdrs[i].FIsGC != 0
-
-		if hdrs[i].NetbiosNameRef != 0 {
-			s, err := msdtyp.ReadConformantVaryingString(r, true)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read NetbiosName: %w", err)
-			}
-			results[i].NetbiosName = s
-		}
-		if hdrs[i].DnsHostNameRef != 0 {
-			s, err := msdtyp.ReadConformantVaryingString(r, true)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read DnsHostName: %w", err)
-			}
-			results[i].DnsHostName = s
-		}
-		if hdrs[i].SiteNameRef != 0 {
-			s, err := msdtyp.ReadConformantVaryingString(r, true)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read SiteName: %w", err)
-			}
-			results[i].SiteName = s
-		}
-		if hdrs[i].SiteObjectRef != 0 {
-			s, err := msdtyp.ReadConformantVaryingString(r, true)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read SiteObjectName: %w", err)
-			}
-			results[i].SiteObjectName = s
-		}
-		if hdrs[i].ComputerObjDNRef != 0 {
-			s, err := msdtyp.ReadConformantVaryingString(r, true)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read ComputerObjectDN: %w", err)
-			}
-			results[i].ComputerObjectDN = s
-		}
-		if hdrs[i].ServerObjDNRef != 0 {
-			s, err := msdtyp.ReadConformantVaryingString(r, true)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read ServerObjectDN: %w", err)
-			}
-			results[i].ServerObjectDN = s
-		}
-		if hdrs[i].NtdsDsaObjDNRef != 0 {
-			// Read but discard (not in our output struct)
-			msdtyp.ReadConformantVaryingString(r, true)
-		}
-	}
-
-	return results, nil
+	return &DRSGetNCChangesReq{
+		HDrs:    handle,
+		Version: 8,
+		V8: DRSMsgGetChgReqV8{
+			UuidDsaObjDest:    dsaObjGuid,
+			UuidInvocIdSrc:    dsaObjGuid,
+			PNC:               dsname,
+			UsnvecFrom:        usnFrom,
+			PUpToDateVecDest:  uptodateVec,
+			UlFlags:           flags,
+			CMaxObjects:       cMaxObjects,
+			CMaxBytes:         cMaxBytes,
+			UlExtendedOp:      extendedOp,
+			LiFsmoInfo:        0,
+			PPartialAttrSet:   partialAttrs,
+			PPartialAttrSetEx: nil,
+			PrefixTableDest:   prefixTable,
+		},
+	}, nil
 }
 
 // parseGuidString parses a GUID string like "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}"
@@ -1465,3 +574,686 @@ func parseGuidString(s string) ([16]byte, error) {
 	return guid, nil
 }
 
+// --- NDR-tagged wire types (ndr encoder migration) ---
+
+// DRSExtensionsBlob mirrors DRS_EXTENSIONS (MS-DRSR 5.39): a conformant struct
+// wrapping the opaque DRS_EXTENSIONS_INT capability blob. Callers must set Cb
+// to len(Rgb) before encoding; the ndr library hoists the conformant max_count
+// from Rgb automatically.
+type DRSExtensionsBlob struct {
+	Cb  uint32
+	Rgb []byte `ndr:"conformant"`
+}
+
+// DRSBindReq — IDL_DRSBind request (opnum 0).
+//
+//	[in] UUID *puuidClientDsa,
+//	[in] DRS_EXTENSIONS *pextClient
+type DRSBindReq struct {
+	PuuidClientDsa *[16]byte          `ndr:"toplevel,fullpointer"`
+	PextClient     *DRSExtensionsBlob `ndr:"toplevel,fullpointer"`
+}
+
+// DRSBindRes — IDL_DRSBind response.
+//
+//	[out] DRS_EXTENSIONS **ppextServer,
+//	[out, ref] DRS_HANDLE *phDrs
+type DRSBindRes struct {
+	PpextServer *DRSExtensionsBlob `ndr:"toplevel,fullpointer"`
+	PhDrs       [20]byte
+	ReturnCode  uint32
+}
+
+// DRSUnbindReq — IDL_DRSUnbind request (opnum 1): [in, out, ref] DRS_HANDLE *phDrs.
+type DRSUnbindReq struct {
+	PhDrs [20]byte
+}
+
+// DRSUnbindRes — IDL_DRSUnbind response.
+type DRSUnbindRes struct {
+	PhDrs      [20]byte
+	ReturnCode uint32
+}
+
+// LPWSTR wraps a unique [string] WCHAR* pointer so arrays of string pointers
+// (e.g. DRS_MSG_CRACKREQ_V1.rpNames) can be expressed as a slice of structs,
+// each contributing one inline referent ID followed by a deferred conformant
+// varying string. MS-RPC WCHAR** convention.
+type LPWSTR struct {
+	Value string `ndr:"pointer,conformant,varying"`
+}
+
+// DRSCrackNamesReq — IDL_DRSCrackNames request (opnum 12).
+//
+//	[in] DRS_HANDLE hDrs,
+//	[in] DWORD dwInVersion,
+//	[in, ref, switch_is(dwInVersion)] DRS_MSG_CRACKREQ *pmsgIn
+//
+// The non-encapsulated DRSMsgCrackReqUnion serializes its Level tag twice on
+// the wire (once as dwInVersion, once as the union switch prefix), matching
+// MS-RPCE 2.2.5.2.
+type DRSCrackNamesReq struct {
+	HDrs   [20]byte
+	PmsgIn DRSMsgCrackReqUnion `ndr:"toplevel"`
+}
+
+type DRSMsgCrackReqUnion struct {
+	Level  uint32           `ndr:"unionTag"`
+	Level1 DRSMsgCrackReqV1 `ndr:"unionField"`
+}
+
+func (u DRSMsgCrackReqUnion) SwitchFunc(tag interface{}) string {
+	if tag.(uint32) == 1 {
+		return "Level1"
+	}
+	return ""
+}
+
+// DRSMsgCrackReqV1 — MS-DRSR 4.1.4.1.1.
+type DRSMsgCrackReqV1 struct {
+	CodePage      uint32
+	LocaleId      uint32
+	DwFlags       uint32
+	FormatOffered uint32
+	FormatDesired uint32
+	CNames        uint32
+	RpNames       []LPWSTR `ndr:"pointer,conformant,maxcount:CNames"`
+}
+
+// DRSCrackNamesRes — IDL_DRSCrackNames response.
+//
+//	[out] DWORD *pdwOutVersion,
+//	[out, ref, switch_is(*pdwOutVersion)] DRS_MSG_CRACKREPLY *pmsgOut
+type DRSCrackNamesRes struct {
+	PmsgOut    DRSMsgCrackReplyUnion `ndr:"toplevel"`
+	ReturnCode uint32
+}
+
+type DRSMsgCrackReplyUnion struct {
+	Level  uint32             `ndr:"unionTag"`
+	Level1 DRSMsgCrackReplyV1 `ndr:"unionField"`
+}
+
+func (u DRSMsgCrackReplyUnion) SwitchFunc(tag interface{}) string {
+	if tag.(uint32) == 1 {
+		return "Level1"
+	}
+	return ""
+}
+
+type DRSMsgCrackReplyV1 struct {
+	PResult *DSNameResultW `ndr:"pointer"`
+}
+
+// DSNameResultW — MS-DRSR 4.1.4.1.9 DS_NAME_RESULTW.
+type DSNameResultW struct {
+	CItems uint32
+	RItems []DSNameResultItemW `ndr:"pointer,conformant,maxcount:CItems"`
+}
+
+// DSNameResultItemW — MS-DRSR 4.1.4.1.8 DS_NAME_RESULT_ITEMW.
+type DSNameResultItemW struct {
+	Status  uint32
+	PDomain string `ndr:"pointer,conformant,varying"`
+	PName   string `ndr:"pointer,conformant,varying"`
+}
+
+// DRSDCInfoReq — IDL_DRSDomainControllerInfo request (opnum 16).
+//
+//	[in] DRS_HANDLE hDrs,
+//	[in] DWORD dwInVersion,
+//	[in, ref, switch_is(dwInVersion)] DRS_MSG_DCINFOREQ *pmsgIn
+type DRSDCInfoReq struct {
+	HDrs   [20]byte
+	PmsgIn DRSMsgDCInfoReqUnion `ndr:"toplevel"`
+}
+
+type DRSMsgDCInfoReqUnion struct {
+	Level  uint32            `ndr:"unionTag"`
+	Level1 DRSMsgDCInfoReqV1 `ndr:"unionField"`
+}
+
+func (u DRSMsgDCInfoReqUnion) SwitchFunc(tag interface{}) string {
+	if tag.(uint32) == 1 {
+		return "Level1"
+	}
+	return ""
+}
+
+type DRSMsgDCInfoReqV1 struct {
+	Domain    string `ndr:"pointer,conformant,varying"`
+	InfoLevel uint32
+}
+
+// DRSDCInfoRes — IDL_DRSDomainControllerInfo response.
+type DRSDCInfoRes struct {
+	PmsgOut    DRSMsgDCInfoReplyUnion `ndr:"toplevel"`
+	ReturnCode uint32
+}
+
+// DRSMsgDCInfoReplyUnion contains V1/V2/V3 arms. Only V2 is populated today —
+// the other arms exist so the decoder can dispatch to them if a server returns
+// a different level without forcing a struct redesign.
+type DRSMsgDCInfoReplyUnion struct {
+	Level  uint32              `ndr:"unionTag"`
+	Level1 DRSMsgDCInfoReplyV1 `ndr:"unionField"`
+	Level2 DRSMsgDCInfoReplyV2 `ndr:"unionField"`
+	Level3 DRSMsgDCInfoReplyV3 `ndr:"unionField"`
+}
+
+func (u DRSMsgDCInfoReplyUnion) SwitchFunc(tag interface{}) string {
+	switch tag.(uint32) {
+	case 1:
+		return "Level1"
+	case 2:
+		return "Level2"
+	case 3:
+		return "Level3"
+	}
+	return ""
+}
+
+type DRSMsgDCInfoReplyV1 struct {
+	CItems uint32
+	RItems []DSDomainControllerInfo1W `ndr:"pointer,conformant,maxcount:CItems"`
+}
+
+type DRSMsgDCInfoReplyV2 struct {
+	CItems uint32
+	RItems []DSDomainControllerInfo2W `ndr:"pointer,conformant,maxcount:CItems"`
+}
+
+type DRSMsgDCInfoReplyV3 struct {
+	CItems uint32
+	RItems []DSDomainControllerInfo3W `ndr:"pointer,conformant,maxcount:CItems"`
+}
+
+// DSDomainControllerInfo1W — MS-DRSR 5.40.
+type DSDomainControllerInfo1W struct {
+	NetbiosName        string `ndr:"pointer,conformant,varying"`
+	DnsHostName        string `ndr:"pointer,conformant,varying"`
+	SiteName           string `ndr:"pointer,conformant,varying"`
+	ComputerObjectName string `ndr:"pointer,conformant,varying"`
+	ServerObjectName   string `ndr:"pointer,conformant,varying"`
+	FIsPdc             uint32
+	FDsEnabled         uint32
+}
+
+// DSDomainControllerInfo2W — MS-DRSR 5.41.
+type DSDomainControllerInfo2W struct {
+	NetbiosName        string `ndr:"pointer,conformant,varying"`
+	DnsHostName        string `ndr:"pointer,conformant,varying"`
+	SiteName           string `ndr:"pointer,conformant,varying"`
+	SiteObjectName     string `ndr:"pointer,conformant,varying"`
+	ComputerObjectName string `ndr:"pointer,conformant,varying"`
+	ServerObjectName   string `ndr:"pointer,conformant,varying"`
+	NtdsDsaObjectName  string `ndr:"pointer,conformant,varying"`
+	FIsPdc             uint32
+	FDsEnabled         uint32
+	FIsGc              uint32
+	SiteObjectGuid     [16]byte
+	ComputerObjectGuid [16]byte
+	ServerObjectGuid   [16]byte
+	NtdsDsaObjectGuid  [16]byte
+}
+
+// DSDomainControllerInfo3W — MS-DRSR 5.42.
+type DSDomainControllerInfo3W struct {
+	NetbiosName        string `ndr:"pointer,conformant,varying"`
+	DnsHostName        string `ndr:"pointer,conformant,varying"`
+	SiteName           string `ndr:"pointer,conformant,varying"`
+	SiteObjectName     string `ndr:"pointer,conformant,varying"`
+	ComputerObjectName string `ndr:"pointer,conformant,varying"`
+	ServerObjectName   string `ndr:"pointer,conformant,varying"`
+	NtdsDsaObjectName  string `ndr:"pointer,conformant,varying"`
+	FIsPdc             uint32
+	FDsEnabled         uint32
+	FIsGc              uint32
+	FIsRodc            uint32
+	SiteObjectGuid     [16]byte
+	ComputerObjectGuid [16]byte
+	ServerObjectGuid   [16]byte
+	NtdsDsaObjectGuid  [16]byte
+}
+
+// --- DRSGetNCChanges request/response ---
+//
+// DRSGetNCChangesReq — IDL_DRSGetNCChanges opnum 3.
+//
+//	[in] DRS_HANDLE hDrs,
+//	[in] DWORD dwInVersion,
+//	[in, ref, switch_is(dwInVersion)] DRS_MSG_GETCHGREQ *pmsgIn
+//
+// DRS_MSG_GETCHGREQ is a non-encapsulated IDL union. Per C706 §14.3.9 its
+// wire layout is `[disc][disc_again][pad to arm align][arm]` — the ndr
+// library writes the discriminator twice (once as the switch_is field, once
+// as the union body's first word) via the `unionTag` tag convention.
+type DRSGetNCChangesReq struct {
+	HDrs    [20]byte
+	Version uint32             `ndr:"unionTag"` // switch_is(dwInVersion) and internal disc
+	V8      DRSMsgGetChgReqV8  `ndr:"unionField"`
+	V10     DRSMsgGetChgReqV10 `ndr:"unionField"`
+}
+
+// SwitchFunc implements ndr.Union; selects the arm based on Version.
+func (r DRSGetNCChangesReq) SwitchFunc(tag interface{}) string {
+	switch tag.(uint32) {
+	case 8:
+		return "V8"
+	case 10:
+		return "V10"
+	}
+	return ""
+}
+
+// DRSMsgGetChgReqV8 — MS-DRSR 4.1.10.2.21 DRS_MSG_GETCHGREQ_V8.
+// USN_VECTOR and liFsmoInfo contain HYPER fields, giving the struct
+// 8-byte alignment; ndr applies the pad automatically via structAlignment.
+type DRSMsgGetChgReqV8 struct {
+	UuidDsaObjDest    [16]byte
+	UuidInvocIdSrc    [16]byte
+	PNC               *DSNAME `ndr:"pointer"`
+	UsnvecFrom        USNVector
+	PUpToDateVecDest  *UPTODATEVectorV2 `ndr:"pointer,fullpointer"`
+	UlFlags           uint32
+	CMaxObjects       uint32
+	CMaxBytes         uint32
+	UlExtendedOp      uint32
+	LiFsmoInfo        uint64
+	PPartialAttrSet   *PartialAttrSet `ndr:"pointer,fullpointer"`
+	PPartialAttrSetEx *PartialAttrSet `ndr:"pointer,fullpointer"`
+	PrefixTableDest   SchemaPrefixTable
+}
+
+// DRSMsgGetChgReqV10 — MS-DRSR 4.1.10.2.22. V10 layout is V8 plus one extra
+// ulMoreFlags field at the end (embedded V8 preserves declared field order).
+type DRSMsgGetChgReqV10 struct {
+	DRSMsgGetChgReqV8
+	UlMoreFlags uint32
+}
+
+// --- Marshal / Unmarshal methods (ndr encoder) ---
+
+func (s *DRSBindReq) Marshal() ([]byte, error) {
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling DRSBindReq: %v", err)
+	}
+	return b, nil
+}
+
+func (s *DRSBindRes) Unmarshal(b []byte) error {
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	dec.SetEndianness(binary.LittleEndian)
+	if err := dec.Decode(s); err != nil {
+		return fmt.Errorf("error unmarshaling DRSBindRes: %v", err)
+	}
+	return nil
+}
+
+func (s *DRSUnbindReq) Marshal() ([]byte, error) {
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling DRSUnbindReq: %v", err)
+	}
+	return b, nil
+}
+
+func (s *DRSUnbindRes) Unmarshal(b []byte) error {
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	dec.SetEndianness(binary.LittleEndian)
+	if err := dec.Decode(s); err != nil {
+		return fmt.Errorf("error unmarshaling DRSUnbindRes: %v", err)
+	}
+	return nil
+}
+
+func (s *DRSCrackNamesReq) Marshal() ([]byte, error) {
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling DRSCrackNamesReq: %v", err)
+	}
+	return b, nil
+}
+
+func (s *DRSCrackNamesRes) Unmarshal(b []byte) error {
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	dec.SetEndianness(binary.LittleEndian)
+	if err := dec.Decode(s); err != nil {
+		return fmt.Errorf("error unmarshaling DRSCrackNamesRes: %v", err)
+	}
+	return nil
+}
+
+func (s *DRSDCInfoReq) Marshal() ([]byte, error) {
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling DRSDCInfoReq: %v", err)
+	}
+	return b, nil
+}
+
+func (s *DRSDCInfoRes) Unmarshal(b []byte) error {
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	dec.SetEndianness(binary.LittleEndian)
+	if err := dec.Decode(s); err != nil {
+		return fmt.Errorf("error unmarshaling DRSDCInfoRes: %v", err)
+	}
+	return nil
+}
+
+// Marshal serializes a DSNAME via the ndr encoder, including the hoisted
+// conformant max_count for StringName. Callers must have populated StringName
+// (including the null terminator), NameLen, and StructLen via SetName before
+// calling this.
+func (d *DSNAME) Marshal() ([]byte, error) {
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(d)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling DSNAME: %v", err)
+	}
+	return b, nil
+}
+
+func (s *DRSGetNCChangesReq) Marshal() ([]byte, error) {
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling DRSGetNCChangesReq: %v", err)
+	}
+	return b, nil
+}
+
+// Unmarshal decodes a DSNAME from its ndr-encoded bytes (with hoisted
+// max_count at the head).
+func (d *DSNAME) Unmarshal(b []byte) error {
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	dec.SetEndianness(binary.LittleEndian)
+	if err := dec.Decode(d); err != nil {
+		return fmt.Errorf("error unmarshaling DSNAME: %v", err)
+	}
+	return nil
+}
+
+// --- DRSGetNCChanges response ---
+//
+// DRS_MSG_GETCHGREPLY is a non-encapsulated IDL union whose arms contain
+// nested pointers; the trickiest field is pObjects, a pointer to the head of a
+// self-referential REPLENTINFLIST chain. Windows emits the chain in per-entry
+// order (entry_0 inline + entry_0 deferreds, entry_1 inline + entry_1
+// deferreds, ...) rather than the depth-first unwind produced by ndr's default
+// self-ref handling. To match the wire format, pNextEntInfRef is declared as
+// an inline uint32 (not an ndr pointer) so each REPLENTINFLIST entry is
+// decoded as a self-contained unit; the chain is walked manually in Unmarshal.
+
+// REPLENTINFLIST — MS-DRSR 4.1.10.2.11.
+// PNextEntInfRef is the raw pointer referent ID (nonzero → more entries follow
+// in the wire stream, to be decoded by the next Decode loop iteration).
+type REPLENTINFLIST struct {
+	PNextEntInfRef uint32
+	Entinf         ENTINF
+	FIsNCPrefix    uint32
+	PParentGuid    *[16]byte                  `ndr:"pointer,fullpointer"`
+	PMetaDataExt   *PropertyMetaDataExtVector `ndr:"pointer,fullpointer"`
+}
+
+// DRSMsgGetChgReplyV1 — MS-DRSR 4.1.10.2.9 DRS_MSG_GETCHGREPLY_V1.
+type DRSMsgGetChgReplyV1 struct {
+	UuidDsaObjSrc     [16]byte
+	UuidInvocIdSrc    [16]byte
+	PNC               *DSNAME `ndr:"pointer"`
+	UsnvecFrom        USNVector
+	UsnvecTo          USNVector
+	PUpToDateVecSrcV1 *UPTODATEVectorV1 `ndr:"pointer"`
+	PrefixTableSrc    SchemaPrefixTable
+	UlExtendedRet     uint32
+	CNumObjects       uint32
+	CNumBytes         uint32
+	PObjects          *REPLENTINFLIST `ndr:"pointer"`
+	FMoreData         uint32
+}
+
+// DRSMsgGetChgReplyV6 — MS-DRSR 4.1.10.2.11 DRS_MSG_GETCHGREPLY_V6 and V9.
+// V9 (4.1.10.2.13) is structurally identical and shares this definition.
+// RgValuesRef holds the [unique] referent ID for the rgValues array; the
+// deferred payload (REPLVALINF_V1 for V6 / REPLVALINF_V3 for V9) is decoded
+// after the REPLENTINFLIST chain in Unmarshal and surfaced on
+// DRSGetNCChangesRes.LinkedValues.
+type DRSMsgGetChgReplyV6 struct {
+	UuidDsaObjSrc     [16]byte
+	UuidInvocIdSrc    [16]byte
+	PNC               *DSNAME `ndr:"pointer"`
+	UsnvecFrom        USNVector
+	UsnvecTo          USNVector
+	PUpToDateVecSrc   *UPTODATEVectorV2 `ndr:"pointer,fullpointer"`
+	PrefixTableSrc    SchemaPrefixTable
+	UlExtendedRet     uint32
+	CNumObjects       uint32
+	CNumBytes         uint32
+	PObjects          *REPLENTINFLIST `ndr:"pointer"`
+	FMoreData         uint32
+	CNumNcSizeObjects uint32
+	CNumNcSizeValues  uint32
+	CNumValues        uint32
+	RgValuesRef       uint32 // Actually a pointer for REPLVALINF_V1 or REPLVALINF_V3 which we ignore
+	DwDRSError        uint32
+}
+
+// DRSMsgGetChgReplyUnion — discriminated union of V1, V6, V9 reply bodies.
+// V9 uses the same Go type as V6.
+type DRSMsgGetChgReplyUnion struct {
+	Level  uint32              `ndr:"unionTag"`
+	Level1 DRSMsgGetChgReplyV1 `ndr:"unionField"`
+	Level6 DRSMsgGetChgReplyV6 `ndr:"unionField"`
+}
+
+func (u DRSMsgGetChgReplyUnion) SwitchFunc(tag interface{}) string {
+	switch tag.(uint32) {
+	case 1:
+		return "Level1"
+	case 6, 9:
+		return "Level6"
+	}
+	return ""
+}
+
+// drsGetNCChangesResWrap holds the ndr-decodable portion of the reply:
+// dwOutVersion (via union Level, duplicated on wire by the non-encapsulated
+// union machinery) plus the selected arm body. pObjects → REPLENTINFLIST_0 is
+// decoded as the last deferred of the arm scope; subsequent entries are walked
+// manually via DRSGetNCChangesRes.Unmarshal.
+type drsGetNCChangesResWrap struct {
+	PmsgOut DRSMsgGetChgReplyUnion `ndr:"toplevel"`
+}
+
+// ReplValInfV1 — MS-DRSR 4.1.10.2.15 REPLVALINF_V1. One replicated link value.
+// Aval is inline (not a pointer): the ATTRVAL carries the attribute bytes.
+// MetaData holds the per-value replication metadata (version, timestamps,
+// originating DSA/USN).
+type ReplValInfV1 struct {
+	PObject     *DSNAME `ndr:"pointer"`
+	AttrTyp     ATTRTYP
+	Aval        ATTRVAL
+	FIsPresent  uint32 // BOOL
+	TimeCreated int64  // DSTIME, 8-byte aligned
+	MetaData    PropertyMetaDataExt
+}
+
+// ValueMetaDataExtV3 — MS-DRSR 4.1.10.2.44 VALUE_META_DATA_EXT_V3.
+// Defined for completeness; no decoding path populates this today.
+type ValueMetaDataExtV3 struct {
+	TimeCreated int64
+	MetaData    PropertyMetaDataExt
+	TimeExpired int64
+}
+
+// ReplValInfV3 — MS-DRSR 4.1.10.2.15 REPLVALINF_V3 (V9 reply arm).
+// Declared but not decoded: DRSBind does not advertise DrsExtGetchgReplyV9, so
+// Windows DCs reply with V6 (REPLVALINF_V1). If a server returns V9 anyway,
+// Unmarshal logs a warning and leaves LinkedValues empty.
+type ReplValInfV3 struct {
+	PObject    *DSNAME `ndr:"pointer"`
+	AttrTyp    ATTRTYP
+	Aval       ATTRVAL
+	FIsPresent uint32
+	MetaData   ValueMetaDataExtV3
+}
+
+// replValInfV1Array decodes the deferred payload of [unique, size_is(cNumValues)]
+// REPLVALINF_V1 *rgValues. A single conformant slice at top level consumes
+// max_count + elements from the stream (see ndr arrays_test.go TestRead*ConformantArray).
+type replValInfV1Array struct {
+	Values []ReplValInfV1 `ndr:"conformant"`
+}
+
+// DRSGetNCChangesRes holds the parsed DRS_MSG_GETCHGREPLY, with the
+// REPLENTINFLIST chain flattened into Entries. MsgV1 xor MsgV6 is populated
+// based on the server-chosen dwOutVersion. LinkedValues carries the parsed
+// rgValues link-value array (V6 only; empty for V1 and unsupported V9).
+// ReturnCode is the RPC HRESULT.
+type DRSGetNCChangesRes struct {
+	DwOutVersion uint32
+	MsgV1        *DRSMsgGetChgReplyV1
+	MsgV6        *DRSMsgGetChgReplyV6
+	Entries      []REPLENTINFLIST
+	LinkedValues []ReplValInfV1
+	ReturnCode   uint32
+}
+
+// FMoreData returns whether the server has more data available (paging flag).
+func (r *DRSGetNCChangesRes) FMoreData() bool {
+	switch {
+	case r.MsgV6 != nil:
+		return r.MsgV6.FMoreData != 0
+	case r.MsgV1 != nil:
+		return r.MsgV1.FMoreData != 0
+	}
+	return false
+}
+
+// UsnvecTo returns the usnvecTo cursor from the selected reply arm, used to
+// resume paging on subsequent DRSGetNCChanges calls.
+func (r *DRSGetNCChangesRes) UsnvecTo() USNVector {
+	switch {
+	case r.MsgV6 != nil:
+		return r.MsgV6.UsnvecTo
+	case r.MsgV1 != nil:
+		return r.MsgV1.UsnvecTo
+	}
+	return USNVector{}
+}
+
+// PrefixTableSrc returns the prefix table from the selected reply arm.
+func (r *DRSGetNCChangesRes) PrefixTableSrc() SchemaPrefixTable {
+	switch {
+	case r.MsgV6 != nil:
+		return r.MsgV6.PrefixTableSrc
+	case r.MsgV1 != nil:
+		return r.MsgV1.PrefixTableSrc
+	}
+	return SchemaPrefixTable{}
+}
+
+// UpToDateVec returns the UP-TO-DATE vector from the selected reply arm,
+// normalizing V1 cursors into V2 cursors (with TimeLastSyncSuccess=0).
+func (r *DRSGetNCChangesRes) UpToDateVec() *UPTODATEVectorV2 {
+	if r.MsgV6 != nil {
+		return r.MsgV6.PUpToDateVecSrc
+	}
+	if r.MsgV1 != nil && r.MsgV1.PUpToDateVecSrcV1 != nil {
+		src := r.MsgV1.PUpToDateVecSrcV1
+		v2 := &UPTODATEVectorV2{
+			Version:  src.Version,
+			Reserved: src.Reserved,
+			Count:    src.Count,
+			Cursors:  make([]UPTODATECursorV2, len(src.Cursors)),
+		}
+		for i, c := range src.Cursors {
+			v2.Cursors[i] = UPTODATECursorV2{
+				UuidDsa:           c.UuidDsa,
+				UsnHighPropUpdate: c.UsnHighPropUpdate,
+			}
+		}
+		return v2
+	}
+	return nil
+}
+
+// Unmarshal decodes the DRS_MSG_GETCHGREPLY response. The ndr library handles
+// the top-level union and all deferred pointers in the selected arm, including
+// the first REPLENTINFLIST entry (via pObjects). Remaining chain entries are
+// decoded in a loop on the same Decoder, then the trailing RPC ReturnCode is
+// read last.
+func (r *DRSGetNCChangesRes) Unmarshal(data []byte) error {
+	if len(data) < 8 {
+		return fmt.Errorf("GetNCChanges response too short: %d bytes", len(data))
+	}
+	dec := ndr.NewDecoder(bytes.NewReader(data), false)
+	dec.SetEndianness(binary.LittleEndian)
+
+	var wrap drsGetNCChangesResWrap
+	if err := dec.Decode(&wrap); err != nil {
+		return fmt.Errorf("error unmarshaling DRSGetNCChangesRes: %v", err)
+	}
+	r.DwOutVersion = wrap.PmsgOut.Level
+
+	var head *REPLENTINFLIST
+	switch wrap.PmsgOut.Level {
+	case 1:
+		r.MsgV1 = &wrap.PmsgOut.Level1
+		head = r.MsgV1.PObjects
+	case 6, 9:
+		r.MsgV6 = &wrap.PmsgOut.Level6
+		head = r.MsgV6.PObjects
+	default:
+		return fmt.Errorf("unexpected DRSGetNCChanges outVersion: %d", wrap.PmsgOut.Level)
+	}
+
+	if head != nil {
+		r.Entries = append(r.Entries, *head)
+		next := head.PNextEntInfRef
+		for next != 0 {
+			var entry REPLENTINFLIST
+			if err := dec.Decode(&entry); err != nil {
+				return fmt.Errorf("error unmarshaling REPLENTINFLIST entry %d: %v", len(r.Entries), err)
+			}
+			r.Entries = append(r.Entries, entry)
+			next = entry.PNextEntInfRef
+		}
+	}
+
+	if r.MsgV6 != nil && r.MsgV6.RgValuesRef != 0 && r.MsgV6.CNumValues > 0 {
+		switch wrap.PmsgOut.Level {
+		case 6:
+			var arr replValInfV1Array
+			if err := dec.Decode(&arr); err != nil {
+				return fmt.Errorf("error unmarshaling rgValues (REPLVALINF_V1): %v", err)
+			}
+			r.LinkedValues = arr.Values
+		case 9:
+			// REPLVALINF_V3 decode is not implemented. Without consuming the
+			// rgValues bytes we cannot locate ReturnCode; return early and let
+			// the caller see ReturnCode == 0. We only reach this branch if a
+			// server returns V9 despite us not advertising DrsExtGetchgReplyV9.
+			log.Warningf("DRSGetNCChanges V9 rgValues (REPLVALINF_V3) decoding is not implemented; %d linked values dropped, ReturnCode unread", r.MsgV6.CNumValues)
+			return nil
+		}
+	}
+
+	var trailer struct{ ReturnCode uint32 }
+	if err := dec.Decode(&trailer); err != nil {
+		return fmt.Errorf("error unmarshaling DRSGetNCChanges returnCode: %v", err)
+	}
+	r.ReturnCode = trailer.ReturnCode
+	return nil
+}

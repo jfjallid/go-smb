@@ -31,19 +31,22 @@ import (
 	"testing"
 
 	"github.com/jfjallid/go-smb/msdtyp"
+	"github.com/jfjallid/ndr"
 )
 
 // TestMarshalGetNCChangesReqHexDump generates and prints the exact bytes of a
-// GetNCChanges request for manual inspection and comparison.
+// GetNCChanges request for manual inspection and comparison. Only V8 is
+// exercised; V10 is not used by the DCSync code path and would require a
+// separate flat request type.
 func TestMarshalGetNCChangesReqHexDump(t *testing.T) {
-	handle := make([]byte, 20) // zero handle for testing
+	var handle [20]byte // zero handle for testing
 	ncDN := "CN=Administrator,CN=Users,DC=test,DC=com"
 	objectGuid := [16]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
 		0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10}
 	usnFrom := USNVector{}
 	mode := DCSyncNTLMOnly
 
-	for _, useV10 := range []bool{false, true} {
+	for _, useV10 := range []bool{false} {
 		label := "V8"
 		if useV10 {
 			label = "V10"
@@ -51,9 +54,13 @@ func TestMarshalGetNCChangesReqHexDump(t *testing.T) {
 		t.Run(label, func(t *testing.T) {
 			dsaGuid := [16]byte{0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7,
 				0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF}
-			buf, err := marshalGetNCChangesReq(handle, ncDN, objectGuid, dsaGuid, ExopReplObj, usnFrom, nil, useV10, mode)
+			req, err := buildGetNCChangesReqV8(handle, ncDN, objectGuid, dsaGuid, ExopReplObj, usnFrom, nil, mode)
 			if err != nil {
-				t.Fatalf("marshalGetNCChangesReq failed: %v", err)
+				t.Fatalf("buildGetNCChangesReqV8 failed: %v", err)
+			}
+			buf, err := req.Marshal()
+			if err != nil {
+				t.Fatalf("Marshal failed: %v", err)
 			}
 
 			t.Logf("Total buffer length: %d bytes", len(buf))
@@ -218,20 +225,19 @@ func TestMarshalGetNCChangesReqHexDump(t *testing.T) {
 	}
 }
 
-
 func TestDRSExtensionsIntRoundTrip(t *testing.T) {
 	ext := DRSExtensionsInt{
 		Flags:            DrsExtBase | DrsExtGetchgReqV8 | DrsExtGetchgReqV10,
-		SiteObjGuid:     [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+		SiteObjGuid:      [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
 		Pid:              1234,
 		ReplicationEpoch: 0,
 		FlagsExt:         0x04000000,
 		ConfigObjGuid:    [16]byte{16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1},
 	}
 
-	data, err := ext.MarshalBinary()
+	data, err := ext.Marshal()
 	if err != nil {
-		t.Fatalf("MarshalBinary failed: %v", err)
+		t.Fatalf("Marshal failed: %v", err)
 	}
 
 	if len(data) != 48 {
@@ -239,9 +245,9 @@ func TestDRSExtensionsIntRoundTrip(t *testing.T) {
 	}
 
 	var ext2 DRSExtensionsInt
-	err = ext2.UnmarshalBinary(data)
+	err = ext2.Unmarshal(data)
 	if err != nil {
-		t.Fatalf("UnmarshalBinary failed: %v", err)
+		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
 	if ext2.Flags != ext.Flags {
@@ -267,9 +273,9 @@ func TestDRSExtensionsIntRoundTrip(t *testing.T) {
 func TestDRSExtensionsIntPartialUnmarshal(t *testing.T) {
 	data := []byte{0x01, 0x0A, 0x00, 0x00}
 	var ext DRSExtensionsInt
-	err := ext.UnmarshalBinary(data)
+	err := ext.Unmarshal(data)
 	if err != nil {
-		t.Fatalf("UnmarshalBinary failed for partial data: %v", err)
+		t.Fatalf("Unmarshal failed for partial data: %v", err)
 	}
 	if ext.Flags != 0x00000A01 {
 		t.Errorf("Flags mismatch: got 0x%08x, want 0x00000A01", ext.Flags)
@@ -279,28 +285,459 @@ func TestDRSExtensionsIntPartialUnmarshal(t *testing.T) {
 	}
 }
 
+// TestSharedWireTypeRoundTrip exercises ndr encode/decode for the wire types
+// that GetNCChanges request/response builds on, so format mistakes surface here
+// rather than buried in a complex composite struct.
+func TestSharedWireTypeRoundTrip(t *testing.T) {
+	t.Run("UPTODATEVectorV2", func(t *testing.T) {
+		v := UPTODATEVectorV2{
+			Version:  2,
+			Reserved: 0,
+			Count:    2,
+			Cursors: []UPTODATECursorV2{
+				{
+					UuidDsa:             [16]byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99},
+					UsnHighPropUpdate:   12345,
+					TimeLastSyncSuccess: 0x1d2c1b1a19181716,
+				},
+				{
+					UuidDsa:             [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+					UsnHighPropUpdate:   67890,
+					TimeLastSyncSuccess: 0x0807060504030201,
+				},
+			},
+		}
+		enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+		enc.SetEndianness(binary.LittleEndian)
+		buf, err := enc.Encode(&v)
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		var got UPTODATEVectorV2
+		dec := ndr.NewDecoder(bytes.NewReader(buf), false)
+		dec.SetEndianness(binary.LittleEndian)
+		if err := dec.Decode(&got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if got.Count != v.Count || len(got.Cursors) != len(v.Cursors) {
+			t.Fatalf("count mismatch: got %d cursors, want %d", len(got.Cursors), v.Count)
+		}
+		for i := range v.Cursors {
+			if got.Cursors[i] != v.Cursors[i] {
+				t.Errorf("cursor[%d] mismatch:\n  got:  %+v\n  want: %+v", i, got.Cursors[i], v.Cursors[i])
+			}
+		}
+	})
+
+	t.Run("PartialAttrSet", func(t *testing.T) {
+		p := PartialAttrSet{
+			Version:  1,
+			Reserved: 0,
+			Count:    3,
+			Attrs:    []ATTRTYP{AttUnicodePwd, AttDBCSPwd, AttSAMAccountName},
+		}
+		enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+		enc.SetEndianness(binary.LittleEndian)
+		buf, err := enc.Encode(&p)
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		var got PartialAttrSet
+		dec := ndr.NewDecoder(bytes.NewReader(buf), false)
+		dec.SetEndianness(binary.LittleEndian)
+		if err := dec.Decode(&got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if got.Count != p.Count || len(got.Attrs) != len(p.Attrs) {
+			t.Fatalf("attr count mismatch: got %d, want %d", len(got.Attrs), p.Count)
+		}
+		for i := range p.Attrs {
+			if got.Attrs[i] != p.Attrs[i] {
+				t.Errorf("attr[%d]: got %d, want %d", i, got.Attrs[i], p.Attrs[i])
+			}
+		}
+	})
+
+	t.Run("SchemaPrefixTable", func(t *testing.T) {
+		pt := SchemaPrefixTable{
+			PrefixCount: 2,
+			Entries: []OIDPrefix{
+				{NdxVal: 0, PrefixLen: 8, Prefix: []byte{0x2A, 0x86, 0x48, 0x86, 0xF7, 0x14, 0x01, 0x04}},
+				{NdxVal: 1, PrefixLen: 3, Prefix: []byte{0x55, 0x04, 0x06}},
+			},
+		}
+		enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+		enc.SetEndianness(binary.LittleEndian)
+		buf, err := enc.Encode(&pt)
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		var got SchemaPrefixTable
+		dec := ndr.NewDecoder(bytes.NewReader(buf), false)
+		dec.SetEndianness(binary.LittleEndian)
+		if err := dec.Decode(&got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if got.PrefixCount != pt.PrefixCount || len(got.Entries) != len(pt.Entries) {
+			t.Fatalf("entry count mismatch: got %d, want %d", len(got.Entries), pt.PrefixCount)
+		}
+		for i := range pt.Entries {
+			if got.Entries[i].NdxVal != pt.Entries[i].NdxVal {
+				t.Errorf("entry[%d].NdxVal: got %d, want %d", i, got.Entries[i].NdxVal, pt.Entries[i].NdxVal)
+			}
+			if got.Entries[i].PrefixLen != pt.Entries[i].PrefixLen {
+				t.Errorf("entry[%d].PrefixLen: got %d, want %d", i, got.Entries[i].PrefixLen, pt.Entries[i].PrefixLen)
+			}
+			if !bytes.Equal(got.Entries[i].Prefix, pt.Entries[i].Prefix) {
+				t.Errorf("entry[%d].Prefix: got %x, want %x", i, got.Entries[i].Prefix, pt.Entries[i].Prefix)
+			}
+		}
+	})
+}
+
+// TestDRSGetNCChangesResRoundTrip encodes a V6 reply with one REPLENTINFLIST
+// entry containing DSNAME, ATTRBLOCK, pParentGuid, and pMetaDataExt, then
+// decodes it back via DRSGetNCChangesRes.Unmarshal. The encoded wire bytes
+// are produced by ndr.Encode so this test verifies self-consistency of the
+// new response types (not wire compatibility with a live DC — that requires
+// the live test).
+func TestDRSGetNCChangesResRoundTrip(t *testing.T) {
+	// Build a synthetic V6 reply: one entry, no chain tail.
+	pNC := &DSNAME{Guid: [16]byte{0xAA, 0xBB, 0xCC, 0xDD}}
+	pNC.SetName("DC=contoso,DC=com")
+
+	entryName := &DSNAME{Guid: [16]byte{0x01, 0x02, 0x03, 0x04}}
+	entryName.SetName("CN=Administrator,CN=Users,DC=contoso,DC=com")
+
+	guid := [16]byte{0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00}
+
+	v6 := DRSMsgGetChgReplyV6{
+		UuidDsaObjSrc:  [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+		UuidInvocIdSrc: [16]byte{17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32},
+		PNC:            pNC,
+		UsnvecFrom:     USNVector{1, 2, 3},
+		UsnvecTo:       USNVector{10, 20, 30},
+		PUpToDateVecSrc: &UPTODATEVectorV2{
+			Version: 2, Count: 1,
+			Cursors: []UPTODATECursorV2{{UuidDsa: guid, UsnHighPropUpdate: 100, TimeLastSyncSuccess: 200}},
+		},
+		PrefixTableSrc: SchemaPrefixTable{
+			PrefixCount: 1,
+			Entries:     []OIDPrefix{{NdxVal: 0, PrefixLen: 3, Prefix: []byte{0x55, 0x04, 0x06}}},
+		},
+		UlExtendedRet: 0,
+		CNumObjects:   1,
+		CNumBytes:     0,
+		PObjects: &REPLENTINFLIST{
+			PNextEntInfRef: 0,
+			Entinf: ENTINF{
+				PName:   entryName,
+				UlFlags: 0,
+				AttrBlock: ATTRBLOCK{
+					AttrCount: 1,
+					PAttr: []ATTR{{
+						AttrTyp: ATTRTYP(AttUnicodePwd),
+						AttrVal: ATTRVALBLOCK{
+							ValCount: 1,
+							PVal:     []ATTRVAL{{ValLen: 4, PVal: []byte{0xDE, 0xAD, 0xBE, 0xEF}}},
+						},
+					}},
+				},
+			},
+			FIsNCPrefix:  0,
+			PParentGuid:  &guid,
+			PMetaDataExt: &PropertyMetaDataExtVector{CNumProps: 0, RgMetaData: nil},
+		},
+		FMoreData: 0,
+	}
+
+	wrap := drsGetNCChangesResWrap{
+		PmsgOut: DRSMsgGetChgReplyUnion{
+			Level:  6,
+			Level6: v6,
+		},
+	}
+
+	// dwOutVersion is sourced from the union Level field (duplicated on wire
+	// by the non-encapsulated union machinery).
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	body, err := enc.Encode(&wrap)
+	if err != nil {
+		t.Fatalf("encode wrap: %v", err)
+	}
+
+	// Append the trailing RPC ReturnCode.
+	trailer := []byte{0x00, 0x00, 0x00, 0x00}
+	wire := append(body, trailer...)
+
+	var got DRSGetNCChangesRes
+	if err := got.Unmarshal(wire); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if got.DwOutVersion != 6 {
+		t.Errorf("DwOutVersion: got %d want 6", got.DwOutVersion)
+	}
+	if got.MsgV6 == nil {
+		t.Fatalf("MsgV6 is nil")
+	}
+	if got.MsgV6.PNC == nil || got.MsgV6.PNC.Name() != "DC=contoso,DC=com" {
+		t.Errorf("PNC.Name mismatch: got %+v", got.MsgV6.PNC)
+	}
+	if got.UsnvecTo() != (USNVector{10, 20, 30}) {
+		t.Errorf("UsnvecTo mismatch: got %+v", got.UsnvecTo())
+	}
+	if got.PrefixTableSrc().PrefixCount != 1 || len(got.PrefixTableSrc().Entries) != 1 {
+		t.Errorf("PrefixTableSrc mismatch: got %+v", got.PrefixTableSrc())
+	}
+	if !bytes.Equal(got.PrefixTableSrc().Entries[0].Prefix, []byte{0x55, 0x04, 0x06}) {
+		t.Errorf("Prefix bytes mismatch: got %x", got.PrefixTableSrc().Entries[0].Prefix)
+	}
+	if utdv := got.UpToDateVec(); utdv == nil || utdv.Count != 1 || utdv.Cursors[0].UsnHighPropUpdate != 100 {
+		t.Errorf("UpToDateVec mismatch: got %+v", utdv)
+	}
+	if len(got.Entries) != 1 {
+		t.Fatalf("Entries count: got %d want 1", len(got.Entries))
+	}
+	entry := got.Entries[0]
+	if entry.Entinf.PName == nil || entry.Entinf.PName.Name() != "CN=Administrator,CN=Users,DC=contoso,DC=com" {
+		t.Errorf("entry PName mismatch: got %+v", entry.Entinf.PName)
+	}
+	if entry.Entinf.AttrBlock.AttrCount != 1 || len(entry.Entinf.AttrBlock.PAttr) != 1 {
+		t.Fatalf("entry AttrBlock mismatch: got %+v", entry.Entinf.AttrBlock)
+	}
+	attr := entry.Entinf.AttrBlock.PAttr[0]
+	if attr.AttrTyp != ATTRTYP(AttUnicodePwd) || attr.AttrVal.ValCount != 1 {
+		t.Errorf("attr mismatch: got %+v", attr)
+	}
+	if !bytes.Equal(attr.AttrVal.PVal[0].PVal, []byte{0xDE, 0xAD, 0xBE, 0xEF}) {
+		t.Errorf("attr value mismatch: got %x", attr.AttrVal.PVal[0].PVal)
+	}
+	if entry.PParentGuid == nil || *entry.PParentGuid != guid {
+		t.Errorf("PParentGuid mismatch: got %+v", entry.PParentGuid)
+	}
+	if got.ReturnCode != 0 {
+		t.Errorf("ReturnCode: got %d want 0", got.ReturnCode)
+	}
+}
+
+// TestDRSGetNCChangesResRgValuesRoundTrip verifies that a V6 reply carrying a
+// non-empty rgValues (REPLVALINF_V1) array decodes correctly. The wire layout
+// is: wrap(union+arm inlines+deferreds) | REPLVALINF_V1 array deferred body
+// | ReturnCode. The arm's RgValuesRef and CNumValues fields drive the decode
+// branch in DRSGetNCChangesRes.Unmarshal.
+func TestDRSGetNCChangesResRgValuesRoundTrip(t *testing.T) {
+	pNC := &DSNAME{Guid: [16]byte{0xAA}}
+	pNC.SetName("DC=contoso,DC=com")
+	entryName := &DSNAME{Guid: [16]byte{0x01}}
+	entryName.SetName("CN=Group,DC=contoso,DC=com")
+
+	memberDN1 := &DSNAME{Guid: [16]byte{0xA1}}
+	memberDN1.SetName("CN=Alice,CN=Users,DC=contoso,DC=com")
+	memberDN2 := &DSNAME{Guid: [16]byte{0xB2}}
+	memberDN2.SetName("CN=Bob,CN=Users,DC=contoso,DC=com")
+
+	linked := []ReplValInfV1{
+		{
+			PObject:     memberDN1,
+			AttrTyp:     ATTRTYP(0x1F01),
+			Aval:        ATTRVAL{ValLen: 4, PVal: []byte{0x11, 0x22, 0x33, 0x44}},
+			FIsPresent:  1,
+			TimeCreated: 0x01020304_05060708,
+			MetaData: PropertyMetaDataExt{
+				DwVersion:          1,
+				FTimeChanged:       0x1122334455667788,
+				UuidDsaOriginating: [16]byte{0xDE, 0xAD},
+				UsnOriginating:     42,
+			},
+		},
+		{
+			PObject:     memberDN2,
+			AttrTyp:     ATTRTYP(0x1F01),
+			Aval:        ATTRVAL{ValLen: 2, PVal: []byte{0xFE, 0xED}},
+			FIsPresent:  0,
+			TimeCreated: 0x0A0B0C0D_0E0F1011,
+			MetaData: PropertyMetaDataExt{
+				DwVersion:          2,
+				FTimeChanged:       0x2233445566778899,
+				UuidDsaOriginating: [16]byte{0xBE, 0xEF},
+				UsnOriginating:     43,
+			},
+		},
+	}
+
+	v6 := DRSMsgGetChgReplyV6{
+		UuidDsaObjSrc:   [16]byte{1},
+		UuidInvocIdSrc:  [16]byte{2},
+		PNC:             pNC,
+		UsnvecFrom:      USNVector{},
+		UsnvecTo:        USNVector{5, 6, 7},
+		PUpToDateVecSrc: nil,
+		PrefixTableSrc:  SchemaPrefixTable{PrefixCount: 0, Entries: nil},
+		UlExtendedRet:   0,
+		CNumObjects:     1,
+		CNumBytes:       0,
+		PObjects: &REPLENTINFLIST{
+			PNextEntInfRef: 0,
+			Entinf: ENTINF{
+				PName:     entryName,
+				UlFlags:   0,
+				AttrBlock: ATTRBLOCK{AttrCount: 0, PAttr: nil},
+			},
+			FIsNCPrefix:  0,
+			PParentGuid:  nil,
+			PMetaDataExt: nil,
+		},
+		FMoreData:         0,
+		CNumNcSizeObjects: 0,
+		CNumNcSizeValues:  0,
+		CNumValues:        uint32(len(linked)),
+		RgValuesRef:       0x00030000,
+		DwDRSError:        0,
+	}
+
+	wrap := drsGetNCChangesResWrap{
+		PmsgOut: DRSMsgGetChgReplyUnion{Level: 6, Level6: v6},
+	}
+
+	// Encode each top-level struct with its own Encoder so alignment
+	// tracking resets between structs, matching the Unmarshal decoder's
+	// per-Decode pos reset. The decoder does NOT skip padding between
+	// top-level Decode calls, so the encoder must also emit each struct
+	// starting from its own pos=0.
+	buf := bytes.NewBuffer([]byte{})
+	for _, item := range []interface{}{&wrap, &replValInfV1Array{Values: linked}, &struct{ ReturnCode uint32 }{ReturnCode: 0}} {
+		sub := bytes.NewBuffer([]byte{})
+		enc := ndr.NewEncoder(sub, false)
+		enc.SetEndianness(binary.LittleEndian)
+		if _, err := enc.Encode(item); err != nil {
+			t.Fatalf("encode %T: %v", item, err)
+		}
+		buf.Write(sub.Bytes())
+	}
+	wire := buf.Bytes()
+
+	var got DRSGetNCChangesRes
+	if err := got.Unmarshal(wire); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if got.ReturnCode != 0 {
+		t.Errorf("ReturnCode: got 0x%x want 0", got.ReturnCode)
+	}
+	if len(got.LinkedValues) != len(linked) {
+		t.Fatalf("LinkedValues count: got %d want %d", len(got.LinkedValues), len(linked))
+	}
+	for i, want := range linked {
+		lv := got.LinkedValues[i]
+		if lv.PObject == nil || lv.PObject.Name() != want.PObject.Name() {
+			t.Errorf("linked[%d] pObject: got %+v want name %q", i, lv.PObject, want.PObject.Name())
+		}
+		if lv.AttrTyp != want.AttrTyp {
+			t.Errorf("linked[%d] AttrTyp: got %d want %d", i, lv.AttrTyp, want.AttrTyp)
+		}
+		if lv.Aval.ValLen != want.Aval.ValLen || !bytes.Equal(lv.Aval.PVal, want.Aval.PVal) {
+			t.Errorf("linked[%d] Aval: got {%d,%x} want {%d,%x}", i, lv.Aval.ValLen, lv.Aval.PVal, want.Aval.ValLen, want.Aval.PVal)
+		}
+		if lv.FIsPresent != want.FIsPresent {
+			t.Errorf("linked[%d] FIsPresent: got %d want %d", i, lv.FIsPresent, want.FIsPresent)
+		}
+		if lv.TimeCreated != want.TimeCreated {
+			t.Errorf("linked[%d] TimeCreated: got 0x%x want 0x%x", i, lv.TimeCreated, want.TimeCreated)
+		}
+		if lv.MetaData != want.MetaData {
+			t.Errorf("linked[%d] MetaData: got %+v want %+v", i, lv.MetaData, want.MetaData)
+		}
+	}
+}
+
+// TestREPLENTINFLISTChainRoundTrip verifies that multi-entry chains decode in
+// per-entry wire order: [entry_0 inline + deferreds, entry_1 inline +
+// deferreds, ...]. The PNextEntInfRef uint32 is a plain referent ID rather
+// than an ndr pointer so each entry's Decode call consumes exactly one entry
+// worth of bytes.
+func TestREPLENTINFLISTChainRoundTrip(t *testing.T) {
+	makeEntry := func(name string, nextRef uint32) REPLENTINFLIST {
+		dn := &DSNAME{Guid: [16]byte{}}
+		dn.SetName(name)
+		return REPLENTINFLIST{
+			PNextEntInfRef: nextRef,
+			Entinf: ENTINF{
+				PName:   dn,
+				UlFlags: 0,
+				AttrBlock: ATTRBLOCK{
+					AttrCount: 0,
+					PAttr:     nil,
+				},
+			},
+			FIsNCPrefix:  0,
+			PParentGuid:  nil,
+			PMetaDataExt: nil,
+		}
+	}
+
+	entries := []REPLENTINFLIST{
+		makeEntry("CN=Alice,DC=test", 0x00020100),
+		makeEntry("CN=Bob,DC=test", 0x00020200),
+		makeEntry("CN=Carol,DC=test", 0),
+	}
+
+	// Encode the chain as a single stream — each entry uses its own
+	// Encoder so alignment tracking resets between entries and bytes flow
+	// seamlessly (matching Windows wire format where each REPLENTINFLIST
+	// entry is a self-contained unit).
+	wire := bytes.NewBuffer([]byte{})
+	for i := range entries {
+		entryBuf := bytes.NewBuffer([]byte{})
+		enc := ndr.NewEncoder(entryBuf, false)
+		enc.SetEndianness(binary.LittleEndian)
+		if _, err := enc.Encode(&entries[i]); err != nil {
+			t.Fatalf("encode entry %d: %v", i, err)
+		}
+		wire.Write(entryBuf.Bytes())
+	}
+
+	// Decode via a single Decoder, mirroring DRSGetNCChangesRes.Unmarshal.
+	dec := ndr.NewDecoder(bytes.NewReader(wire.Bytes()), false)
+	dec.SetEndianness(binary.LittleEndian)
+	for i := range entries {
+		var got REPLENTINFLIST
+		if err := dec.Decode(&got); err != nil {
+			t.Fatalf("decode entry %d: %v", i, err)
+		}
+		if got.PNextEntInfRef != entries[i].PNextEntInfRef {
+			t.Errorf("entry[%d] PNextEntInfRef: got 0x%x want 0x%x",
+				i, got.PNextEntInfRef, entries[i].PNextEntInfRef)
+		}
+		wantName := entries[i].Entinf.PName.Name()
+		if got.Entinf.PName == nil || got.Entinf.PName.Name() != wantName {
+			t.Errorf("entry[%d] PName: got %q want %q", i, got.Entinf.PName, wantName)
+		}
+	}
+}
+
 func TestDSNAMERoundTrip(t *testing.T) {
 	dsname := &DSNAME{
-		Guid:       [16]byte{0xAA, 0xBB, 0xCC, 0xDD, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00, 0xAA, 0xBB},
-		StringName: "DC=contoso,DC=com",
+		Guid: [16]byte{0xAA, 0xBB, 0xCC, 0xDD, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00, 0xAA, 0xBB},
+	}
+	dsname.SetName("DC=contoso,DC=com")
+
+	data, err := dsname.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
 	}
 
-	data, err := dsname.MarshalBinary()
-	if err != nil {
-		t.Fatalf("MarshalBinary failed: %v", err)
-	}
-
-	r := bytes.NewReader(data)
-	dsname2, err := unmarshalDSNAME(r)
-	if err != nil {
-		t.Fatalf("unmarshalDSNAME failed: %v", err)
+	dsname2 := &DSNAME{}
+	if err := dsname2.Unmarshal(data); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
 	if dsname2.Guid != dsname.Guid {
 		t.Errorf("Guid mismatch")
 	}
-	if dsname2.StringName != dsname.StringName {
-		t.Errorf("StringName mismatch: got %q, want %q", dsname2.StringName, dsname.StringName)
+	if dsname2.Name() != dsname.Name() {
+		t.Errorf("StringName mismatch: got %q, want %q", dsname2.Name(), dsname.Name())
 	}
 }
 
@@ -633,10 +1070,10 @@ func TestDCSyncAttrsHas(t *testing.T) {
 func TestParseSupplementalCredentials(t *testing.T) {
 	var buf bytes.Buffer
 
-	binary.Write(&buf, le, uint32(0))   // Reserved1
-	binary.Write(&buf, le, uint32(0))   // Length
-	binary.Write(&buf, le, uint16(0))   // Reserved2
-	binary.Write(&buf, le, uint16(0))   // Reserved3
+	binary.Write(&buf, le, uint32(0))    // Reserved1
+	binary.Write(&buf, le, uint32(0))    // Length
+	binary.Write(&buf, le, uint16(0))    // Reserved2
+	binary.Write(&buf, le, uint16(0))    // Reserved3
 	buf.Write(make([]byte, 96))          // Reserved4
 	binary.Write(&buf, le, uint16(0x50)) // PropertySignature
 	binary.Write(&buf, le, uint16(1))    // PropertyCount
@@ -681,10 +1118,10 @@ func TestParseSupplementalCredentialsBadSignature(t *testing.T) {
 func TestParseWDigest(t *testing.T) {
 	var buf bytes.Buffer
 
-	buf.WriteByte(0x31) // Reserved1
-	buf.WriteByte(0x00) // Reserved2
-	buf.WriteByte(0x01) // Version
-	buf.WriteByte(0x03) // NumberOfHashes
+	buf.WriteByte(0x31)         // Reserved1
+	buf.WriteByte(0x00)         // Reserved2
+	buf.WriteByte(0x01)         // Version
+	buf.WriteByte(0x03)         // NumberOfHashes
 	buf.Write(make([]byte, 12)) // Reserved3
 
 	for i := 0; i < 3; i++ {
@@ -724,4 +1161,3 @@ func TestDecodeUTF16LE(t *testing.T) {
 		t.Errorf("decodeUTF16LE with null: got %q, want %q", result2, "AB")
 	}
 }
-

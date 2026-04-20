@@ -19,13 +19,6 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
-//
-// The marshal/unmarshal of requests and responses according to the NDR syntax
-// has been implemented on a per RPC request basis and not in any complete way.
-// As such, for each new functionality, a manual marshal and unmarshal method
-// has to be written for the relevant messages. This makes it a bit easier to
-// define the message structs but more of the heavy lifting has to be performed
-// by the marshal/unmarshal functions.
 
 package mslsad
 
@@ -40,39 +33,34 @@ import (
 
 // MS-LSAT opnum 45
 type LsarGetUserNameReq struct {
-	SystemName string                     `ndr:"toppointer,fullpointer,conformant,varying"`
-	UserName   *mstypes.PRPCUnicodeString `ndr:"toppointer"` // Top-level ref ptr, so can never be NULL
-	DomainName *mstypes.PRPCUnicodeString `ndr:"toppointer,fullpointer"`
+	SystemName string                     `ndr:"toplevel,fullpointer,conformant,varying"`
+	UserName   *mstypes.PRPCUnicodeString `ndr:"toplevel"` // Top-level ref ptr, so can never be NULL
+	DomainName *mstypes.PRPCUnicodeString `ndr:"toplevel,fullpointer"`
 }
 
 // MS-LSAT opnum 45
 type LsarGetUserNameRes struct {
-	UserName   *mstypes.PRPCUnicodeString `ndr:"toppointer"` // Top-level ref ptr, so can never be NULL
-	DomainName *mstypes.PRPCUnicodeString `ndr:"toppointer,fullpointer"`
+	UserName   *mstypes.PRPCUnicodeString `ndr:"toplevel"` // Top-level ref ptr, so can never be NULL
+	DomainName *mstypes.PRPCUnicodeString `ndr:"toplevel,fullpointer"`
 	ReturnCode uint32
 }
-
-//[in, unique, string] wchar_t* SystemName,
-//[in, out] PRPC_UNICODE_STRING* UserName,
-//[in, out, unique] PRPC_UNICODE_STRING* DomainName
-//);
 
 // MS-LSAT opnum 57
 type LsarLookupSids2Req struct {
 	PolicyHandle    []byte
-	SidEnumBuffer   LsaprSidEnumBuffer     `ndr:"toppointer"`
-	TranslatedNames LsaprTranslatedNamesEx `ndr:"toppointer"`
+	SidEnumBuffer   LsaprSidEnumBuffer     `ndr:"toplevel"`
+	TranslatedNames LsaprTranslatedNamesEx `ndr:"toplevel"`
 	LookupLevel     LsapLookupLevel
-	MappedCount     uint32 `ndr:"toppointer"`
+	MappedCount     uint32 `ndr:"toplevel"`
 	LookupOptions   uint32 // Must be 0
 	ClientRevision  uint32
 }
 
 // MS-LSAT opnum 57
 type LsarLookupSids2Res struct {
-	ReferencedDomains PlsaprReferencedDomainList `ndr:"toppointer"`
-	TranslatedNames   LsaprTranslatedNamesEx     `ndr:"toppointer"`
-	MappedCount       uint32                     `ndr:"toppointer"`
+	ReferencedDomains PlsaprReferencedDomainList `ndr:"toplevel"`
+	TranslatedNames   LsaprTranslatedNamesEx     `ndr:"toplevel"`
+	MappedCount       uint32                     `ndr:"toplevel"`
 	ReturnCode        uint32
 }
 
@@ -91,19 +79,19 @@ type LsarLookupSids2Res struct {
 type LsarLookupNames3Req struct {
 	PolicyHandle   []byte
 	Count          uint32
-	Names          []mstypes.RPCUnicodeString `ndr:"toppointer,conformant"`
-	TranslatedSids LsaprTranslatedSidsEx2     `ndr:"toppointer"`
+	Names          []mstypes.RPCUnicodeString `ndr:"toplevel,conformant"`
+	TranslatedSids LsaprTranslatedSidsEx2     `ndr:"toplevel"`
 	LookupLevel    LsapLookupLevel
-	MappedCount    uint32 `ndr:"toppointer"`
+	MappedCount    uint32 `ndr:"toplevel"`
 	LookupOptions  uint32
 	ClientRevision uint32
 }
 
 // MS-LSAT opnum 68
 type LsarLookupNames3Res struct {
-	ReferencedDomains PlsaprReferencedDomainList `ndr:"toppointer"`
-	TranslatedSids    LsaprTranslatedSidsEx2     `ndr:"toppointer"`
-	MappedCount       uint32                     `ndr:"toppointer"`
+	ReferencedDomains PlsaprReferencedDomainList `ndr:"toplevel"`
+	TranslatedSids    LsaprTranslatedSidsEx2     `ndr:"toplevel"`
+	MappedCount       uint32                     `ndr:"toplevel"`
 	ReturnCode        uint32
 }
 
@@ -154,7 +142,7 @@ type LsaprTranslatedNameEx struct {
 
 type LsaprTranslatedNamesEx struct {
 	Entries uint32
-	Names   []LsaprTranslatedNameEx `ndr:"pointer,conformant"`
+	Names   []LsaprTranslatedNameEx `ndr:"fullpointer,conformant"`
 }
 
 //typedef struct _LSAPR_TRANSLATED_NAMES_EX {
@@ -207,7 +195,7 @@ type LsaprTranslatedSidEx2 struct {
 
 type LsaprTranslatedSidsEx2 struct {
 	Entries uint32
-	Sids    []LsaprTranslatedSidEx2 `ndr:"pointer,conformant"`
+	Sids    []LsaprTranslatedSidEx2 `ndr:"fullpointer,conformant"`
 }
 
 //typedef struct _LSAPR_TRANSLATED_SIDS_EX2 {

@@ -66,54 +66,54 @@ const (
 
 // Logon Types (MS-TSCH Section 2.3.9)
 const (
-	TaskLogonNone                          uint32 = 0
-	TaskLogonPassword                      uint32 = 1
-	TaskLogonS4U                           uint32 = 2
-	TaskLogonInteractiveToken              uint32 = 3
-	TaskLogonGroup                         uint32 = 4
-	TaskLogonServiceAccount                uint32 = 5
-	TaskLogonInteractiveTokenOrPassword    uint32 = 6
+	TaskLogonNone                       uint32 = 0
+	TaskLogonPassword                   uint32 = 1
+	TaskLogonS4U                        uint32 = 2
+	TaskLogonInteractiveToken           uint32 = 3
+	TaskLogonGroup                      uint32 = 4
+	TaskLogonServiceAccount             uint32 = 5
+	TaskLogonInteractiveTokenOrPassword uint32 = 6
 )
 
 // SchRpcRun Flags (MS-TSCH Section 3.2.5.4.7)
 const (
-	TaskRunNoFlags          uint32 = 0x00000000
-	TaskRunAsSelf           uint32 = 0x00000001
+	TaskRunNoFlags           uint32 = 0x00000000
+	TaskRunAsSelf            uint32 = 0x00000001
 	TaskRunIgnoreConstraints uint32 = 0x00000002
-	TaskRunUseSessionId     uint32 = 0x00000004
-	TaskRunUserSid          uint32 = 0x00000008
+	TaskRunUseSessionId      uint32 = 0x00000004
+	TaskRunUserSid           uint32 = 0x00000008
 )
 
 // HRESULT error codes for MS-TSCH
 const (
-	SOk                           uint32 = 0x00000000
-	SchedSTaskReady               uint32 = 0x00041300
-	SchedSTaskRunning             uint32 = 0x00041301
-	SchedSTaskDisabled            uint32 = 0x00041302
-	SchedSTaskHasNotRun           uint32 = 0x00041303
-	SchedSTaskNoMoreRuns          uint32 = 0x00041304
-	SchedSTaskNotScheduled        uint32 = 0x00041305
-	SchedSTaskTerminated          uint32 = 0x00041306
-	SchedSTaskNoValidTriggers     uint32 = 0x00041307
-	SchedSEventTrigger            uint32 = 0x00041308
-	SchedETaskNotReady            uint32 = 0x8004130A
-	SchedETaskNotRunning          uint32 = 0x8004130B
-	SchedEServiceNotInstalled     uint32 = 0x8004130C
-	SchedECannotOpenTask          uint32 = 0x8004130D
-	SchedEInvalidTask             uint32 = 0x8004130E
+	SOk                            uint32 = 0x00000000
+	SchedSTaskReady                uint32 = 0x00041300
+	SchedSTaskRunning              uint32 = 0x00041301
+	SchedSTaskDisabled             uint32 = 0x00041302
+	SchedSTaskHasNotRun            uint32 = 0x00041303
+	SchedSTaskNoMoreRuns           uint32 = 0x00041304
+	SchedSTaskNotScheduled         uint32 = 0x00041305
+	SchedSTaskTerminated           uint32 = 0x00041306
+	SchedSTaskNoValidTriggers      uint32 = 0x00041307
+	SchedSEventTrigger             uint32 = 0x00041308
+	SchedETaskNotReady             uint32 = 0x8004130A
+	SchedETaskNotRunning           uint32 = 0x8004130B
+	SchedEServiceNotInstalled      uint32 = 0x8004130C
+	SchedECannotOpenTask           uint32 = 0x8004130D
+	SchedEInvalidTask              uint32 = 0x8004130E
 	SchedEAccountInformationNotSet uint32 = 0x8004130F
-	SchedEAccountNameNotFound     uint32 = 0x80041310
-	SchedEAccountDbaseCorrupt     uint32 = 0x80041311
-	SchedENoSecurityServices      uint32 = 0x80041312
-	SchedEUnknownObjectVersion    uint32 = 0x80041313
-	SchedEAlreadyRunning          uint32 = 0x8004131F
-	SchedETaskNotV1Compatible     uint32 = 0x80041327
-	ErrorInvalidAccess            uint32 = 0x0000000C
-	EAccessDenied                 uint32 = 0x80070005
-	EInvalidArg                   uint32 = 0x80070057
-	EFileNotFound                 uint32 = 0x80070002
-	EAlreadyExists                uint32 = 0x800700B7
-	RpcEInvalidBound              uint32 = 0x6C000008
+	SchedEAccountNameNotFound      uint32 = 0x80041310
+	SchedEAccountDbaseCorrupt      uint32 = 0x80041311
+	SchedENoSecurityServices       uint32 = 0x80041312
+	SchedEUnknownObjectVersion     uint32 = 0x80041313
+	SchedEAlreadyRunning           uint32 = 0x8004131F
+	SchedETaskNotV1Compatible      uint32 = 0x80041327
+	ErrorInvalidAccess             uint32 = 0x0000000C
+	EAccessDenied                  uint32 = 0x80070005
+	EInvalidArg                    uint32 = 0x80070057
+	EFileNotFound                  uint32 = 0x80070002
+	EAlreadyExists                 uint32 = 0x800700B7
+	RpcEInvalidBound               uint32 = 0x6C000008
 )
 
 var TschResponseCodeMap = map[uint32]error{
@@ -229,19 +229,29 @@ func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 	return &RPCCon{ServiceBind: sb}
 }
 
+// strPtrOrNil returns &s when s is non-empty, else nil. Used for [unique]
+// wchar_t* request parameters where empty means "NULL pointer on the wire".
+func strPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 func (r *RPCCon) RegisterTask(path, xml string, flags, logonType uint32) (actualPath string, err error) {
 	log.Traceln("In RegisterTask")
 
 	req := SchRpcRegisterTaskReq{
-		Path:      path,
+		Path:      strPtrOrNil(path),
 		Xml:       xml,
 		Flags:     flags,
-		Sddl:      "",
+		Sddl:      nil,
 		LogonType: logonType,
 		CCreds:    0,
+		PCreds:    nil,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -254,7 +264,7 @@ func (r *RPCCon) RegisterTask(path, xml string, flags, logonType uint32) (actual
 	}
 
 	res := SchRpcRegisterTaskRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -282,7 +292,7 @@ func (r *RPCCon) DeleteTask(path string, flags uint32) (err error) {
 		Flags: flags,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -319,12 +329,14 @@ func (r *RPCCon) RunTask(path string, flags, sessionId uint32, user string) (gui
 
 	req := SchRpcRunReq{
 		Path:      path,
+		CArgs:     0,
+		PArgs:     nil,
 		Flags:     flags,
 		SessionId: sessionId,
-		User:      user,
+		User:      strPtrOrNil(user),
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -337,7 +349,7 @@ func (r *RPCCon) RunTask(path string, flags, sessionId uint32, user string) (gui
 	}
 
 	res := SchRpcRunRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -364,7 +376,7 @@ func (r *RPCCon) GetLastRunInfo(path string) (lastRunTime SYSTEMTIME, lastReturn
 		Path: path,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -377,7 +389,7 @@ func (r *RPCCon) GetLastRunInfo(path string) (lastRunTime SYSTEMTIME, lastReturn
 	}
 
 	res := SchRpcGetLastRunInfoRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -402,11 +414,11 @@ func (r *RPCCon) EnumInstances(path string, flags uint32) (guids [][16]byte, err
 	log.Traceln("In EnumInstances")
 
 	req := SchRpcEnumInstancesReq{
-		Path:  path,
+		Path:  strPtrOrNil(path),
 		Flags: flags,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -419,7 +431,7 @@ func (r *RPCCon) EnumInstances(path string, flags uint32) (guids [][16]byte, err
 	}
 
 	res := SchRpcEnumInstancesRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -443,11 +455,11 @@ func (r *RPCCon) StopTask(path string, flags uint32) (err error) {
 	log.Traceln("In StopTask")
 
 	req := SchRpcStopReq{
-		Path:  path,
+		Path:  strPtrOrNil(path),
 		Flags: flags,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -486,7 +498,7 @@ func (r *RPCCon) RetrieveTask(path string) (xml string, err error) {
 		Path: path,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -499,7 +511,7 @@ func (r *RPCCon) RetrieveTask(path string) (xml string, err error) {
 	}
 
 	res := SchRpcRetrieveTaskRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return

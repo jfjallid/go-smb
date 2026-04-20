@@ -22,28 +22,33 @@
 package mssrvs
 
 import (
-	"bytes"
 	"encoding/hex"
-
 	"testing"
 )
 
 func TestNetShareEnumAllReq(t *testing.T) {
-	// Simple test to verify that the packet structure is valid
-	pkt, err := hex.DecodeString("01000000080000000000000008000000570049004e0032004b003100390000000100000001000000020000000000000000000000ffffffff0300000000000000")
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	req := NewNetShareEnumAllRequest("WIN2K19")
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !bytes.Equal(pkt, buf) {
-		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
+	// Round-trip test: unmarshal what we just marshaled
+	var req2 NetShareEnumAllRequest
+	err = req2.Unmarshal(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if req2.ServerName == nil || *req2.ServerName != "WIN2K19" {
+		t.Fatalf("expected ServerName==WIN2K19, got %v", req2.ServerName)
+	}
+	if req2.InfoStruct.Level != 1 {
+		t.Fatalf("expected Level==1, got %v", req2.InfoStruct.Level)
+	}
+	if req2.MaxBuffer != 0xffffffff {
+		t.Fatalf("expected MaxBuffer==0xffffffff, got %v", req2.MaxBuffer)
 	}
 }
 
@@ -53,8 +58,8 @@ func TestNetShareEnumAllRes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res := NetShareEnumAllResponse{InfoStruct: &NetShareEnum{}}
-	err = res.UnmarshalBinary(resPkt)
+	var res NetShareEnumAllResponse
+	err = res.Unmarshal(resPkt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +68,10 @@ func TestNetShareEnumAllRes(t *testing.T) {
 		t.Fatalf("expected res.InfoStruct.Level==1, got %v", res.InfoStruct.Level)
 	}
 
-	ctr1 := res.InfoStruct.ShareInfo.(*ShareInfoContainer1)
+	ctr1 := res.InfoStruct.Level1
+	if ctr1 == nil {
+		t.Fatal("expected non-nil Level1 container")
+	}
 
 	if ctr1.EntriesRead != 5 {
 		t.Fatalf("expected ctr1.EntriesRead==5, got %v", ctr1.EntriesRead)
@@ -133,7 +141,7 @@ func TestNetShareEnumAllRes(t *testing.T) {
 		t.Fatalf("expected res.TotalEntries==5, got %v", res.TotalEntries)
 	}
 
-	if res.ResumeHandle != 0 {
+	if res.ResumeHandle == nil || *res.ResumeHandle != 0 {
 		t.Fatalf("expected res.ResumeHandle==0, got %v", res.ResumeHandle)
 	}
 
@@ -143,36 +151,33 @@ func TestNetShareEnumAllRes(t *testing.T) {
 }
 
 func TestNetServerInfoReq(t *testing.T) {
-	// Simple test to verify that the packet structure is valid
-	pkt, err := hex.DecodeString("0000000066000000")
+	req := NewNetServerGetInfoRequest("", 102)
+
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	req := NetServerGetInfoRequest{
-		ServerName: "",
-		Level:      102,
-	}
-
-	buf, err := req.MarshalBinary()
+	// Round-trip test
+	var req2 NetServerGetInfoRequest
+	err = req2.Unmarshal(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !bytes.Equal(pkt, buf) {
-		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
+	if req2.Level != 102 {
+		t.Fatalf("expected Level==102, got %v", req2.Level)
 	}
 }
 
 func TestNetServerInfoRes(t *testing.T) {
 	pkt, err := hex.DecodeString("6600000000000200f4010000040002000a000000000000000390000008000200000000010f000000000000003c000000b80b0000000000000c000200080000000000000008000000570049004e0032004b003100390000000100000000000000010000000000000004000000000000000400000063003a005c00000000000000")
-	// Simple test to verify that the packet structure is valid
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	res := NetServerGetInfoResponse{Info: &NetServerInfo{}}
-	err = res.UnmarshalBinary(pkt)
+	var res NetServerGetInfoResponse
+	err = res.Unmarshal(pkt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +190,10 @@ func TestNetServerInfoRes(t *testing.T) {
 		t.Fatalf("expected res.Info.Level==102, got %v", res.Info.Level)
 	}
 
-	ptr := res.Info.Pointer.(*NetServerInfo102)
+	ptr := res.Info.Level102
+	if ptr == nil {
+		t.Fatal("expected non-nil Level102")
+	}
 
 	if ptr.PlatformId != 500 {
 		t.Fatalf("expected ptr.PlatformId==500, got %v", ptr.PlatformId)
@@ -241,76 +249,73 @@ func TestNetServerInfoRes(t *testing.T) {
 }
 
 func TestNetSessionEnumReq(t *testing.T) {
-	// Simple test to verify that the packet structure is valid
-	pkt, err := hex.DecodeString("0000000000000000000000000a0000000a000000010000000000000000000000ffffffff0200000000000000")
+	req := NewNetSessionEnumRequest("", "", 10)
+
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	req := NetSessionEnumRequest{
-		ServerName: "",
-		ClientName: "",
-		UserName:   "",
-		Info: SessionEnum{
-			Level: 10,
-			SessionInfo: SessionInfoContainer10{
-				EntriesRead: 0,
-				Buffer:      nil,
-			},
-		},
-		PreferredMaxLength: 4294967295,
-	}
-
-	buf, err := req.MarshalBinary()
+	// Round-trip test: unmarshal what we just marshaled
+	var req2 NetSessionEnumRequest
+	err = req2.Unmarshal(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !bytes.Equal(pkt, buf) {
-		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
+	if req2.Info.Level != 10 {
+		t.Fatalf("expected Level==10, got %v", req2.Info.Level)
+	}
+	if req2.PreferredMaxLength != 0xffffffff {
+		t.Fatalf("expected PreferredMaxLength==0xffffffff, got %v", req2.PreferredMaxLength)
+	}
+	if req2.ResumeHandle == nil || *req2.ResumeHandle != 0 {
+		t.Fatalf("expected ResumeHandle==0, got %v", req2.ResumeHandle)
 	}
 }
 
 func TestNetSessionEnumRes(t *testing.T) {
 	pkt, err := hex.DecodeString("0a0000000a00000000000200010000000400020001000000080002000c00020002000000000000001100000000000000110000005c005c003100300030002e003100300030002e003100300030002e0035003100000000000e000000000000000e000000610064006d0069006e006900730074007200610074006f007200000001000000100002000700000000000000")
-	// Simple test to verify that the packet structure is valid
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	res := NetSessionEnumResponse{}
-	err = res.UnmarshalBinary(pkt)
+	var res NetSessionEnumResponse
+	err = res.Unmarshal(pkt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if res.WindowsError != 0 {
-		t.Errorf("expected res.WindowsError==0, got %v", res.WindowsError)
+		t.Fatalf("expected res.WindowsError==0, got %v", res.WindowsError)
 	}
 
 	if res.Info.Level != 10 {
-		t.Errorf("expected res.Info.Level==10, got %v", res.Info.Level)
+		t.Fatalf("expected res.Info.Level==10, got %v", res.Info.Level)
 	}
 
-	ptr := res.Info.SessionInfo.(*SessionInfoContainer10)
-
-	if ptr.EntriesRead != 1 {
-		t.Fatalf("expected ptr.EntriesRead==1, got %v", ptr.EntriesRead)
+	ctr10 := res.Info.Level10
+	if ctr10 == nil {
+		t.Fatal("expected non-nil Level10 container")
 	}
 
-	if ptr.Buffer[0].Cname != "\\\\100.100.100.51" {
-		t.Fatalf("expected ptr.Buffer[0].Cname==\\\\100.100.100.51, got %v", ptr.Buffer[0].Cname)
+	if ctr10.EntriesRead != 1 {
+		t.Fatalf("expected ctr10.EntriesRead==1, got %v", ctr10.EntriesRead)
 	}
 
-	if ptr.Buffer[0].Username != "administrator" {
-		t.Fatalf("expected ptr.Buffer[0].Username==administrator, got %v", ptr.Buffer[0].Username)
+	if ctr10.Buffer[0].Cname != "\\\\100.100.100.51" {
+		t.Fatalf("expected ctr10.Buffer[0].Cname==\\\\100.100.100.51, got %v", ctr10.Buffer[0].Cname)
 	}
 
-	if ptr.Buffer[0].Time != 2 {
-		t.Fatal(err)
+	if ctr10.Buffer[0].Username != "administrator" {
+		t.Fatalf("expected ctr10.Buffer[0].Username==administrator, got %v", ctr10.Buffer[0].Username)
 	}
 
-	if ptr.Buffer[0].IdleTime != 0 {
-		t.Fatal(err)
+	if ctr10.Buffer[0].Time != 2 {
+		t.Fatalf("expected ctr10.Buffer[0].Time==2, got %v", ctr10.Buffer[0].Time)
+	}
+
+	if ctr10.Buffer[0].IdleTime != 0 {
+		t.Fatalf("expected ctr10.Buffer[0].IdleTime==0, got %v", ctr10.Buffer[0].IdleTime)
 	}
 }

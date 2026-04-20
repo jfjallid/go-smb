@@ -287,11 +287,11 @@ type SupplementalCredentials struct {
 
 // Kerberos encryption type constants (RFC 3961 / RFC 3962 / MS-KILE)
 const (
-	ETypeDesCbcCrc                 uint32 = 1
-	ETypeDesCbcMd5                 uint32 = 3
-	ETypeRc4Hmac                   uint32 = 23
-	ETypeAes128CtsHmacSha196       uint32 = 17
-	ETypeAes256CtsHmacSha196       uint32 = 18
+	ETypeDesCbcCrc           uint32 = 1
+	ETypeDesCbcMd5           uint32 = 3
+	ETypeRc4Hmac             uint32 = 23
+	ETypeAes128CtsHmacSha196 uint32 = 17
+	ETypeAes256CtsHmacSha196 uint32 = 18
 )
 
 var etypeNames = map[uint32]string{

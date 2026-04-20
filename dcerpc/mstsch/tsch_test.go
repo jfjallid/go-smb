@@ -34,7 +34,7 @@ func TestSchRpcDeleteReqMarshal(t *testing.T) {
 		Flags: 0,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestSchRpcRunReqMarshal(t *testing.T) {
 		SessionId: 0,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,14 +93,15 @@ func TestSchRpcRunReqMarshal(t *testing.T) {
 }
 
 func TestSchRpcRunReqMarshalWithUser(t *testing.T) {
+	user := "S-1-5-18"
 	req := SchRpcRunReq{
 		Path:      "\\task1",
 		Flags:     TaskRunUserSid,
 		SessionId: 0,
-		User:      "S-1-5-18",
+		User:      &user,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,9 +120,9 @@ func TestSchRpcRunReqMarshalWithUser(t *testing.T) {
 		Path:      "\\task1",
 		Flags:     TaskRunNoFlags,
 		SessionId: 0,
-		User:      "",
+		User:      nil,
 	}
-	bufEmpty, _ := reqEmpty.MarshalBinary()
+	bufEmpty, _ := reqEmpty.Marshal()
 	if len(buf) <= len(bufEmpty) {
 		t.Fatalf("expected buffer with user to be longer: got %d, empty=%d", len(buf), len(bufEmpty))
 	}
@@ -132,10 +133,10 @@ func TestSchRpcRunReqMarshalWithSessionId(t *testing.T) {
 		Path:      "\\task1",
 		Flags:     TaskRunUseSessionId,
 		SessionId: 3,
-		User:      "",
+		User:      nil,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +166,7 @@ func TestSchRpcRunResUnmarshal(t *testing.T) {
 	pkt := append(guid, hresult...)
 
 	res := SchRpcRunRes{}
-	err := res.UnmarshalBinary(pkt)
+	err := res.Unmarshal(pkt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +198,7 @@ func TestSchRpcGetLastRunInfoResUnmarshal(t *testing.T) {
 	binary.Write(w, binary.LittleEndian, uint32(0))    // HRESULT
 
 	res := SchRpcGetLastRunInfoRes{}
-	err := res.UnmarshalBinary(w.Bytes())
+	err := res.Unmarshal(w.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,16 +244,17 @@ func TestSchRpcDeleteResUnmarshal(t *testing.T) {
 
 func TestSchRpcRegisterTaskReqMarshal(t *testing.T) {
 	xmlContent := "<Task>test</Task>"
+	path := "\\TestTask"
 	req := SchRpcRegisterTaskReq{
-		Path:      "\\TestTask",
+		Path:      &path,
 		Xml:       xmlContent,
 		Flags:     TaskCreate,
-		Sddl:      "",
+		Sddl:      nil,
 		LogonType: TaskLogonS4U,
 		CCreds:    0,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,15 +273,15 @@ func TestSchRpcRegisterTaskReqMarshal(t *testing.T) {
 func TestSchRpcRegisterTaskReqNullPathMarshal(t *testing.T) {
 	xmlContent := "<Task>test</Task>"
 	req := SchRpcRegisterTaskReq{
-		Path:      "",
+		Path:      nil,
 		Xml:       xmlContent,
 		Flags:     TaskCreate,
-		Sddl:      "",
+		Sddl:      nil,
 		LogonType: TaskLogonS4U,
 		CCreds:    0,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +319,7 @@ func TestSchRpcRegisterTaskResUnmarshal(t *testing.T) {
 	binary.Write(w, binary.LittleEndian, uint32(0))
 
 	res := SchRpcRegisterTaskRes{}
-	err := res.UnmarshalBinary(w.Bytes())
+	err := res.Unmarshal(w.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +337,7 @@ func TestSchRpcRetrieveTaskReqMarshal(t *testing.T) {
 		Path: "\\task1",
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +387,7 @@ func TestSchRpcRetrieveTaskResUnmarshal(t *testing.T) {
 	binary.Write(w, binary.LittleEndian, uint32(0))
 
 	res := SchRpcRetrieveTaskRes{}
-	err := res.UnmarshalBinary(w.Bytes())
+	err := res.Unmarshal(w.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,9 +404,9 @@ func TestGUIDToString(t *testing.T) {
 	// Standard GUID in mixed-endian format as stored on wire
 	guid := [16]byte{
 		0x49, 0x59, 0xd3, 0x86, // Data1 LE
-		0xc9, 0x83,             // Data2 LE
-		0x44, 0x40,             // Data3 LE
-		0xb4, 0x24,             // Data4[0:2]
+		0xc9, 0x83, // Data2 LE
+		0x44, 0x40, // Data3 LE
+		0xb4, 0x24, // Data4[0:2]
 		0xdb, 0x36, 0x32, 0x31, 0xfd, 0x0c, // Data4[2:8]
 	}
 
@@ -449,7 +451,7 @@ func TestSchRpcGetLastRunInfoReqMarshal(t *testing.T) {
 		Path: "\\task1",
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +472,7 @@ func TestSchRpcDeleteReqHex(t *testing.T) {
 		Flags: 0,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,12 +495,13 @@ func TestSchRpcDeleteReqHex(t *testing.T) {
 }
 
 func TestSchRpcStopReqMarshal(t *testing.T) {
+	path := "\\task1"
 	req := SchRpcStopReq{
-		Path:  "\\task1",
+		Path:  &path,
 		Flags: 0,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -517,12 +520,13 @@ func TestSchRpcStopReqMarshal(t *testing.T) {
 }
 
 func TestSchRpcStopReqHex(t *testing.T) {
+	path := "\\A"
 	req := SchRpcStopReq{
-		Path:  "\\A",
+		Path:  &path,
 		Flags: 0,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,7 +535,7 @@ func TestSchRpcStopReqHex(t *testing.T) {
 	// UTF-16LE: \ = 5c00, A = 4100, \0 = 0000 = 6 bytes
 	// Padding: 6 % 4 = 2, so 2 bytes padding
 	// Flags: 00000000
-	expected := "01000000" + // RefId
+	expected := "00000200" + // RefId
 		"03000000" + // MaxCount
 		"00000000" + // Offset
 		"03000000" + // ActualCount
@@ -546,12 +550,13 @@ func TestSchRpcStopReqHex(t *testing.T) {
 }
 
 func TestSchRpcEnumInstancesReqMarshal(t *testing.T) {
+	path := "\\task1"
 	req := SchRpcEnumInstancesReq{
-		Path:  "\\task1",
+		Path:  &path,
 		Flags: 0,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,18 +575,19 @@ func TestSchRpcEnumInstancesReqMarshal(t *testing.T) {
 }
 
 func TestSchRpcEnumInstancesReqHex(t *testing.T) {
+	path := "\\A"
 	req := SchRpcEnumInstancesReq{
-		Path:  "\\A",
+		Path:  &path,
 		Flags: 0,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Same format as StopReq — RefId + CVS + Flags
-	expected := "01000000" + // RefId
+	expected := "00000200" + // RefId
 		"03000000" + // MaxCount
 		"00000000" + // Offset
 		"03000000" + // ActualCount
@@ -604,7 +610,7 @@ func TestSchRpcEnumInstancesResUnmarshalEmpty(t *testing.T) {
 	binary.Write(w, binary.LittleEndian, uint32(0)) // HRESULT
 
 	res := SchRpcEnumInstancesRes{}
-	err := res.UnmarshalBinary(w.Bytes())
+	err := res.Unmarshal(w.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,9 +630,9 @@ func TestSchRpcEnumInstancesResUnmarshalOneGuid(t *testing.T) {
 	// Response with 1 GUID
 	var pkt []byte
 	w := bytes.NewBuffer(pkt)
-	binary.Write(w, binary.LittleEndian, uint32(1))    // NumGuids
+	binary.Write(w, binary.LittleEndian, uint32(1))       // NumGuids
 	binary.Write(w, binary.LittleEndian, uint32(0x20004)) // pGuids = non-NULL referent ID
-	binary.Write(w, binary.LittleEndian, uint32(1))    // MaxCount (conformant array)
+	binary.Write(w, binary.LittleEndian, uint32(1))       // MaxCount (conformant array)
 	// GUID: 16 bytes
 	guid := [16]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
 		0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10}
@@ -634,7 +640,7 @@ func TestSchRpcEnumInstancesResUnmarshalOneGuid(t *testing.T) {
 	binary.Write(w, binary.LittleEndian, uint32(0)) // HRESULT
 
 	res := SchRpcEnumInstancesRes{}
-	err := res.UnmarshalBinary(w.Bytes())
+	err := res.Unmarshal(w.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}

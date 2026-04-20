@@ -19,13 +19,6 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
-//
-// The marshal/unmarshal of requests and responses according to the NDR syntax
-// has been implemented on a per RPC request basis and not in any complete way.
-// As such, for each new functionality, a manual marshal and unmarshal method
-// has to be written for the relevant messages. This makes it a bit easier to
-// define the message structs but more of the heavy lifting has to be performed
-// by the marshal/unmarshal functions.
 
 package mstsch
 
@@ -36,7 +29,7 @@ import (
 	"time"
 
 	"github.com/jfjallid/go-smb/dcerpc"
-	"github.com/jfjallid/go-smb/msdtyp"
+	"github.com/jfjallid/ndr"
 )
 
 type RPCCon struct {
@@ -70,6 +63,30 @@ func (st SYSTEMTIME) ToTime() time.Time {
 	)
 }
 
+// TaskUserCred mirrors MS-TSCH 2.3.8 TASK_USER_CRED. Element type for the
+// [unique] pCreds array parameter in SchRpcRegisterTask. Not currently
+// populated by the high-level API — callers always pass a nil PCreds.
+type TaskUserCred struct {
+	UserId   string `ndr:"pointer,conformant,varying"`
+	Password string `ndr:"pointer,conformant,varying"`
+	Flags    uint32
+}
+
+// rpcStringPtr is the element type for wchar_t** array parameters — a
+// single embedded pointer-to-wchar_t-string. Used by SchRpcRun's pArgs.
+type rpcStringPtr struct {
+	Value string `ndr:"pointer,conformant,varying"`
+}
+
+// TaskXmlErrorInfo mirrors MS-TSCH 2.3.7 TASK_XML_ERROR_INFO, returned by
+// SchRpcRegisterTask when the task XML fails validation.
+type TaskXmlErrorInfo struct {
+	Line   uint32
+	Column uint32
+	Node   string `ndr:"pointer,conformant,varying"`
+	Value  string `ndr:"pointer,conformant,varying"`
+}
+
 // SchRpcRegisterTask request (Opnum 1)
 //
 //	HRESULT SchRpcRegisterTask(
@@ -84,131 +101,39 @@ func (st SYSTEMTIME) ToTime() time.Time {
 //	  [out] PTASK_XML_ERROR_INFO* pErrorInfo
 //	);
 type SchRpcRegisterTaskReq struct {
-	Path      string
-	Xml       string
+	Path      *string `ndr:"toplevel,fullpointer,conformant,varying"`
+	Xml       string  `ndr:"toplevel,conformant,varying"`
 	Flags     uint32
-	Sddl      string
+	Sddl      *string `ndr:"toplevel,fullpointer,conformant,varying"`
 	LogonType uint32
 	CCreds    uint32
+	PCreds    *[]TaskUserCred `ndr:"toplevel,fullpointer,conformant"`
 }
 
-func (s *SchRpcRegisterTaskReq) MarshalBinary() ([]byte, error) {
-	log.Traceln("In MarshalBinary for SchRpcRegisterTaskReq")
-
-	var ret []byte
-	w := bytes.NewBuffer(ret)
-	refId := uint32(1)
-
-	// Path is [in, unique] - write as pointer (NULL if empty)
-	_, err := msdtyp.WriteConformantVaryingStringPtr(w, s.Path, &refId, true)
+func (s *SchRpcRegisterTaskReq) Marshal() ([]byte, error) {
+	log.Traceln("In Marshal for SchRpcRegisterTaskReq")
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
 	if err != nil {
-		log.Errorln(err)
-		return nil, err
+		return nil, fmt.Errorf("error marshaling SchRpcRegisterTaskReq: %v", err)
 	}
-
-	// Xml is [in, ref] - write as conformant varying string (not a pointer)
-	_, err = msdtyp.WriteConformantVaryingString(w, s.Xml, true)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	// Flags
-	err = binary.Write(w, le, s.Flags)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	// Sddl is [in, unique] - write as pointer (NULL if empty)
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.Sddl, &refId, true)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	// LogonType
-	err = binary.Write(w, le, s.LogonType)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	// CCreds
-	err = binary.Write(w, le, s.CCreds)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	// PCreds - NULL pointer (cCreds = 0)
-	err = binary.Write(w, le, uint32(0))
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	return w.Bytes(), nil
+	return b, nil
 }
 
 type SchRpcRegisterTaskRes struct {
-	ActualPath string
+	ActualPath string            `ndr:"toplevel,fullpointer,conformant,varying"`
+	ErrorInfo  *TaskXmlErrorInfo `ndr:"toplevel,fullpointer"`
 	ReturnCode uint32
 }
 
-func (s *SchRpcRegisterTaskRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Traceln("In UnmarshalBinary for SchRpcRegisterTaskRes")
-	if len(buf) < 8 {
-		return fmt.Errorf("Buffer too small for SchRpcRegisterTaskRes")
+func (s *SchRpcRegisterTaskRes) Unmarshal(buf []byte) error {
+	log.Traceln("In Unmarshal for SchRpcRegisterTaskRes")
+	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
+	if err := dec.Decode(s); err != nil {
+		return fmt.Errorf("error unmarshaling SchRpcRegisterTaskRes: %v", err)
 	}
-	r := bytes.NewReader(buf)
-
-	// pActualPath is [out, string] wchar_t** — unique pointer to string
-	var ptrActualPath uint32
-	err = binary.Read(r, le, &ptrActualPath)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	if ptrActualPath != 0 {
-		s.ActualPath, err = msdtyp.ReadConformantVaryingString(r, true)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-	}
-
-	// pErrorInfo is PTASK_XML_ERROR_INFO* — unique pointer, skip it
-	var ptrErrorInfo uint32
-	err = binary.Read(r, le, &ptrErrorInfo)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	if ptrErrorInfo != 0 {
-		// Skip over the error info structure if present
-		// It contains: Line(4), Column(4), Node(4), then a string pointer
-		// For now we just skip past it to get to the return code
-		// We need to skip: line, column, node, and a string pointer
-		var line, column, node uint32
-		binary.Read(r, le, &line)
-		binary.Read(r, le, &column)
-		binary.Read(r, le, &node)
-		var strPtr uint32
-		binary.Read(r, le, &strPtr)
-		if strPtr != 0 {
-			// Read and discard the string
-			_, _ = msdtyp.ReadConformantVaryingString(r, true)
-		}
-	}
-
-	// HRESULT
-	err = binary.Read(r, le, &s.ReturnCode)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	return
+	return nil
 }
 
 // SchRpcEnumInstances request (Opnum 4)
@@ -220,87 +145,34 @@ func (s *SchRpcRegisterTaskRes) UnmarshalBinary(buf []byte) (err error) {
 //	  [out, size_is(,*pNumGuids)] GUID** pGuids
 //	);
 type SchRpcEnumInstancesReq struct {
-	Path  string
+	Path  *string `ndr:"toplevel,fullpointer,conformant,varying"`
 	Flags uint32
 }
 
-func (s *SchRpcEnumInstancesReq) MarshalBinary() ([]byte, error) {
-	log.Traceln("In MarshalBinary for SchRpcEnumInstancesReq")
-
-	var ret []byte
-	w := bytes.NewBuffer(ret)
-	refId := uint32(1)
-
-	// Path is [in, unique] - write as pointer (NULL if empty)
-	_, err := msdtyp.WriteConformantVaryingStringPtr(w, s.Path, &refId, true)
+func (s *SchRpcEnumInstancesReq) Marshal() ([]byte, error) {
+	log.Traceln("In Marshal for SchRpcEnumInstancesReq")
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
 	if err != nil {
-		log.Errorln(err)
-		return nil, err
+		return nil, fmt.Errorf("error marshaling SchRpcEnumInstancesReq: %v", err)
 	}
-
-	// Flags
-	err = binary.Write(w, le, s.Flags)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	return w.Bytes(), nil
+	return b, nil
 }
 
 type SchRpcEnumInstancesRes struct {
 	NumGuids   uint32
-	Guids      [][16]byte
+	Guids      [][16]byte `ndr:"toplevel,fullpointer,conformant"`
 	ReturnCode uint32
 }
 
-func (s *SchRpcEnumInstancesRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Traceln("In UnmarshalBinary for SchRpcEnumInstancesRes")
-	if len(buf) < 8 {
-		return fmt.Errorf("Buffer too small for SchRpcEnumInstancesRes")
+func (s *SchRpcEnumInstancesRes) Unmarshal(buf []byte) error {
+	log.Traceln("In Unmarshal for SchRpcEnumInstancesRes")
+	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
+	if err := dec.Decode(s); err != nil {
+		return fmt.Errorf("error unmarshaling SchRpcEnumInstancesRes: %v", err)
 	}
-	r := bytes.NewReader(buf)
-
-	// pNumGuids [out] DWORD*
-	err = binary.Read(r, le, &s.NumGuids)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	// pGuids [out, size_is(,*pNumGuids)] GUID** — unique pointer
-	var ptrGuids uint32
-	err = binary.Read(r, le, &ptrGuids)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	if ptrGuids != 0 && s.NumGuids > 0 {
-		// Conformant array: MaxCount first
-		var maxCount uint32
-		err = binary.Read(r, le, &maxCount)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-		s.Guids = make([][16]byte, s.NumGuids)
-		for i := uint32(0); i < s.NumGuids; i++ {
-			err = binary.Read(r, le, &s.Guids[i])
-			if err != nil {
-				log.Errorln(err)
-				return
-			}
-		}
-	}
-
-	// HRESULT
-	err = binary.Read(r, le, &s.ReturnCode)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	return
+	return nil
 }
 
 // SchRpcStop request (Opnum 14)
@@ -310,32 +182,19 @@ func (s *SchRpcEnumInstancesRes) UnmarshalBinary(buf []byte) (err error) {
 //	  [in] DWORD flags
 //	);
 type SchRpcStopReq struct {
-	Path  string
+	Path  *string `ndr:"toplevel,fullpointer,conformant,varying"`
 	Flags uint32
 }
 
-func (s *SchRpcStopReq) MarshalBinary() ([]byte, error) {
-	log.Traceln("In MarshalBinary for SchRpcStopReq")
-
-	var ret []byte
-	w := bytes.NewBuffer(ret)
-	refId := uint32(1)
-
-	// Path is [in, unique] - write as pointer (NULL if empty)
-	_, err := msdtyp.WriteConformantVaryingStringPtr(w, s.Path, &refId, true)
+func (s *SchRpcStopReq) Marshal() ([]byte, error) {
+	log.Traceln("In Marshal for SchRpcStopReq")
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
 	if err != nil {
-		log.Errorln(err)
-		return nil, err
+		return nil, fmt.Errorf("error marshaling SchRpcStopReq: %v", err)
 	}
-
-	// Flags
-	err = binary.Write(w, le, s.Flags)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	return w.Bytes(), nil
+	return b, nil
 }
 
 // SchRpcDelete request (Opnum 8)
@@ -345,31 +204,19 @@ func (s *SchRpcStopReq) MarshalBinary() ([]byte, error) {
 //	  [in] DWORD flags
 //	);
 type SchRpcDeleteReq struct {
-	Path  string
+	Path  string `ndr:"toplevel,conformant,varying"`
 	Flags uint32
 }
 
-func (s *SchRpcDeleteReq) MarshalBinary() ([]byte, error) {
-	log.Traceln("In MarshalBinary for SchRpcDeleteReq")
-
-	var ret []byte
-	w := bytes.NewBuffer(ret)
-
-	// Path is [in, ref] - conformant varying string (not a pointer)
-	_, err := msdtyp.WriteConformantVaryingString(w, s.Path, true)
+func (s *SchRpcDeleteReq) Marshal() ([]byte, error) {
+	log.Traceln("In Marshal for SchRpcDeleteReq")
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
 	if err != nil {
-		log.Errorln(err)
-		return nil, err
+		return nil, fmt.Errorf("error marshaling SchRpcDeleteReq: %v", err)
 	}
-
-	// Flags
-	err = binary.Write(w, le, s.Flags)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	return w.Bytes(), nil
+	return b, nil
 }
 
 // SchRpcGetLastRunInfo request (Opnum 11)
@@ -380,23 +227,18 @@ func (s *SchRpcDeleteReq) MarshalBinary() ([]byte, error) {
 //	  [out] DWORD* pLastReturnCode
 //	);
 type SchRpcGetLastRunInfoReq struct {
-	Path string
+	Path string `ndr:"toplevel,conformant,varying"`
 }
 
-func (s *SchRpcGetLastRunInfoReq) MarshalBinary() ([]byte, error) {
-	log.Traceln("In MarshalBinary for SchRpcGetLastRunInfoReq")
-
-	var ret []byte
-	w := bytes.NewBuffer(ret)
-
-	// Path is [in, ref] - conformant varying string
-	_, err := msdtyp.WriteConformantVaryingString(w, s.Path, true)
+func (s *SchRpcGetLastRunInfoReq) Marshal() ([]byte, error) {
+	log.Traceln("In Marshal for SchRpcGetLastRunInfoReq")
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
 	if err != nil {
-		log.Errorln(err)
-		return nil, err
+		return nil, fmt.Errorf("error marshaling SchRpcGetLastRunInfoReq: %v", err)
 	}
-
-	return w.Bytes(), nil
+	return b, nil
 }
 
 type SchRpcGetLastRunInfoRes struct {
@@ -405,33 +247,13 @@ type SchRpcGetLastRunInfoRes struct {
 	ReturnCode     uint32
 }
 
-func (s *SchRpcGetLastRunInfoRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Traceln("In UnmarshalBinary for SchRpcGetLastRunInfoRes")
-	// SYSTEMTIME (16 bytes) + LastReturnCode (4 bytes) + HRESULT (4 bytes) = 24 bytes
-	if len(buf) < 24 {
-		return fmt.Errorf("Buffer too small for SchRpcGetLastRunInfoRes")
+func (s *SchRpcGetLastRunInfoRes) Unmarshal(buf []byte) error {
+	log.Traceln("In Unmarshal for SchRpcGetLastRunInfoRes")
+	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
+	if err := dec.Decode(s); err != nil {
+		return fmt.Errorf("error unmarshaling SchRpcGetLastRunInfoRes: %v", err)
 	}
-	r := bytes.NewReader(buf)
-
-	err = binary.Read(r, le, &s.LastRunTime)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Read(r, le, &s.LastReturnCode)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Read(r, le, &s.ReturnCode)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	return
+	return nil
 }
 
 // SchRpcRun request (Opnum 12)
@@ -446,62 +268,23 @@ func (s *SchRpcGetLastRunInfoRes) UnmarshalBinary(buf []byte) (err error) {
 //	  [out] GUID* pGuid
 //	);
 type SchRpcRunReq struct {
-	Path      string
+	Path      string `ndr:"toplevel,conformant,varying"`
+	CArgs     uint32
+	PArgs     *[]rpcStringPtr `ndr:"toplevel,fullpointer,conformant"`
 	Flags     uint32
 	SessionId uint32
-	User      string // Account name or SID string (when TASK_RUN_USER_SID is set). Empty for NULL.
+	User      *string `ndr:"toplevel,fullpointer,conformant,varying"`
 }
 
-func (s *SchRpcRunReq) MarshalBinary() ([]byte, error) {
-	log.Traceln("In MarshalBinary for SchRpcRunReq")
-
-	var ret []byte
-	w := bytes.NewBuffer(ret)
-	refId := uint32(1)
-
-	// Path is [in, ref] - conformant varying string
-	_, err := msdtyp.WriteConformantVaryingString(w, s.Path, true)
+func (s *SchRpcRunReq) Marshal() ([]byte, error) {
+	log.Traceln("In Marshal for SchRpcRunReq")
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
 	if err != nil {
-		log.Errorln(err)
-		return nil, err
+		return nil, fmt.Errorf("error marshaling SchRpcRunReq: %v", err)
 	}
-
-	// cArgs = 0
-	err = binary.Write(w, le, uint32(0))
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	// pArgs = NULL
-	err = binary.Write(w, le, uint32(0))
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	// Flags
-	err = binary.Write(w, le, s.Flags)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	// SessionId
-	err = binary.Write(w, le, s.SessionId)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	// User is [in, unique, string] - write as pointer (NULL if empty)
-	_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.User, &refId, true)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	return w.Bytes(), nil
+	return b, nil
 }
 
 type SchRpcRunRes struct {
@@ -509,27 +292,13 @@ type SchRpcRunRes struct {
 	ReturnCode uint32
 }
 
-func (s *SchRpcRunRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Traceln("In UnmarshalBinary for SchRpcRunRes")
-	// GUID (16 bytes) + HRESULT (4 bytes) = 20 bytes
-	if len(buf) < 20 {
-		return fmt.Errorf("Buffer too small for SchRpcRunRes")
+func (s *SchRpcRunRes) Unmarshal(buf []byte) error {
+	log.Traceln("In Unmarshal for SchRpcRunRes")
+	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
+	if err := dec.Decode(s); err != nil {
+		return fmt.Errorf("error unmarshaling SchRpcRunRes: %v", err)
 	}
-	r := bytes.NewReader(buf)
-
-	err = binary.Read(r, le, &s.GUID)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Read(r, le, &s.ReturnCode)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	return
+	return nil
 }
 
 // SchRpcRetrieveTask request (Opnum 13)
@@ -541,72 +310,32 @@ func (s *SchRpcRunRes) UnmarshalBinary(buf []byte) (err error) {
 //	  [out, string] wchar_t** pDefinition
 //	);
 type SchRpcRetrieveTaskReq struct {
-	Path string
+	Path            string `ndr:"toplevel,conformant,varying"`
+	LanguagesBuffer string `ndr:"toplevel,conformant,varying"`
+	NumLanguages    uint32
 }
 
-func (s *SchRpcRetrieveTaskReq) MarshalBinary() ([]byte, error) {
-	log.Traceln("In MarshalBinary for SchRpcRetrieveTaskReq")
-
-	var ret []byte
-	w := bytes.NewBuffer(ret)
-
-	// Path is [in, ref] - conformant varying string
-	_, err := msdtyp.WriteConformantVaryingString(w, s.Path, true)
+func (s *SchRpcRetrieveTaskReq) Marshal() ([]byte, error) {
+	log.Traceln("In Marshal for SchRpcRetrieveTaskReq")
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
 	if err != nil {
-		log.Errorln(err)
-		return nil, err
+		return nil, fmt.Errorf("error marshaling SchRpcRetrieveTaskReq: %v", err)
 	}
-
-	// lpcwszLanguagesBuffer is [in, string] - empty string with null terminator
-	_, err = msdtyp.WriteConformantVaryingString(w, "", true)
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	// pulNumLanguages - [in] unsigned long*
-	err = binary.Write(w, le, uint32(0))
-	if err != nil {
-		log.Errorln(err)
-		return nil, err
-	}
-
-	return w.Bytes(), nil
+	return b, nil
 }
 
 type SchRpcRetrieveTaskRes struct {
-	Definition string
+	Definition string `ndr:"toplevel,fullpointer,conformant,varying"`
 	ReturnCode uint32
 }
 
-func (s *SchRpcRetrieveTaskRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Traceln("In UnmarshalBinary for SchRpcRetrieveTaskRes")
-	if len(buf) < 8 {
-		return fmt.Errorf("Buffer too small for SchRpcRetrieveTaskRes")
+func (s *SchRpcRetrieveTaskRes) Unmarshal(buf []byte) error {
+	log.Traceln("In Unmarshal for SchRpcRetrieveTaskRes")
+	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
+	if err := dec.Decode(s); err != nil {
+		return fmt.Errorf("error unmarshaling SchRpcRetrieveTaskRes: %v", err)
 	}
-	r := bytes.NewReader(buf)
-
-	// pDefinition is [out, string] wchar_t** — unique pointer to string
-	var ptrDefinition uint32
-	err = binary.Read(r, le, &ptrDefinition)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	if ptrDefinition != 0 {
-		s.Definition, err = msdtyp.ReadConformantVaryingString(r, true)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-	}
-
-	// HRESULT
-	err = binary.Read(r, le, &s.ReturnCode)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	return
+	return nil
 }

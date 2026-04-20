@@ -19,31 +19,18 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
-//
-// The marshal/unmarshal of requests and responses according to the NDR syntax
-// has been implemented on a per RPC request basis and not in any complete way.
-// As such, for each new functionality, a manual marshal and unmarshal method
-// has to be written for the relevant messages. This makes it a bit easier to
-// define the message structs but more of the heavy lifting has to be performed
-// by the marshal/unmarshal functions.
 
 package mssrvs
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"io"
 
-	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/go-smb/dcerpc"
+	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/golog"
 )
 
-var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/mssrvs")
-	le  binary.ByteOrder = binary.LittleEndian
-)
+var log = golog.Get("github.com/jfjallid/go-smb/dcerpc/mssrvs")
 
 const (
 	MSRPCUuidSrvSvc                = "4B324FC8-1670-01D3-1278-5A47BF6EE188"
@@ -134,48 +121,42 @@ func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 }
 
 func NewNetSessionEnumRequest(clientName, userName string, level uint32) *NetSessionEnumRequest {
-	if (level > 2) && level != 10 && level != 502 {
-		// Valid levels are 0, 1, 2, 10, 502
+	if level != 0 && level != 10 && level != 502 {
 		log.Errorln("Invalid level for NetSessionEnum request. Falling back to level 10")
 		level = 10
 	}
+	resumeHandle := uint32(0)
 	nr := NetSessionEnumRequest{
-		Info: SessionEnum{Level: uint32(level)},
+		ServerName:         nil,
+		ClientName:         &clientName,
+		UserName:           &userName,
+		Info:               SessionEnumStruct{Level: level},
+		PreferredMaxLength: 0xffffffff,
+		ResumeHandle:       &resumeHandle,
 	}
-	if clientName != "" {
-		nr.ClientName = clientName
-	}
-	if userName != "" {
-		nr.UserName = userName
-	}
-	nr.PreferredMaxLength = 0xffffffff
 
 	switch level {
 	case 0:
-		nr.Info.SessionInfo = SessionInfoContainer0{}
+		nr.Info.Level0 = &SessionInfoContainer0{}
 	case 10:
-		nr.Info.SessionInfo = SessionInfoContainer10{}
+		nr.Info.Level10 = &SessionInfoContainer10{}
 	case 502:
-		nr.Info.SessionInfo = SessionInfoContainer502{}
-	default:
-		log.Errorln("Not yet implemented level %d\n", level)
-		return nil
+		nr.Info.Level502 = &SessionInfoContainer502{}
 	}
 
 	return &nr
 }
 
 /*
-Send a NetSessionEnum request to the server. Level can be 0, 1, 2, 10 or 502
-But so far only level 0, 10 and 502 are implemented
+Send a NetSessionEnum request to the server. Supported levels: 0, 10, 502
 */
-func (sb *RPCCon) NetSessionEnum(clientName, username string, level int) (res *SessionEnum, err error) {
-	log.Traceln("In NetServerGetInfo")
+func (sb *RPCCon) NetSessionEnum(clientName, username string, level int) (res *SessionEnumStruct, err error) {
+	log.Traceln("In NetSessionEnum")
 	if level < 0 {
-		return nil, fmt.Errorf("Only levels 0, 1, 2, 10 and 502 are valid")
+		return nil, fmt.Errorf("Only levels 0, 10 and 502 are valid")
 	}
 	netReq := NewNetSessionEnumRequest(clientName, username, uint32(level))
-	netBuf, err := netReq.MarshalBinary()
+	netBuf, err := netReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -185,30 +166,21 @@ func (sb *RPCCon) NetSessionEnum(clientName, username string, level int) (res *S
 		return
 	}
 
-	if len(buffer) < 20 {
-		return nil, fmt.Errorf("Server response to NetSessionEnum was too small. Expected at atleast 20 bytes")
-	}
-	werror := binary.LittleEndian.Uint32(buffer[len(buffer)-4:])
-	if werror != 0 {
-		responseCode, found := SRVSResponseCodeMap[werror]
-		if !found {
-			err = fmt.Errorf("NetServerGetInfo returned unknown error code: 0x%x\n", werror)
-			log.Errorln(err)
-			return
-		}
-		log.Debugf("NetServerGetInfo return error: %v\n", responseCode)
-		return nil, responseCode
-	}
-
 	var response NetSessionEnumResponse
-	err = response.UnmarshalBinary(buffer)
+	err = response.Unmarshal(buffer)
 	if err != nil {
 		return
 	}
-	switch response.Info.Level {
-	case 0, 10, 502:
-	default:
-		return nil, fmt.Errorf("Server returned response with info level %d which is not yet implementet\n", response.Info.Level)
+
+	if response.WindowsError != ErrorSuccess {
+		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
+		if !found {
+			err = fmt.Errorf("NetSessionEnum returned unknown error code: 0x%x\n", response.WindowsError)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("NetSessionEnum return error: %v\n", responseCode)
+		return nil, responseCode
 	}
 
 	res = &response.Info
@@ -221,7 +193,7 @@ func NewNetServerGetInfoRequest(serverName string, level int) *NetServerGetInfoR
 		level = 100
 	}
 	nr := NetServerGetInfoRequest{
-		ServerName: serverName,
+		ServerName: &serverName,
 		Level:      uint32(level),
 	}
 
@@ -231,10 +203,10 @@ func NewNetServerGetInfoRequest(serverName string, level int) *NetServerGetInfoR
 /*
 Send a NetServerGetInfo request to the server. Level can be 100, 101, or 102
 */
-func (sb *RPCCon) NetServerGetInfo(host string, level int) (res *NetServerInfo, err error) {
+func (sb *RPCCon) NetServerGetInfo(host string, level int) (res *ServerInfoUnion, err error) {
 	log.Traceln("In NetServerGetInfo")
 	netReq := NewNetServerGetInfoRequest(host, level)
-	netBuf, err := netReq.MarshalBinary()
+	netBuf, err := netReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -244,14 +216,16 @@ func (sb *RPCCon) NetServerGetInfo(host string, level int) (res *NetServerInfo, 
 		return
 	}
 
-	if len(buffer) < 12 {
-		return nil, fmt.Errorf("Server response to NetServerGetInfo was too small. Expected at atleast 12 bytes")
+	var response NetServerGetInfoResponse
+	err = response.Unmarshal(buffer)
+	if err != nil {
+		return
 	}
-	werror := binary.LittleEndian.Uint32(buffer[len(buffer)-4:])
-	if werror != 0 {
-		responseCode, found := SRVSResponseCodeMap[werror]
+
+	if response.WindowsError != ErrorSuccess {
+		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
 		if !found {
-			err = fmt.Errorf("NetServerGetInfo returned unknown error code: 0x%x\n", werror)
+			err = fmt.Errorf("NetServerGetInfo returned unknown error code: 0x%x\n", response.WindowsError)
 			log.Errorln(err)
 			return
 		}
@@ -259,25 +233,14 @@ func (sb *RPCCon) NetServerGetInfo(host string, level int) (res *NetServerInfo, 
 		return nil, responseCode
 	}
 
-	var response NetServerGetInfoResponse
-	err = response.UnmarshalBinary(buffer)
-	if err != nil {
-		return
-	}
-	switch response.Info.Level {
-	case 100, 101, 102:
-	default:
-		return nil, fmt.Errorf("Server returned response with info level %d which is not yet implementet\n", response.Info.Level)
-	}
-	res = response.Info
-
+	res = &response.Info
 	return
 }
 
 func (sb *RPCCon) NetShareEnumAll(host string) (res []NetShare, err error) {
 	log.Traceln("In NetShareEnumAll")
 	netReq := NewNetShareEnumAllRequest(host)
-	netBuf, err := netReq.MarshalBinary()
+	netBuf, err := netReq.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -290,7 +253,7 @@ func (sb *RPCCon) NetShareEnumAll(host string) (res []NetShare, err error) {
 	}
 
 	var response NetShareEnumAllResponse
-	err = response.UnmarshalBinary(buffer)
+	err = response.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -307,9 +270,11 @@ func (sb *RPCCon) NetShareEnumAll(host string) (res []NetShare, err error) {
 		return nil, responseCode
 	}
 
+	ctr1 := response.InfoStruct.Level1
+	if ctr1 == nil {
+		return nil, nil
+	}
 	res = make([]NetShare, response.TotalEntries)
-	var ctr1 *ShareInfoContainer1
-	ctr1 = response.InfoStruct.ShareInfo.(*ShareInfoContainer1)
 
 	for i := 0; i < int(response.TotalEntries); i++ {
 		res[i].Name = ctr1.Buffer[i].Name
@@ -353,239 +318,26 @@ func (sb *RPCCon) NetShareEnumAll(host string) (res []NetShare, err error) {
 }
 
 func NewNetShareEnumAllRequest(serverName string) *NetShareEnumAllRequest {
-	//Add support for requesting other levels than 1?
+	resumeHandle := uint32(0)
 	nr := NetShareEnumAllRequest{
-		ServerName: serverName,
-		InfoStruct: &NetShareEnum{
+		ServerName: &serverName,
+		InfoStruct: ShareEnumStruct{
 			Level: 1,
-			ShareInfo: &ShareInfoContainer1{
+			Level1: &ShareInfoContainer1{
 				EntriesRead: 0,
 			},
 		},
-		MaxBuffer: 0xffffffff,
+		MaxBuffer:    0xffffffff,
+		ResumeHandle: &resumeHandle,
 	}
-
 	return &nr
-}
-
-func (s *NetShareEnumAllRequest) MarshalBinary() (ret []byte, err error) {
-	log.Traceln("In MarshalBinary for NetShareEnumAllRequest")
-
-	refId := uint32(1)
-
-	w := bytes.NewBuffer(ret)
-	if s.ServerName != "" {
-		// Pointer to a conformant and varying string, so include ReferentId Ptr and MaxCount
-		_, err = msdtyp.WriteConformantVaryingStringPtr(w, s.ServerName, &refId, true)
-		if err != nil {
-			log.Errorln(err)
-			return nil, err
-		}
-	} else {
-		_, err = w.Write([]byte{0, 0, 0, 0})
-		if err != nil {
-			log.Errorln(err)
-			return nil, err
-		}
-	}
-
-	// Ptr to a struct (Share Enum Struct)
-	// Not sure why there is no Referent ptr here
-
-	// Encode Share Enum Union discriminator (Level switch)
-	err = binary.Write(w, le, s.InfoStruct.Level)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	// Encode the Level in the Share Enum Union
-	err = binary.Write(w, le, s.InfoStruct.Level)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	// Ptr to NetshareCtr
-	err = binary.Write(w, le, refId)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	refId++
-
-	switch s.InfoStruct.Level {
-	case 1:
-		ptr := s.InfoStruct.ShareInfo.(*ShareInfoContainer1)
-		err = binary.Write(w, le, ptr.EntriesRead)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-		// Add support for specifying an argument array? Is that every used?
-		if ptr.EntriesRead > 0 {
-			return nil, fmt.Errorf("Not yet implemented support for specifying ShareInfo1 array items")
-		} else {
-			err = binary.Write(w, le, uint32(0)) // Null Ptr
-			if err != nil {
-				log.Errorln(err)
-				return
-			}
-		}
-	default:
-		return nil, fmt.Errorf("Not yet implemented support for marshalling a ShareInfoContainer%d\n", s.InfoStruct.Level)
-	}
-
-	err = binary.Write(w, le, s.MaxBuffer)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	// ResumeHandle is a ptr to a DWORD, so need a ReferentId first
-	err = binary.Write(w, le, refId)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	binary.Write(w, le, s.ResumeHandle)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	return w.Bytes(), nil
-}
-
-func (s *NetShareEnumAllRequest) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of NetShareEnumAllRequest")
-}
-
-func (s *NetShareEnumAllResponse) MarshalBinary() ([]byte, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshaBinary of NetShareEnumAllResponse")
-}
-
-func (s *NetShareEnumAllResponse) UnmarshalBinary(buf []byte) (err error) {
-	log.Traceln("In UnmarshalBinary for NetShareEnumAllResponse")
-	r := bytes.NewReader(buf)
-	s.InfoStruct = &NetShareEnum{}
-
-	// Skip the Share Enum Union discriminator (Level switch)
-	_, err = r.Seek(4, io.SeekCurrent)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	// Decode the Level in the Share Enum Union
-	err = binary.Read(r, le, &s.InfoStruct.Level)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	// Skip Ptr to NetshareCtr
-	_, err = r.Seek(4, io.SeekCurrent)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	switch s.InfoStruct.Level {
-	case 1:
-		ptr := &ShareInfoContainer1{}
-		err = binary.Read(r, le, &ptr.EntriesRead)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-		// Ptr to ShareInfo1 struct so skip referrent ID Ptr
-		_, err = r.Seek(4, io.SeekCurrent)
-		if err != nil {
-			log.Errorln(err)
-			return
-		}
-		if ptr.EntriesRead > 0 {
-			// Skip Max count in front of the array
-			_, err = r.Seek(4, io.SeekCurrent)
-			if err != nil {
-				log.Errorln(err)
-				return
-			}
-			ptr.Buffer = make([]ShareInfo1, ptr.EntriesRead)
-			for i := 0; i < int(ptr.EntriesRead); i++ {
-				// Skip ReferentID ptr for Name
-				_, err = r.Seek(4, io.SeekCurrent)
-				if err != nil {
-					log.Errorln(err)
-					return
-				}
-				// Decode the share Type
-				err = binary.Read(r, le, &ptr.Buffer[i].Type)
-				if err != nil {
-					log.Errorln(err)
-					return
-				}
-				// Skip ReferentID ptr for Comment
-				_, err = r.Seek(4, io.SeekCurrent)
-				if err != nil {
-					log.Errorln(err)
-					return
-				}
-			}
-			for i := 0; i < int(ptr.EntriesRead); i++ {
-				// Decode the Name
-				ptr.Buffer[i].Name, err = msdtyp.ReadConformantVaryingString(r, true)
-				if err != nil {
-					log.Errorln(err)
-					return
-				}
-				// Decode the Comment
-				ptr.Buffer[i].Comment, err = msdtyp.ReadConformantVaryingString(r, true)
-				if err != nil {
-					log.Errorln(err)
-					return
-				}
-			}
-		}
-
-		s.InfoStruct.ShareInfo = ptr
-	default:
-		return fmt.Errorf("NOT IMPLEMENTED NetShareEnumAllResponse with ShareInfo level %d\n", s.InfoStruct.Level)
-	}
-
-	err = binary.Read(r, le, &s.TotalEntries)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	// Skip ReferentId Ptr for ResumeHandle
-	_, err = r.Seek(4, io.SeekCurrent)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-	err = binary.Read(r, le, &s.ResumeHandle)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	err = binary.Read(r, le, &s.WindowsError)
-	if err != nil {
-		log.Errorln(err)
-		return
-	}
-
-	return nil
 }
 
 func (sb *RPCCon) NetGetFileSecurity(share, path string) (sd *msdtyp.SecurityDescriptor, err error) {
 	log.Traceln("In NetGetFileSecurity")
 	// TODO Validate path
 	netReq := NetrpGetFileSecurityReq{
-		ServerName:           "100.100.100.52",
+		ServerName:           "",
 		ShareName:            share,
 		FileName:             path,
 		RequestedInformation: 0x4, // DACL Security Information

@@ -38,7 +38,7 @@ func TestSID(t *testing.T) {
 	sid := msdtyp.SID{
 		Revision:       0x1,
 		NumAuth:        2,
-		Authority:      []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
+		Authority:      [6]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
 		SubAuthorities: []uint32{32, 544},
 	}
 
@@ -63,7 +63,7 @@ func TestSID(t *testing.T) {
 	if sid2.NumAuth != 2 {
 		t.Fail()
 	}
-	if !bytes.Equal(sid2.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
+	if !bytes.Equal(sid2.Authority[:], []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Fail()
 	}
 	if sid2.SubAuthorities[0] != 32 {
@@ -82,7 +82,7 @@ func TestACE(t *testing.T) {
 	sid := msdtyp.SID{
 		Revision:       0x1,
 		NumAuth:        2,
-		Authority:      []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
+		Authority:      [6]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
 		SubAuthorities: []uint32{32, 544},
 	}
 	ace := msdtyp.ACE{
@@ -128,7 +128,7 @@ func TestACE(t *testing.T) {
 	if ace2.Sid.NumAuth != 2 {
 		t.Fail()
 	}
-	if !bytes.Equal(ace2.Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
+	if !bytes.Equal(ace2.Sid.Authority[:], []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Fail()
 	}
 	if ace2.Sid.SubAuthorities[0] != 32 {
@@ -153,7 +153,7 @@ func TestACE(t *testing.T) {
 		Sid: msdtyp.SID{
 			Revision:       0x1,
 			NumAuth:        2,
-			Authority:      []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
+			Authority:      [6]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
 			SubAuthorities: []uint32{32, 544},
 		},
 	}
@@ -192,7 +192,7 @@ func TestACE(t *testing.T) {
 	if ace3.Sid.NumAuth != 2 {
 		t.Fail()
 	}
-	if !bytes.Equal(ace3.Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
+	if !bytes.Equal(ace3.Sid.Authority[:], []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Fail()
 	}
 	if ace3.Sid.SubAuthorities[0] != 32 {
@@ -217,7 +217,7 @@ func TestACE(t *testing.T) {
 		Sid: msdtyp.SID{
 			Revision:       0x1,
 			NumAuth:        1,
-			Authority:      []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
+			Authority:      [6]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
 			SubAuthorities: []uint32{18},
 		},
 	}
@@ -256,7 +256,7 @@ func TestACE(t *testing.T) {
 	if ace3.Sid.NumAuth != 1 {
 		t.Fail()
 	}
-	if !bytes.Equal(ace3.Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
+	if !bytes.Equal(ace3.Sid.Authority[:], []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Fail()
 	}
 	if ace3.Sid.SubAuthorities[0] != 18 {
@@ -279,7 +279,7 @@ func TestPACL(t *testing.T) {
 		Sid: msdtyp.SID{
 			Revision:       0x1,
 			NumAuth:        2,
-			Authority:      []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
+			Authority:      [6]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
 			SubAuthorities: []uint32{32, 544},
 		},
 	}
@@ -314,7 +314,7 @@ func TestPACL(t *testing.T) {
 				Sid: msdtyp.SID{
 					Revision:       1,
 					NumAuth:        1,
-					Authority:      []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
+					Authority:      [6]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5},
 					SubAuthorities: []uint32{18},
 				},
 			},
