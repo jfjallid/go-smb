@@ -61,6 +61,15 @@ const (
 // defaultMaxFragSize is the MS-RPCE minimum max fragment size (section 3.3.1.5.2).
 const defaultMaxFragSize uint16 = 4280
 
+// BindNakError is returned when the server rejects a Bind request.
+type BindNakError struct {
+	Reason uint16
+}
+
+func (e *BindNakError) Error() string {
+	return fmt.Sprintf("Received Bind_Nak with reason: 0x%x", e.Reason)
+}
+
 var responseCodeMap = map[uint32]error{
 	ErrorSuccess:         fmt.Errorf("The operation completed successfully"),
 	ErrorAccessDenied:    fmt.Errorf("Access denied!"),
@@ -72,6 +81,9 @@ const PDUHeaderCommonSize int = 16
 
 // MSRPC Request header size (header + AllocHint + ContextId + Opnum)
 const RequestHeaderSize int = 24
+
+// MSRPC Request header size when PfcObjectUUID flag is set (24 + 16 byte UUID)
+const RequestHeaderWithObjectUUIDSize int = 40
 
 // MSRPC Packet Types
 const (
@@ -150,14 +162,31 @@ type Sealer interface {
 	// and signature (auth_value bytes). toSign is the full PDU for NTLM
 	// MAC; Kerberos ignores it. The returned ciphertext may be larger
 	// than toEncrypt by EncryptionOverhead() bytes.
-	Seal(toEncrypt, toSign []byte) (ciphertext, signature []byte)
+	// Used for PktPrivacy.
+	Seal(toEncrypt, toSign []byte) (ciphertext, signature []byte, err error)
 	// Unseal decrypts ciphertext and verifies integrity.
 	// signature is the auth_value bytes. pduHeader and secTrailer are
 	// provided for NTLM (which MACs the full PDU); Kerberos ignores them.
+	// Used for PktPrivacy.
 	Unseal(ciphertext, signature, pduHeader, secTrailer []byte) (plaintext []byte, err error)
-	// SignatureSize returns the maximum auth_value size
+	// Sign computes a signature over the data without encrypting.
+	// data is the stub + auth_pad (same as toEncrypt in Seal).
+	// toSign is the full PDU (header + data + sec_trailer) for NTLM MAC;
+	// Kerberos ignores toSign and computes a MIC over data instead.
+	// Used for PktIntegrity.
+	Sign(data, toSign []byte) ([]byte, error)
+	// VerifySign verifies the signature without decrypting.
+	// data is the plaintext stub + auth_pad.
+	// pduHeader and secTrailer are provided for NTLM MAC reconstruction.
+	// Used for PktIntegrity.
+	VerifySign(data, signature, pduHeader, secTrailer []byte) error
+	// SignatureSize returns the maximum auth_value size for PktPrivacy
 	// (NTLM=16, Kerberos=16+16+RRC+maxPad).
 	SignatureSize() int
+	// MICSignatureSize returns the auth_value size for PktIntegrity.
+	// For NTLM this equals SignatureSize (16). For Kerberos this is
+	// the MIC token size (smaller than the Wrap token).
+	MICSignatureSize() int
 	// EncryptionOverhead returns extra ciphertext bytes beyond plaintext
 	// size (0 for both NTLM and Kerberos).
 	EncryptionOverhead() int
@@ -228,7 +257,7 @@ func newHeader() Header {
 }
 
 func UUIDToBin(uuid string) ([]byte, error) {
-	//log.Debugln("In uuid_to_bin")
+	//log.Traceln("In uuid_to_bin")
 
 	if !strings.ContainsRune(uuid, '-') {
 		return hex.DecodeString(uuid)
@@ -281,7 +310,7 @@ func UUIDToBin(uuid string) ([]byte, error) {
 }
 
 func newBindReq(callId uint32, interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string, maxTransmitSize, maxRecvSize uint16) (req *BindReq, err error) {
-	log.Debugln("In newBindReq")
+	log.Traceln("In newBindReq")
 
 	serviceUUID, err := UUIDToBin(interfaceUUID)
 	if err != nil {
@@ -323,17 +352,28 @@ func newBindReq(callId uint32, interfaceUUID string, majorVersion, minorVersion 
 	return
 }
 
-func newRequestReq(callId uint32, op uint16) (*RequestReq, error) {
+func newRequestReq(callId uint32, op uint16, objectUUID []byte) (*RequestReq, error) {
 	header := newHeader()
 	header.Type = PacketTypeRequest
 	header.CallId = callId
 
-	return &RequestReq{
+	req := &RequestReq{
 		Header:    header,
 		AllocHint: 0,
 		ContextId: 0,
 		Opnum:     op,
-	}, nil
+	}
+
+	if len(objectUUID) > 0 {
+		if len(objectUUID) != 16 {
+			return nil, fmt.Errorf("ObjectUUID must be exactly 16 bytes, got %d", len(objectUUID))
+		}
+		req.Flags |= PfcObjectUUID
+		req.ObjectUUID = make([]byte, 16)
+		copy(req.ObjectUUID, objectUUID)
+	}
+
+	return req, nil
 }
 // parseAndValidateCommonHeader validates a BindAck or AlterContext response PDU Common Header.
 // It checks the CallId and the packet type
@@ -348,7 +388,7 @@ func parseAndValidateCommonHeader(response []byte, expectedCallId uint32) error 
 	}
 	switch h.Type {
 	case PacketTypeBindNak:
-		return fmt.Errorf("Received Bind_Nak with reason: 0x%x", le.Uint16(response[16:18])) // Should it be Little Endian?
+		return &BindNakError{Reason: le.Uint16(response[16:18])}
 	case PacketTypeBindAck,PacketTypeAlterContextResp:
 	default:
 		return fmt.Errorf("Invalid response from server: %v\n", h)
@@ -395,7 +435,7 @@ func parseAndValidateBindAck(response []byte, expectedCallId uint32) (*BindRes, 
 }
 
 func Bind(transport DCERPCTransport, interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string) (bind *ServiceBind, err error) {
-	log.Debugln("In Bind")
+	log.Traceln("In Bind")
 	if transport == nil {
 		return nil, fmt.Errorf("Transport argument cannot be nil")
 	}
@@ -426,11 +466,13 @@ func Bind(transport DCERPCTransport, interfaceUUID string, majorVersion, minorVe
 
 	// MaxSendFragSize is the max the server will send to us (our receive limit);
 	// MaxRecvFragSize is the max the server can receive from us (our transmit limit).
+	nextCtx := uint16(1)
 	return &ServiceBind{
 		callId:              &callId,
 		transport:           transport,
 		maxFragReceiveSize:  bindRes.MaxSendFragSize,
 		maxFragTransmitSize: bindRes.MaxRecvFragSize,
+		nextContextId:       &nextCtx,
 	}, nil
 }
 
@@ -507,7 +549,7 @@ func marshalSPNEGOResp(resp gss.NegTokenResp) ([]byte, error) {
 // For Kerberos, it wraps tokens in SPNEGO and uses Alter Context for the third
 // leg to finalize the security context.
 func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string, authLevel uint8, mechanism gss.Mechanism) (bind *ServiceBind, err error) {
-	log.Debugln("In BindAuth")
+	log.Traceln("In BindAuth")
 	if transport == nil {
 		return nil, fmt.Errorf("Transport argument cannot be nil")
 	}
@@ -700,6 +742,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 
 	// MaxSendFragSize is the max the server will send to us (our receive limit);
 	// MaxRecvFragSize is the max the server can receive from us (our transmit limit).
+	nextCtx := uint16(1)
 	return &ServiceBind{
 		callId:              &callId,
 		transport:           transport,
@@ -709,6 +752,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 		authLevel:           authLevel,
 		authContextId:       authContextId,
 		sealer:              sealer,
+		nextContextId:       &nextCtx,
 	}, nil
 }
 
@@ -716,16 +760,122 @@ func (sb *ServiceBind) GetSessionKey() (sessionKey []byte) {
 	return sb.transport.GetSessionKey()
 }
 
+// AlterContext adds a new presentation context for a different interface on
+// the same connection. Returns a new ServiceBind that shares the underlying
+// transport and auth state but uses the new context ID for requests.
+func (sb *ServiceBind) AlterContext(interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string) (*ServiceBind, error) {
+	ctxId := *sb.nextContextId
+	*sb.nextContextId++
+
+	serviceUUID, err := UUIDToBin(interfaceUUID)
+	if err != nil {
+		return nil, err
+	}
+	transferSyntaxUUID, err := UUIDToBin(transferUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	callId := sb.callId.Add(1)
+	header := newHeader()
+	header.Type = PacketTypeAlterContext
+	header.CallId = callId
+	ctxItem := ContextItem{
+		Id: ctxId,
+		AbstractSyntax: SyntaxId{
+			UUID:    serviceUUID,
+			Version: (uint32(minorVersion) << 16) | uint32(majorVersion),
+		},
+		TransferSyntax: []SyntaxId{
+			{
+				UUID:    transferSyntaxUUID,
+				Version: 2,
+			},
+		},
+	}
+	ctxList := ContextList{
+		Count: 1,
+		Items: []ContextItem{ctxItem},
+	}
+
+	alterReq := &BindReq{
+		Header:          header,
+		MaxSendFragSize: sb.maxFragReceiveSize,
+		MaxRecvFragSize: sb.maxFragTransmitSize,
+		Association:     0,
+		ContextList:     ctxList,
+	}
+
+	buf, err := alterReq.MarshalBinary()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal AlterContext: %w", err)
+	}
+	binary.LittleEndian.PutUint16(buf[8:10], uint16(len(buf)))
+
+	response, err := sb.transport.Transceive(buf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send AlterContext: %w", err)
+	}
+
+	if err := parseAndValidateCommonHeader(response, callId); err != nil {
+		return nil, fmt.Errorf("AlterContext response validation failed: %w", err)
+	}
+
+	var alterRes BindRes
+	if err := alterRes.UnmarshalBinary(response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal AlterContext response: %w", err)
+	}
+
+	if len(alterRes.ResultList.Items) == 0 {
+		return nil, fmt.Errorf("AlterContext response has no context items")
+	}
+	if alterRes.ResultList.Items[0].Result != 0 {
+		return nil, fmt.Errorf("AlterContext rejected: result=%d reason=%d",
+			alterRes.ResultList.Items[0].Result, alterRes.ResultList.Items[0].Reason)
+	}
+
+	return &ServiceBind{
+		callId:              sb.callId,
+		transport:           sb.transport,
+		contextId:           ctxId,
+		maxFragReceiveSize:  sb.maxFragReceiveSize,
+		maxFragTransmitSize: sb.maxFragTransmitSize,
+		authType:            sb.authType,
+		authLevel:           sb.authLevel,
+		authContextId:       sb.authContextId,
+		sealer:              sb.sealer,
+		nextContextId:       sb.nextContextId,
+	}, nil
+}
+
 func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byte, err error) {
+	return sb.makeRequestInternal(opcode, nil, innerBuf)
+}
+
+func (sb *ServiceBind) MakeRequestWithObjectUUID(opcode uint16, objectUUID []byte, innerBuf []byte) (result []byte, err error) {
+	return sb.makeRequestInternal(opcode, objectUUID, innerBuf)
+}
+
+func (sb *ServiceBind) makeRequestInternal(opcode uint16, objectUUID []byte, innerBuf []byte) (result []byte, err error) {
 	callId := sb.callId.Add(1)
 	totalPayloadLen := len(innerBuf)
 	authOverhead := 0
 	if sb.sealer != nil {
 		// 8 = auth verifier header + worst-case signature + worst-case auth padding (3 bytes)
 		// + encryption overhead (0 for both NTLM and Kerberos)
-		authOverhead = 8 + sb.sealer.SignatureSize() + 3 + sb.sealer.EncryptionOverhead()
+		sigSize := sb.sealer.SignatureSize()
+		encOverhead := sb.sealer.EncryptionOverhead()
+		if sb.authLevel == RpcAuthnLevelPktIntegrity {
+			sigSize = sb.sealer.MICSignatureSize()
+			encOverhead = 0
+		}
+		authOverhead = 8 + sigSize + 3 + encOverhead
 	}
-	maxStub := int(sb.maxFragTransmitSize) - RequestHeaderSize - authOverhead
+	reqHeaderSize := RequestHeaderSize
+	if len(objectUUID) == 16 {
+		reqHeaderSize = RequestHeaderWithObjectUUIDSize
+	}
+	maxStub := int(sb.maxFragTransmitSize) - reqHeaderSize - authOverhead
 	if maxStub <= 0 {
 		maxStub = totalPayloadLen
 	}
@@ -736,16 +886,17 @@ func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byt
 	if !needsSendFragmentation {
 		// Single fragment: send via Transceive and get response
 		var req *RequestReq
-		req, err = newRequestReq(callId, opcode)
+		req, err = newRequestReq(callId, opcode, objectUUID)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 
+		req.ContextId = sb.contextId
 		req.Buffer = make([]byte, len(innerBuf))
 		copy(req.Buffer, innerBuf)
 		req.AllocHint = uint32(totalPayloadLen)
-		req.FragLength = uint16(len(innerBuf) + RequestHeaderSize)
+		req.FragLength = uint16(len(innerBuf) + reqHeaderSize)
 
 		var buf []byte
 		buf, err = req.MarshalBinary()
@@ -785,16 +936,17 @@ func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byt
 		lastFrag := (offset + chunkSize) >= totalPayloadLen
 
 		var req *RequestReq
-		req, err = newRequestReq(callId, opcode)
+		req, err = newRequestReq(callId, opcode, objectUUID)
 		if err != nil {
 			log.Errorln(err)
 			return
 		}
 
+		req.ContextId = sb.contextId
 		req.Buffer = make([]byte, chunkSize)
 		copy(req.Buffer, innerBuf[offset:offset+chunkSize])
 		req.AllocHint = uint32(totalPayloadLen)
-		req.FragLength = uint16(chunkSize + RequestHeaderSize)
+		req.FragLength = uint16(chunkSize + reqHeaderSize)
 
 		// Set fragmentation flags
 		req.Flags = 0
@@ -803,6 +955,9 @@ func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byt
 		}
 		if lastFrag {
 			req.Flags |= PfcLastFrag
+		}
+		if len(objectUUID) == 16 {
+			req.Flags |= PfcObjectUUID
 		}
 
 		var buf []byte
@@ -845,26 +1000,39 @@ func (sb *ServiceBind) MakeRequest(opcode uint16, innerBuf []byte) (result []byt
 	return
 }
 
-// sealRequestPDU encrypts the stub data in a marshaled Request PDU and appends
-// an AuthVerifier. The input pdu must be a complete marshaled RequestReq
-// (header + AllocHint + CtxId + Opnum + plaintext stub).
+// sealRequestPDU encrypts and/or signs the stub data in a marshaled Request
+// PDU and appends an AuthVerifier. The input pdu must be a complete marshaled
+// RequestReq (header + AllocHint + CtxId + Opnum + plaintext stub).
 //
-// Per MS-RPCE, the MAC covers the full PDU (header + plaintext stub + auth_pad
-// + sec_trailer) while only stub + auth_pad is encrypted.
+// For PktPrivacy: encrypts stub + auth_pad, computes MAC.
+// For PktIntegrity: computes MAC only (stub remains plaintext).
 func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
 	if len(pdu) < RequestHeaderSize {
 		return nil, fmt.Errorf("PDU too short to seal: %d bytes", len(pdu))
 	}
 
-	stub := pdu[RequestHeaderSize:]
+	// Determine header size based on PfcObjectUUID flag (byte offset 3 = Flags)
+	hdrSize := RequestHeaderSize
+	if pdu[3]&PfcObjectUUID != 0 {
+		hdrSize = RequestHeaderWithObjectUUIDSize
+	}
+
+	if len(pdu) < hdrSize {
+		return nil, fmt.Errorf("PDU too short to seal with object UUID: %d bytes", len(pdu))
+	}
+
+	stub := pdu[hdrSize:]
 
 	// Compute auth padding to align (header + stub + padding) to 4-byte boundary
 	authPad := (4 - (len(pdu) % 4)) % 4
-	toEncrypt := make([]byte, len(stub)+authPad)
-	copy(toEncrypt, stub)
+	stubPadded := make([]byte, len(stub)+authPad)
+	copy(stubPadded, stub)
 	// padding bytes are zero (already zero from make)
 
 	sigSize := sb.sealer.SignatureSize()
+	if sb.authLevel == RpcAuthnLevelPktIntegrity {
+		sigSize = sb.sealer.MICSignatureSize()
+	}
 
 	// Build sec_trailer (8 bytes) for inclusion in signed data
 	secTrailer := AuthVerifier{
@@ -881,40 +1049,53 @@ func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
 	// secTrailerBytes is 8 bytes (no AuthValue)
 
 	// Pre-compute FragLength for the header used in NTLM signing.
-	// For both NTLM and Kerberos, ciphertext length equals toEncrypt length,
-	// but actual signature size may differ from sigSize — we fix the header below.
-	preFragLen := uint16(RequestHeaderSize + len(toEncrypt) + len(secTrailerBytes) + sigSize)
+	preFragLen := uint16(hdrSize + len(stubPadded) + len(secTrailerBytes) + sigSize)
 
 	// Build the header with pre-computed FragLength and AuthLength
-	header := make([]byte, RequestHeaderSize)
-	copy(header, pdu[:RequestHeaderSize])
+	header := make([]byte, hdrSize)
+	copy(header, pdu[:hdrSize])
 	binary.LittleEndian.PutUint16(header[8:10], preFragLen)
 	binary.LittleEndian.PutUint16(header[10:12], uint16(sigSize))
 
 	// Build toSign: header + plaintext stub+pad + sec_trailer
 	// This is the full PDU minus the auth_value (signature).
 	// Used by NTLM for MAC; Kerberos ignores it.
-	toSign := make([]byte, 0, RequestHeaderSize+len(toEncrypt)+len(secTrailerBytes))
+	toSign := make([]byte, 0, hdrSize+len(stubPadded)+len(secTrailerBytes))
 	toSign = append(toSign, header...)
-	toSign = append(toSign, toEncrypt...)
+	toSign = append(toSign, stubPadded...)
 	toSign = append(toSign, secTrailerBytes...)
 
-	// Encrypt toEncrypt, compute MAC over toSign
-	ciphertext, signature := sb.sealer.Seal(toEncrypt, toSign)
+	var bodyData []byte
+	var signature []byte
 
-	// Compute actual FragLength from Seal output sizes.
-	// len(ciphertext)==len(toEncrypt) for both NTLM and Kerberos.
-	// len(signature) may differ from sigSize (Kerberos varies by padding).
-	actualFragLen := uint16(RequestHeaderSize + len(ciphertext) + len(secTrailerBytes) + len(signature))
+	if sb.authLevel == RpcAuthnLevelPktPrivacy {
+		// PktPrivacy: encrypt stub+pad, compute MAC
+		var ciphertext []byte
+		ciphertext, signature, err = sb.sealer.Seal(stubPadded, toSign)
+		if err != nil {
+			return nil, fmt.Errorf("failed to seal request PDU: %w", err)
+		}
+		bodyData = ciphertext
+	} else {
+		// PktIntegrity: sign only, stub remains plaintext
+		signature, err = sb.sealer.Sign(stubPadded, toSign)
+		if err != nil {
+			return nil, fmt.Errorf("failed to sign request PDU: %w", err)
+		}
+		bodyData = stubPadded
+	}
+
+	// Compute actual FragLength from output sizes.
+	actualFragLen := uint16(hdrSize + len(bodyData) + len(secTrailerBytes) + len(signature))
 	binary.LittleEndian.PutUint16(header[8:10], actualFragLen)
 	binary.LittleEndian.PutUint16(header[10:12], uint16(len(signature)))
 
-	// Assemble sealed PDU: header + ciphertext + sec_trailer + signature
+	// Assemble sealed PDU: header + body + sec_trailer + signature
 	sealed := make([]byte, int(actualFragLen))
-	copy(sealed[:RequestHeaderSize], header)
-	copy(sealed[RequestHeaderSize:], ciphertext)
-	copy(sealed[RequestHeaderSize+len(ciphertext):], secTrailerBytes)
-	copy(sealed[RequestHeaderSize+len(ciphertext)+len(secTrailerBytes):], signature)
+	copy(sealed[:hdrSize], header)
+	copy(sealed[hdrSize:], bodyData)
+	copy(sealed[hdrSize+len(bodyData):], secTrailerBytes)
+	copy(sealed[hdrSize+len(bodyData)+len(secTrailerBytes):], signature)
 
 	return sealed, nil
 }
@@ -923,11 +1104,12 @@ func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
 // (common header 16 + AllocHint 4 + ContextId 2 + CancelCount 1 + Reserved 1).
 const ResponseHeaderSize int = 24
 
-// unsealResponsePDU decrypts the stub data in a Response PDU and returns a
-// clean buffer that RequestRes.UnmarshalBinary can parse (with auth stripped).
+// unsealResponsePDU decrypts and/or verifies the stub data in a Response PDU
+// and returns a clean buffer that RequestRes.UnmarshalBinary can parse
+// (with auth stripped).
 //
-// Per MS-RPCE, the MAC covers the full PDU (header + plaintext stub + auth_pad
-// + sec_trailer) while only stub + auth_pad is encrypted.
+// For PktPrivacy: decrypts stub + auth_pad, verifies MAC.
+// For PktIntegrity: verifies MAC only (stub is already plaintext).
 func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, error) {
 	fragLen := int(header.FragLength)
 	authTotalLen := int(header.AuthLength) + 8
@@ -949,15 +1131,24 @@ func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, er
 		return nil, fmt.Errorf("Failed to unmarshal response AuthVerifier: %w", err)
 	}
 
-	// Encrypted data is between response header and sec_trailer
-	encryptedData := pdu[ResponseHeaderSize:authStart]
+	// Data between response header and sec_trailer
+	bodyData := pdu[ResponseHeaderSize:authStart]
 
-	// Decrypt and verify integrity in one step.
-	// NTLM uses pduHeader and secTrailer for MAC verification.
-	// Kerberos verifies integrity inside DecryptMessage.
-	plaintext, err := sb.sealer.Unseal(encryptedData, signature, pdu[:ResponseHeaderSize], secTrailerBytes)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to unseal response PDU: %w", err)
+	var plaintext []byte
+
+	if sb.authLevel == RpcAuthnLevelPktPrivacy {
+		// PktPrivacy: decrypt and verify integrity
+		plaintext, err = sb.sealer.Unseal(bodyData, signature, pdu[:ResponseHeaderSize], secTrailerBytes)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to unseal response PDU: %w", err)
+		}
+	} else {
+		// PktIntegrity: verify signature only (data is plaintext)
+		err = sb.sealer.VerifySign(bodyData, signature, pdu[:ResponseHeaderSize], secTrailerBytes)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to verify response PDU signature: %w", err)
+		}
+		plaintext = bodyData
 	}
 
 	// Strip auth padding

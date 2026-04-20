@@ -130,3 +130,96 @@ func TestBindRes(t *testing.T) {
 		t.Fatalf("expected res.ResultList.Items[0].TransferSyntax.Version==2, got %v", res.ResultList.Items[0].TransferSyntax.Version)
 	}
 }
+
+func TestRequestReqWithObjectUUID(t *testing.T) {
+	objectUUID := []byte{
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+	}
+	stubData := []byte{0xaa, 0xbb, 0xcc, 0xdd}
+
+	req, err := newRequestReq(1, 5, objectUUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Buffer = stubData
+	req.AllocHint = uint32(len(stubData))
+	req.FragLength = uint16(RequestHeaderWithObjectUUIDSize + len(stubData))
+
+	buf, err := req.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify total length: 16 (header) + 4 (AllocHint) + 2 (ContextId) + 2 (Opnum) + 16 (UUID) + 4 (stub) = 44
+	if len(buf) != 44 {
+		t.Fatalf("expected length 44, got %d", len(buf))
+	}
+
+	// Verify PfcObjectUUID flag is set (byte 3 = Flags)
+	if buf[3]&PfcObjectUUID == 0 {
+		t.Fatal("PfcObjectUUID flag not set")
+	}
+
+	// Verify Opnum at offset 22-23
+	opnum := binary.LittleEndian.Uint16(buf[22:24])
+	if opnum != 5 {
+		t.Fatalf("expected opnum 5, got %d", opnum)
+	}
+
+	// Verify ObjectUUID at offset 24-39
+	if !bytes.Equal(buf[24:40], objectUUID) {
+		t.Fatalf("ObjectUUID mismatch\n got:  %x\n want: %x", buf[24:40], objectUUID)
+	}
+
+	// Verify stub data at offset 40-43
+	if !bytes.Equal(buf[40:44], stubData) {
+		t.Fatalf("stub data mismatch\n got:  %x\n want: %x", buf[40:44], stubData)
+	}
+
+	// Verify FragLength in header
+	fragLen := binary.LittleEndian.Uint16(buf[8:10])
+	if fragLen != 44 {
+		t.Fatalf("expected FragLength 44, got %d", fragLen)
+	}
+}
+
+func TestRequestReqWithoutObjectUUID(t *testing.T) {
+	stubData := []byte{0xaa, 0xbb, 0xcc, 0xdd}
+
+	req, err := newRequestReq(1, 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Buffer = stubData
+	req.AllocHint = uint32(len(stubData))
+	req.FragLength = uint16(RequestHeaderSize + len(stubData))
+
+	buf, err := req.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify total length: 24 (header) + 4 (stub) = 28
+	if len(buf) != 28 {
+		t.Fatalf("expected length 28, got %d", len(buf))
+	}
+
+	// Verify PfcObjectUUID flag is NOT set
+	if buf[3]&PfcObjectUUID != 0 {
+		t.Fatal("PfcObjectUUID flag should not be set")
+	}
+
+	// Verify stub data at offset 24-27
+	if !bytes.Equal(buf[24:28], stubData) {
+		t.Fatalf("stub data mismatch\n got:  %x\n want: %x", buf[24:28], stubData)
+	}
+}
+
+func TestRequestReqInvalidObjectUUID(t *testing.T) {
+	// ObjectUUID must be exactly 16 bytes
+	_, err := newRequestReq(1, 0, []byte{0x01, 0x02, 0x03})
+	if err == nil {
+		t.Fatal("expected error for invalid ObjectUUID length")
+	}
+}

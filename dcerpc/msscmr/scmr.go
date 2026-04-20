@@ -28,8 +28,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/go-smb/dcerpc"
+	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/golog"
 )
 
@@ -272,12 +272,40 @@ const (
 	ServiceConfigPreferred_node           uint32 = 0x9
 )
 
+// MS-SCMR Section 2.2.39 SC_ACTION_TYPE
+const (
+	ScActionNone       uint32 = 0
+	ScActionRestart    uint32 = 1
+	ScActionReboot     uint32 = 2
+	ScActionRunCommand uint32 = 3
+)
+
+var ScFailureActionMap = map[uint32]string{
+	ScActionNone:       "ActionNone",
+	ScActionRestart:    "ActionRestart",
+	ScActionReboot:     "ActionReboot",
+	ScActionRunCommand: "ActionRunCommand",
+}
+
+// MS-SCMR Section 2.2.46 dwServiceSidType
+const (
+	ServiceSidTypeNone         uint32 = 0x00000000
+	ServiceSidTypeUnrestricted uint32 = 0x00000001
+	ServiceSidTypeRestricted   uint32 = 0x00000003
+)
+
+var ServiceSidTypeMap = map[uint32]string{
+	ServiceSidTypeNone:         "SidTypeNone",
+	ServiceSidTypeUnrestricted: "SidTypeUnrestricted",
+	ServiceSidTypeRestricted:   "SidTypeRestricted",
+}
+
 func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 	return &RPCCon{ServiceBind: sb}
 }
 
 func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err error) {
-	log.Debugln("In decodeServiceConfig")
+	log.Traceln("In decodeServiceConfig")
 	if _, ok := ServiceTypeStatusMap[config.ServiceType]; !ok {
 		log.Infof("Could not identify returned service type for (%s): %d\n", config.DisplayName, config.ServiceType)
 		res.ServiceType = fmt.Sprintf("Unknown type 0x%x (%d)", config.ServiceType, config.ServiceType)
@@ -312,9 +340,8 @@ func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err er
 	return
 }
 
-// NOTE That currently the config Dependencies cannot be modified
 func (sb *RPCCon) ChangeServiceConfigExt(serviceName string, config *ServiceConfig) (err error) {
-	log.Debugln("In ChangeServiceConfigExt")
+	log.Traceln("In ChangeServiceConfigExt")
 	var binaryPathName, serviceStartName, displayName string
 	var serviceType, startType, errorControl uint32
 
@@ -360,17 +387,17 @@ func (sb *RPCCon) ChangeServiceConfigExt(serviceName string, config *ServiceConf
 	serviceStartName = config.ServiceStartName
 	displayName = config.DisplayName
 
-	return sb.ChangeServiceConfig(serviceName, serviceType, startType, errorControl, binaryPathName, serviceStartName, "", displayName, config.LoadOrderGroup, "", config.TagId)
+	return sb.ChangeServiceConfig(serviceName, serviceType, startType, errorControl, binaryPathName, serviceStartName, "", displayName, &config.LoadOrderGroup, config.Dependencies, config.TagId)
 }
 
 func (sb *RPCCon) openSCManager(desiredAccess uint32) (handle []byte, err error) {
-	log.Debugln("In openSCManager")
+	log.Traceln("In openSCManager")
 	scReq := ROpenSCManagerWReq{
 		MachineName:   "DUMMY",
 		DatabaseName:  "ServicesActive",
 		DesiredAccess: desiredAccess,
 	}
-	scBuf, err := scReq.MarshalBinary()
+	scBuf, err := scReq.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -384,7 +411,7 @@ func (sb *RPCCon) openSCManager(desiredAccess uint32) (handle []byte, err error)
 
 	// Retrieve context handle from response
 	res := ROpenSCManagerWRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -405,14 +432,16 @@ func (sb *RPCCon) openSCManager(desiredAccess uint32) (handle []byte, err error)
 }
 
 func (sb *RPCCon) openService(scHandle []byte, serviceName string, desiredAccess uint32) (handle []byte, err error) {
-	log.Debugln("In openService")
+	log.Traceln("In openService")
+	var ctxHandle [20]byte
+	copy(ctxHandle[:], scHandle)
 	serviceReq := ROpenServiceWReq{
-		SCContextHandle: scHandle,
+		SCContextHandle: ctxHandle,
 		ServiceName:     serviceName,
 		DesiredAccess:   desiredAccess,
 	}
 
-	serviceBuf, err := serviceReq.MarshalBinary()
+	serviceBuf, err := serviceReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -424,7 +453,7 @@ func (sb *RPCCon) openService(scHandle []byte, serviceName string, desiredAccess
 
 	// Retrieve context handle from response
 	res := ROpenServiceWRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		return
 	}
@@ -439,12 +468,12 @@ func (sb *RPCCon) openService(scHandle []byte, serviceName string, desiredAccess
 		return nil, status
 	}
 
-	handle = res.ContextHandle
+	handle = res.ContextHandle[:]
 	return
 }
 
 func (sb *RPCCon) GetServiceStatus(serviceName string) (status uint32, err error) {
-	log.Debugln("In GetServiceStatus")
+	log.Traceln("In GetServiceStatus")
 	handle, err := sb.openSCManager(ServiceQueryStatus)
 	if err != nil {
 		return
@@ -457,8 +486,10 @@ func (sb *RPCCon) GetServiceStatus(serviceName string) (status uint32, err error
 	}
 	defer sb.CloseServiceHandle(serviceHandle)
 
-	ssReq := RQueryServiceStatusReq{ContextHandle: serviceHandle}
-	ssBuf, err := ssReq.MarshalBinary()
+	var ssHandle [20]byte
+	copy(ssHandle[:], serviceHandle)
+	ssReq := RQueryServiceStatusReq{ContextHandle: ssHandle}
+	ssBuf, err := ssReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -470,7 +501,7 @@ func (sb *RPCCon) GetServiceStatus(serviceName string) (status uint32, err error
 
 	// Retrieve context handle from response
 	res := RQueryServiceStatusRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		return
 	}
@@ -490,7 +521,7 @@ func (sb *RPCCon) GetServiceStatus(serviceName string) (status uint32, err error
 }
 
 func (sb *RPCCon) StartService(serviceName string, args []string) (err error) {
-	log.Debugln("In StartService")
+	log.Traceln("In StartService")
 	handle, err := sb.openSCManager(ServiceStart)
 	if err != nil {
 		return
@@ -502,16 +533,19 @@ func (sb *RPCCon) StartService(serviceName string, args []string) (err error) {
 	}
 	defer sb.CloseServiceHandle(serviceHandle)
 
-	ssReq := RStartServiceWReq{ServiceHandle: serviceHandle}
-	if args == nil || len(args) == 0 {
-		ssReq.Argc = 0
-		ssReq.Argv = nil
-	} else {
+	var startHandle [20]byte
+	copy(startHandle[:], serviceHandle)
+	ssReq := RStartServiceWReq{ServiceHandle: startHandle}
+	if len(args) > 0 {
 		ssReq.Argc = uint32(len(args))
-		ssReq.Argv = args
+		argv := make([]LPWStr, len(args))
+		for i, a := range args {
+			argv[i] = LPWStr{S: a}
+		}
+		ssReq.Argv = &argv
 	}
 
-	ssBuf, err := ssReq.MarshalBinary()
+	ssBuf, err := ssReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -536,7 +570,7 @@ func (sb *RPCCon) StartService(serviceName string, args []string) (err error) {
 }
 
 func (sb *RPCCon) ControlService(serviceName string, control uint32) (err error) {
-	log.Debugln("In ControlService")
+	log.Traceln("In ControlService")
 	handle, err := sb.openSCManager(SCManagerConnect)
 	if err != nil {
 		return
@@ -548,11 +582,13 @@ func (sb *RPCCon) ControlService(serviceName string, control uint32) (err error)
 	}
 	defer sb.CloseServiceHandle(serviceHandle)
 
+	var csHandle [20]byte
+	copy(csHandle[:], serviceHandle)
 	csReq := RControlServiceReq{
-		ServiceHandle: serviceHandle,
+		ServiceHandle: csHandle,
 		Control:       control,
 	}
-	csBuf, err := csReq.MarshalBinary()
+	csBuf, err := csReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -564,7 +600,7 @@ func (sb *RPCCon) ControlService(serviceName string, control uint32) (err error)
 
 	// Parse ServiceStatus
 	res := RControlServiceRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		return
 	}
@@ -584,7 +620,7 @@ func (sb *RPCCon) ControlService(serviceName string, control uint32) (err error)
 }
 
 func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, err error) {
-	log.Debugln("In GetServiceConfig")
+	log.Traceln("In GetServiceConfig")
 	handle, err := sb.openSCManager(ServiceQueryConfig)
 	if err != nil {
 		return
@@ -596,11 +632,13 @@ func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, er
 	}
 	defer sb.CloseServiceHandle(serviceHandle)
 
+	var qHandle [20]byte
+	copy(qHandle[:], serviceHandle)
 	innerReq := RQueryServiceConfigWReq{
-		ServiceHandle: serviceHandle,
+		ServiceHandle: qHandle,
 		BufSize:       0,
 	}
-	innerBuf, err := innerReq.MarshalBinary()
+	innerBuf, err := innerReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -613,7 +651,7 @@ func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, er
 
 	// Parse response
 	res := RQueryServiceConfigWRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		return
 	}
@@ -630,7 +668,7 @@ func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, er
 
 	// Repeat request with allocated buffer size
 	innerReq.BufSize = res.BytesNeeded
-	innerBuf2, err := innerReq.MarshalBinary()
+	innerBuf2, err := innerReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -642,7 +680,7 @@ func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, er
 
 	// Parse ServiceConfig
 	res = RQueryServiceConfigWRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		return
 	}
@@ -657,11 +695,11 @@ func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, er
 		return config, status
 	}
 
-	return decodeServiceConfig(res.ServiceConfig)
+	return decodeServiceConfig(&res.ServiceConfig)
 }
 
-func (sb *RPCCon) GetServiceConfig2(serviceName string, infoLevel uint32) (result []byte, err error) {
-	log.Debugln("In GetServiceConfig2")
+func (sb *RPCCon) queryServiceConfig2(serviceName string, infoLevel uint32) (result []byte, err error) {
+	log.Traceln("In queryServiceConfig2")
 	handle, err := sb.openSCManager(ServiceQueryConfig)
 	if err != nil {
 		return
@@ -673,12 +711,15 @@ func (sb *RPCCon) GetServiceConfig2(serviceName string, infoLevel uint32) (resul
 	}
 	defer sb.CloseServiceHandle(serviceHandle)
 
+	var svcHandle [20]byte
+	copy(svcHandle[:], serviceHandle)
+
 	innerReq := RQueryServiceConfig2WReq{
-		ServiceHandle: serviceHandle,
+		ServiceHandle: svcHandle,
 		InfoLevel:     infoLevel,
 		BufSize:       0,
 	}
-	innerBuf, err := innerReq.MarshalBinary()
+	innerBuf, err := innerReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -691,7 +732,7 @@ func (sb *RPCCon) GetServiceConfig2(serviceName string, infoLevel uint32) (resul
 
 	// Parse response
 	res := RQueryServiceConfig2WRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		return
 	}
@@ -708,7 +749,7 @@ func (sb *RPCCon) GetServiceConfig2(serviceName string, infoLevel uint32) (resul
 
 	// Repeat request with allocated buffer size
 	innerReq.BufSize = res.BytesNeeded
-	innerBuf2, err := innerReq.MarshalBinary()
+	innerBuf2, err := innerReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -720,7 +761,7 @@ func (sb *RPCCon) GetServiceConfig2(serviceName string, infoLevel uint32) (resul
 
 	// Parse ServiceConfig
 	res = RQueryServiceConfig2WRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		return
 	}
@@ -739,16 +780,193 @@ func (sb *RPCCon) GetServiceConfig2(serviceName string, infoLevel uint32) (resul
 	return
 }
 
-// NOTE that currently, dependencies cannot be modified
+// GetServiceConfig2 queries optional configuration parameters for a service
+// and returns the raw buffer. For typed results, use the specific methods:
+// GetServiceDescription, GetServiceFailureActions, etc.
+func (sb *RPCCon) GetServiceConfig2(serviceName string, infoLevel uint32) ([]byte, error) {
+	return sb.queryServiceConfig2(serviceName, infoLevel)
+}
+
+func (sb *RPCCon) GetServiceDescription(serviceName string) (string, error) {
+	log.Traceln("In GetServiceDescription")
+	buf, err := sb.queryServiceConfig2(serviceName, ServiceConfigDescription)
+	if err != nil {
+		return "", err
+	}
+	return parseServiceDescription(buf)
+}
+
+func (sb *RPCCon) GetServiceFailureActions(serviceName string) (*ServiceFailureActions, error) {
+	log.Traceln("In GetServiceFailureActions")
+	buf, err := sb.queryServiceConfig2(serviceName, ServiceConfigFailure_actions)
+	if err != nil {
+		return nil, err
+	}
+	return parseFailureActions(buf)
+}
+
+func (sb *RPCCon) GetServiceDelayedAutoStartInfo(serviceName string) (bool, error) {
+	log.Traceln("In GetServiceDelayedAutoStartInfo")
+	buf, err := sb.queryServiceConfig2(serviceName, ServiceConfigDelayed_auto_start_info)
+	if err != nil {
+		return false, err
+	}
+	return parseDelayedAutoStartInfo(buf)
+}
+
+func (sb *RPCCon) GetServiceFailureActionsFlag(serviceName string) (bool, error) {
+	log.Traceln("In GetServiceFailureActionsFlag")
+	buf, err := sb.queryServiceConfig2(serviceName, ServiceConfigFailure_actions_flag)
+	if err != nil {
+		return false, err
+	}
+	return parseFailureActionsFlag(buf)
+}
+
+func (sb *RPCCon) GetServiceSIDInfo(serviceName string) (uint32, error) {
+	log.Traceln("In GetServiceSIDInfo")
+	buf, err := sb.queryServiceConfig2(serviceName, ServiceConfigService_sid_info)
+	if err != nil {
+		return 0, err
+	}
+	return parseServiceSIDInfo(buf)
+}
+
+func (sb *RPCCon) GetServiceRequiredPrivileges(serviceName string) ([]string, error) {
+	log.Traceln("In GetServiceRequiredPrivileges")
+	buf, err := sb.queryServiceConfig2(serviceName, ServiceConfigRequired_privileges_info)
+	if err != nil {
+		return nil, err
+	}
+	return parseRequiredPrivileges(buf)
+}
+
+func (sb *RPCCon) GetServicePreshutdownInfo(serviceName string) (uint32, error) {
+	log.Traceln("In GetServicePreshutdownInfo")
+	buf, err := sb.queryServiceConfig2(serviceName, ServiceConfigPreshutdown_info)
+	if err != nil {
+		return 0, err
+	}
+	return parsePreshutdownInfo(buf)
+}
+
+func (sb *RPCCon) GetServicePreferredNode(serviceName string) (*ServicePreferredNodeInfo, error) {
+	log.Traceln("In GetServicePreferredNode")
+	buf, err := sb.queryServiceConfig2(serviceName, ServiceConfigPreferred_node)
+	if err != nil {
+		return nil, err
+	}
+	return parsePreferredNode(buf)
+}
+
+func (sb *RPCCon) SetServiceDescription(serviceName, description string) error {
+	log.Traceln("In SetServiceDescription")
+	return sb.ChangeServiceConfig2(serviceName, &ConfigInfoW{
+		InfoLevel:   ServiceConfigDescription,
+		Description: &ServiceDescriptionW{Description: &description},
+	})
+}
+
+func (sb *RPCCon) SetServiceFailureActions(serviceName string, fa *ServiceFailureActions) error {
+	log.Traceln("In SetServiceFailureActions")
+	w := &ServiceFailureActionsW{
+		ResetPeriod: fa.ResetPeriod,
+		RebootMsg:   fa.RebootMsg,
+		Command:     fa.Command,
+		CActions:    uint32(len(fa.Actions)),
+		Actions:     fa.Actions,
+	}
+	return sb.ChangeServiceConfig2(serviceName, &ConfigInfoW{
+		InfoLevel:      ServiceConfigFailure_actions,
+		FailureActions: w,
+	})
+}
+
+func (sb *RPCCon) SetServiceDelayedAutoStartInfo(serviceName string, enabled bool) error {
+	log.Traceln("In SetServiceDelayedAutoStartInfo")
+	var val uint32
+	if enabled {
+		val = 1
+	}
+	return sb.ChangeServiceConfig2(serviceName, &ConfigInfoW{
+		InfoLevel:            ServiceConfigDelayed_auto_start_info,
+		DelayedAutoStartInfo: &ServiceDelayedAutoStartInfoW{DelayedAutoStart: val},
+	})
+}
+
+func (sb *RPCCon) SetServiceFailureActionsFlag(serviceName string, enabled bool) error {
+	log.Traceln("In SetServiceFailureActionsFlag")
+	var val uint32
+	if enabled {
+		val = 1
+	}
+	return sb.ChangeServiceConfig2(serviceName, &ConfigInfoW{
+		InfoLevel:          ServiceConfigFailure_actions_flag,
+		FailureActionsFlag: &ServiceFailureActionsFlagW{Flag: val},
+	})
+}
+
+func (sb *RPCCon) SetServiceSIDInfo(serviceName string, sidType uint32) error {
+	log.Traceln("In SetServiceSIDInfo")
+	return sb.ChangeServiceConfig2(serviceName, &ConfigInfoW{
+		InfoLevel:      ServiceConfigService_sid_info,
+		ServiceSIDInfo: &ServiceSIDInfoW{ServiceSidType: sidType},
+	})
+}
+
+func (sb *RPCCon) SetServiceRequiredPrivileges(serviceName string, privileges []string) error {
+	log.Traceln("In SetServiceRequiredPrivileges")
+	// RequiredPrivileges should be a sequence of null-terminated strings, terminated by an empty string (\0)
+	multiSz := ""
+	for _, str := range privileges {
+		multiSz += msdtyp.NullTerminate(str)
+	}
+	multiSz += "\x00\x00" // Add empty null terminated string
+	multiSzBuf := msdtyp.ToUnicode(multiSz)
+	return sb.ChangeServiceConfig2(serviceName, &ConfigInfoW{
+		InfoLevel: ServiceConfigRequired_privileges_info,
+		RequiredPrivilegesInfo: &ServiceRequiredPrivilegesInfoW{
+			CbRequiredPrivileges: uint32(len(multiSzBuf)),
+			RequiredPrivileges:   multiSzBuf,
+		},
+	})
+}
+
+func (sb *RPCCon) SetServicePreshutdownInfo(serviceName string, timeout uint32) error {
+	log.Traceln("In SetServicePreshutdownInfo")
+	return sb.ChangeServiceConfig2(serviceName, &ConfigInfoW{
+		InfoLevel:       ServiceConfigPreshutdown_info,
+		PreshutdownInfo: &ServicePreshutdownInfoW{PreshutdownTimeout: timeout},
+	})
+}
+
+func (sb *RPCCon) SetServicePreferredNode(serviceName string, info *ServicePreferredNodeInfo) error {
+	log.Traceln("In SetServicePreferredNode")
+	return sb.ChangeServiceConfig2(serviceName, &ConfigInfoW{
+		InfoLevel: ServiceConfigPreferred_node,
+		PreferredNodeInfo: &ServicePreferredNodeInfoW{
+			PreferredNode: info.PreferredNode,
+			Delete:        info.Delete,
+		},
+	})
+}
+
 func (sb *RPCCon) ChangeServiceConfig(
 	serviceName string,
 	serviceType, startType, errorControl uint32,
-	binaryPathName, serviceStartName, password, displayName, loadOrderGroup, dependencies string, tagId uint32) (err error) {
+	binaryPathName, serviceStartName, password, displayName string, loadOrderGroup *string, dependencies string, tagId uint32) (err error) {
 
-	log.Debugln("In ChangeServiceConfig")
-	if dependencies != "" {
-		return fmt.Errorf("Specifying dependencies when changing a service config is currently unsupported.")
+	log.Traceln("In ChangeServiceConfig")
+	multiSz := ""
+	parts := strings.Split(dependencies, "/")
+	for _, str := range parts {
+		if str == "" {
+			continue
+		}
+		multiSz += msdtyp.NullTerminate(str)
 	}
+	multiSz += "\x00\x00"
+	multiSzBuf := msdtyp.ToUnicode(multiSz)
 
 	handle, err := sb.openSCManager(SCManagerEnumerateService)
 	if err != nil {
@@ -761,19 +979,27 @@ func (sb *RPCCon) ChangeServiceConfig(
 	}
 	defer sb.CloseServiceHandle(serviceHandle)
 
-	//TODO Add support for modifying Dependencies
-	// Figure out how to properly marshal the request with dependencies included
+	var svcHandle [20]byte
+	copy(svcHandle[:], serviceHandle)
+
 	innerReq := RChangeServiceConfigWReq{
-		ServiceHandle:    serviceHandle,
+		ServiceHandle:    svcHandle,
 		ServiceType:      serviceType,
 		StartType:        startType,
 		ErrorControl:     errorControl,
 		BinaryPathName:   binaryPathName,
 		LoadOrderGroup:   loadOrderGroup,
-		TagId:            tagId, //NOTE that tag cannot be set. A value > 0 means: ask server for a tag id.
-		Dependencies:     "",
 		ServiceStartName: serviceStartName,
 		DisplayName:      displayName,
+		DependSize:       uint32(len(multiSzBuf)),
+	}
+	if multiSzBuf != nil {
+		innerReq.Dependencies = &multiSzBuf
+	}
+
+	//NOTE that tag cannot be set. A value > 0 means: ask server for a tag id.
+	if tagId != 0 {
+		innerReq.TagId = &tagId
 	}
 
 	/*
@@ -787,10 +1013,11 @@ func (sb *RPCCon) ChangeServiceConfig(
 			log.Errorln(err)
 			return err
 		}
-		innerReq.Password = encPassword
+		innerReq.Password = &encPassword
+		innerReq.PwSize = uint32(len(encPassword))
 	}
 
-	innerBuf, err := innerReq.MarshalBinary()
+	innerBuf, err := innerReq.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -804,7 +1031,7 @@ func (sb *RPCCon) ChangeServiceConfig(
 
 	// Parse ServiceConfig
 	res := RChangeServiceConfigWRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -823,23 +1050,26 @@ func (sb *RPCCon) ChangeServiceConfig(
 }
 
 func (sb *RPCCon) ChangeServiceConfig2(serviceName string, info *ConfigInfoW) (err error) {
-	log.Debugln("In ChangeServiceConfig2")
-	handle, err := sb.openSCManager(ServiceChangeConfig)
+	log.Traceln("In ChangeServiceConfig2")
+	handle, err := sb.openSCManager(SCManagerConnect | SCManagerCreateService)
 	if err != nil {
 		return
 	}
 	defer sb.CloseServiceHandle(handle)
-	serviceHandle, err := sb.openService(handle, serviceName, ServiceChangeConfig)
+	serviceHandle, err := sb.openService(handle, serviceName, ServiceAllAccess)
 	if err != nil {
 		return
 	}
 	defer sb.CloseServiceHandle(serviceHandle)
 
+	var svcHandle [20]byte
+	copy(svcHandle[:], serviceHandle)
+
 	innerReq := RChangeServiceConfig2WReq{
-		ServiceHandle: serviceHandle,
+		ServiceHandle: svcHandle,
 		Info:          *info,
 	}
-	innerBuf, err := innerReq.MarshalBinary()
+	innerBuf, err := innerReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -875,7 +1105,7 @@ func (sb *RPCCon) CreateService(
 	serviceType, startType, errorControl uint32,
 	binaryPathName, serviceStartName, password, displayName string, startService bool) (err error) {
 
-	log.Debugln("In CreateService")
+	log.Traceln("In CreateService")
 
 	scHandle, err := sb.openSCManager(SCManagerCreateService)
 	if err != nil {
@@ -884,16 +1114,23 @@ func (sb *RPCCon) CreateService(
 	}
 	defer sb.CloseServiceHandle(scHandle)
 
+	var ctxHandle [20]byte
+	copy(ctxHandle[:], scHandle)
+
 	innerReq := RCreateServiceWReq{
-		SCContextHandle:  scHandle,
-		ServiceName:      serviceName,
-		DisplayName:      displayName,
-		DesiredAccess:    ServiceAllAccess,
-		ServiceType:      serviceType,
-		StartType:        startType,
-		ErrorControl:     errorControl,
-		BinaryPathName:   binaryPathName,
-		ServiceStartName: serviceStartName,
+		SCContextHandle: ctxHandle,
+		ServiceName:     serviceName,
+		DesiredAccess:   ServiceAllAccess,
+		ServiceType:     serviceType,
+		StartType:       startType,
+		ErrorControl:    errorControl,
+		BinaryPathName:  binaryPathName,
+	}
+	if displayName != "" {
+		innerReq.DisplayName = &displayName
+	}
+	if serviceStartName != "" {
+		innerReq.ServiceStartName = &serviceStartName
 	}
 
 	/*
@@ -907,10 +1144,11 @@ func (sb *RPCCon) CreateService(
 			log.Errorln(err)
 			return err
 		}
-		innerReq.Password = encPassword
+		innerReq.Password = &encPassword
+		innerReq.PwSize = uint32(len(encPassword))
 	}
 
-	innerBuf, err := innerReq.MarshalBinary()
+	innerBuf, err := innerReq.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -924,7 +1162,7 @@ func (sb *RPCCon) CreateService(
 
 	// Parse ServiceConfig
 	res := RCreateServiceWRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -939,14 +1177,13 @@ func (sb *RPCCon) CreateService(
 		return status
 	}
 
-	defer sb.CloseServiceHandle(res.ContextHandle)
+	defer sb.CloseServiceHandle(res.ContextHandle[:])
 
 	if startService {
-		ssReq := RStartServiceWReq{ServiceHandle: res.ContextHandle}
-		ssReq.Argc = 0
-		// When Argc is 0 I need to marshal 0x00000000 for Argc and same for Argv e.g., 4 bytes combined of 0s
+		ssHandle := res.ContextHandle
+		ssReq := RStartServiceWReq{ServiceHandle: ssHandle}
 
-		ssBuf, err2 := ssReq.MarshalBinary()
+		ssBuf, err2 := ssReq.Marshal()
 		if err != nil {
 			return err2
 		}
@@ -984,11 +1221,13 @@ func (sb *RPCCon) DeleteService(serviceName string) (err error) {
 	defer sb.CloseServiceHandle(handle)
 
 	// Attempt to stop the service before deletion
+	var stopHandle [20]byte
+	copy(stopHandle[:], handle)
 	csReq := RControlServiceReq{
-		ServiceHandle: handle,
+		ServiceHandle: stopHandle,
 		Control:       ServiceControlStop,
 	}
-	csBuf, err := csReq.MarshalBinary()
+	csBuf, err := csReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -999,11 +1238,13 @@ func (sb *RPCCon) DeleteService(serviceName string) (err error) {
 		// Continue with deletion even if stop failed for some reason
 	}
 
+	var delHandle [20]byte
+	copy(delHandle[:], handle)
 	innerReq := RDeleteServiceReq{
-		ServiceHandle: handle,
+		ServiceHandle: delHandle,
 	}
 
-	innerBuf, err := innerReq.MarshalBinary()
+	innerBuf, err := innerReq.Marshal()
 	if err != nil {
 		return
 	}
@@ -1035,7 +1276,7 @@ func (sb *RPCCon) DeleteService(serviceName string) (err error) {
 }
 
 func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result []EnumServiceStatusW, err error) {
-	log.Debugln("In EnumServicesStatus")
+	log.Traceln("In EnumServicesStatus")
 
 	scHandle, err := sb.openSCManager(SCManagerEnumerateService)
 	if err != nil {
@@ -1044,15 +1285,18 @@ func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result [
 	}
 	defer sb.CloseServiceHandle(scHandle)
 
+	var ctxHandle [20]byte
+	copy(ctxHandle[:], scHandle)
+
 	enumSSReq := REnumServicesStatusWReq{
-		SCContextHandle: scHandle,
+		SCContextHandle: ctxHandle,
 		ServiceType:     serviceType,
 		ServiceState:    serviceState,
 		BufSize:         0,
 		ResumeIndex:     0,
 	}
 
-	enumSSBuf, err := enumSSReq.MarshalBinary()
+	enumSSBuf, err := enumSSReq.Marshal()
 	if err != nil {
 		log.Errorf("Failed to encode EnumServicesStatus request with error: %v\n", err)
 		return
@@ -1065,7 +1309,7 @@ func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result [
 	}
 
 	res := REnumServicesStatusWRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorf("Failed to unmarshal response of enumerate services status with error: %v\n", err)
 		return
@@ -1085,7 +1329,7 @@ func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result [
 
 	enumSSReq.BufSize = res.BytesNeeded
 
-	enumSSBuf, err = enumSSReq.MarshalBinary()
+	enumSSBuf, err = enumSSReq.Marshal()
 	if err != nil {
 		log.Errorf("Failed to encode EnumServicesStatus request with error: %v\n", err)
 		return
@@ -1099,7 +1343,7 @@ func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result [
 	}
 
 	res = REnumServicesStatusWRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorf("Failed to unmarshal response of enumerate services status with error: %v\n", err)
 		return
@@ -1123,11 +1367,13 @@ func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result [
 }
 
 func (sb *RPCCon) CloseServiceHandle(serviceHandle []byte) {
-	//log.Debugln("In CloseServiceHandle")
+	log.Traceln("In CloseServiceHandle")
+	var handle [20]byte
+	copy(handle[:], serviceHandle)
 	closeReq := RCloseServiceHandleReq{
-		ServiceHandle: serviceHandle,
+		ServiceHandle: handle,
 	}
-	closeBuf, err := closeReq.MarshalBinary()
+	closeBuf, err := closeReq.Marshal()
 	if err != nil {
 		log.Errorf("Failed to encode close service handle request with error: %v\n", err)
 		return
@@ -1139,7 +1385,7 @@ func (sb *RPCCon) CloseServiceHandle(serviceHandle []byte) {
 		return
 	}
 	res := RCloseServiceHandleRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorf("Failed to unmarshal response of close service handle with error: %v\n", err)
 		return

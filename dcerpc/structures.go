@@ -41,6 +41,8 @@ type ServiceBind struct {
 	// callId always contains the last used value, so call Add(1) first
 	callId    *atomic.Uint32 // Use it with callId.Add(1)
 	transport DCERPCTransport
+	// Presentation context ID for this binding (0 for initial bind)
+	contextId uint16
 	// Max size of fragment the server accepts
 	maxFragTransmitSize uint16
 	// Max size of fragment server should send
@@ -50,6 +52,8 @@ type ServiceBind struct {
 	authLevel     uint8
 	authContextId uint32
 	sealer        Sealer // non-nil when authLevel >= PktIntegrity
+	// Next presentation context ID for AlterContext (shared across clones)
+	nextContextId *uint16
 }
 
 // AuthVerifier represents the auth_verifier structure appended to DCERPC PDUs
@@ -289,16 +293,17 @@ func (s *Auth3Req) MarshalBinary() (ret []byte, err error) {
 }
 
 // C706 Section 12.6.4.9
-type RequestReq struct { // 24 + optional fields + len of Buffer
+type RequestReq struct { // 24 + optional ObjectUUID (16) + len of Buffer
 	Header // 16 bytes
 	// AllocHint is an optional field useful for hinting required space when
 	// sending fragmented requests
 	AllocHint uint32
 	ContextId uint16 // Data representation
 	Opnum     uint16
-	// Optional field object uuid_t
+	// Optional field object uuid_t (16 bytes)
 	// Only present if PfcObjectUUID is set in the header flags
-	Buffer []byte
+	ObjectUUID []byte
+	Buffer     []byte
 	// Auth verifier? An optional field if AuthLength != 0
 }
 
@@ -398,7 +403,7 @@ func (s *Header) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *ContextItem) MarshalBinary() (ret []byte, err error) {
-	log.Debugln("In MarshalBinary for ContextItem")
+	log.Traceln("In MarshalBinary for ContextItem")
 	w := bytes.NewBuffer(ret)
 	err = binary.Write(w, le, s.Id)
 	if err != nil {
@@ -442,7 +447,7 @@ func (s *ContextItem) MarshalBinary() (ret []byte, err error) {
 }
 
 func readContextItem(r *bytes.Reader, bo binary.ByteOrder) (res *ContextItem, err error) {
-	log.Debugln("In readContextItem")
+	log.Traceln("In readContextItem")
 	res = &ContextItem{}
 	err = binary.Read(r, bo, &res.Id)
 	if err != nil {
@@ -491,7 +496,7 @@ func readContextItem(r *bytes.Reader, bo binary.ByteOrder) (res *ContextItem, er
 }
 
 func (s *ContextItem) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for ContextItem")
+	log.Traceln("In UnmarshalBinary for ContextItem")
 	r := bytes.NewReader(buf)
 
 	result, err := readContextItem(r, le)
@@ -504,7 +509,7 @@ func (s *ContextItem) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *ContextList) MarshalBinary() (ret []byte, err error) {
-	log.Debugln("In MarshalBinary for ContextList")
+	log.Traceln("In MarshalBinary for ContextList")
 	w := bytes.NewBuffer(ret)
 	err = binary.Write(w, le, byte(len(s.Items)))
 	if err != nil {
@@ -533,7 +538,7 @@ func (s *ContextList) MarshalBinary() (ret []byte, err error) {
 }
 
 func (s *ContextList) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for ContextList")
+	log.Traceln("In UnmarshalBinary for ContextList")
 	r := bytes.NewReader(buf)
 
 	err = binary.Read(r, le, &s.Count)
@@ -562,7 +567,7 @@ func (s *ContextList) UnmarshalBinary(buf []byte) (err error) {
 
 func (s *BindReq) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
-	log.Debugln("In MarshalBinary for BindReq")
+	log.Traceln("In MarshalBinary for BindReq")
 
 	// Encode Header
 	hBuf, err := s.Header.MarshalBinary()
@@ -689,7 +694,7 @@ func readContextResList(r *bytes.Reader, bo binary.ByteOrder) (res *ContextResLi
 }
 
 func (s *ContextResList) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for ContextResList")
+	log.Traceln("In UnmarshalBinary for ContextResList")
 	r := bytes.NewReader(buf)
 
 	result, err := readContextResList(r, le)
@@ -706,7 +711,7 @@ func (s *BindRes) MarshalBinary() (ret []byte, err error) {
 }
 
 func (s *BindRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for BindRes")
+	log.Traceln("In UnmarshalBinary for BindRes")
 	err = s.Header.UnmarshalBinary(buf)
 	if err != nil {
 		log.Errorln(err)
@@ -779,7 +784,7 @@ func (s *BindRes) UnmarshalBinary(buf []byte) (err error) {
 
 func (s *RequestReq) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
-	log.Debugln("In MarshalBinary for RequestReq")
+	log.Traceln("In MarshalBinary for RequestReq")
 
 	// Encode Header
 	hBuf, err := s.Header.MarshalBinary()
@@ -809,6 +814,13 @@ func (s *RequestReq) MarshalBinary() (ret []byte, err error) {
 		log.Errorln(err)
 		return
 	}
+	if len(s.ObjectUUID) > 0 {
+		_, err = w.Write(s.ObjectUUID)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
 	_, err = w.Write(s.Buffer)
 	if err != nil {
 		log.Errorln(err)
@@ -826,7 +838,7 @@ func (s *RequestRes) MarshalBinary() (ret []byte, err error) {
 }
 
 func (s *RequestRes) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for RequestRes")
+	log.Traceln("In UnmarshalBinary for RequestRes")
 	err = s.Header.UnmarshalBinary(buf)
 	if err != nil {
 		log.Errorln(err)

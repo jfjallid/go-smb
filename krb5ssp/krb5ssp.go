@@ -22,6 +22,7 @@
 package krb5ssp
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
@@ -38,6 +39,7 @@ import (
 	"github.com/jfjallid/gokrb5/v8/crypto"
 	"github.com/jfjallid/gokrb5/v8/iana"
 	"github.com/jfjallid/gokrb5/v8/iana/asnAppTag"
+	"github.com/jfjallid/gokrb5/v8/iana/etypeID"
 	"github.com/jfjallid/gokrb5/v8/iana/keyusage"
 	"github.com/jfjallid/gokrb5/v8/iana/msgtype"
 	"github.com/jfjallid/gokrb5/v8/messages"
@@ -81,6 +83,7 @@ type Client struct {
 	micSubkey           types.EncryptionKey
 	encAPRepPart        *messages.EncAPRepPart // saved for DCERPC 3rd leg
 	authenticatorSeqNum int64                  // saved from AP_REQ authenticator
+	spnFallbacks        map[string]string      // requested SPN -> effective SPN (lowercased keys)
 }
 
 func NewClient(client *client.Client) *Client {
@@ -88,7 +91,7 @@ func NewClient(client *client.Client) *Client {
 }
 
 func (t *KRB5Token) MarshalBinary() (res []byte, err error) {
-	log.Debugln("In MarshalBinary for KRB5Token")
+	log.Traceln("In MarshalBinary for KRB5Token")
 	res, err = asn1.Marshal(t.Oid)
 	if err != nil {
 		log.Errorln(err)
@@ -132,7 +135,7 @@ func (t *KRB5Token) MarshalBinary() (res []byte, err error) {
 }
 
 func (t *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
-	log.Debugln("In UnmarshalBinary for KRB5Token")
+	log.Traceln("In UnmarshalBinary for KRB5Token")
 
 	rest, err := asn1.UnmarshalWithParams(buf, &t.Oid, "application,explicit,tag:0")
 	if err != nil {
@@ -197,11 +200,18 @@ func InitKerberosClientExt(username, domain, password string, hash, aesKey []byt
 		settings = append(settings, client.SetDialTimout(timeout))
 	}
 
-	c.Client, err = getClientFromCachedTicket(cfg, username, strings.ToUpper(domain), spn, settings...)
+	log.Debugf("Trying to find a cached ticket for user: %q, domain: %q, spn: %q\n", username, strings.ToUpper(domain), spn)
+	var fallbackSPN string
+	c.Client, fallbackSPN, err = getClientFromCachedTicket(cfg, username, strings.ToUpper(domain), spn, settings...)
 	if err != nil {
 		log.Errorln(err)
 		// Try other methods
 		c.Client = nil
+	}
+	if c.Client != nil && fallbackSPN != "" {
+		c.spnFallbacks = map[string]string{
+			strings.ToLower(spn): strings.ToLower(fallbackSPN),
+		}
 	}
 
 	if c.Client == nil {
@@ -304,7 +314,12 @@ func (i *Client) GetAPReq(spn string, dceStyle bool) ([]byte, error) {
 	var authenticator types.Authenticator
 	var apReq messages.APReq
 	var err error
-	ticket, i.sessionKey, err = i.Client.GetServiceTicket(spn)
+	effectiveSPN := spn
+	if fallback, ok := i.spnFallbacks[strings.ToLower(spn)]; ok {
+		log.Debugf("Using fallback SPN %q for requested SPN %q\n", fallback, spn)
+		effectiveSPN = fallback
+	}
+	ticket, i.sessionKey, err = i.Client.GetServiceTicket(effectiveSPN)
 	if err != nil {
 		log.Errorln(err)
 		return nil, err
@@ -532,18 +547,114 @@ func (client *Client) GetSessionKey() []byte {
 // WrapDCE encrypts plaintext for DCE-RPC using the acceptor subkey.
 // Returns body (PDU stub) and authValue (PDU auth_value).
 func (client *Client) WrapDCE(plaintext []byte, seqNum uint64) (body, authValue []byte, err error) {
+	if client.sessionSubKey.KeyType == etypeID.RC4_HMAC {
+		return wrapDCERC4(client.sessionSubKey.KeyValue, plaintext, uint32(seqNum), true)
+	}
 	return WrapDCE(client.sessionSubKey, gss.KGUsageInitiatorSeal, plaintext, seqNum)
 }
 
 // UnwrapDCE decrypts a DCE-RPC sealed PDU using the acceptor subkey.
 // seqNum is the expected sequence number for replay/reorder detection.
 func (client *Client) UnwrapDCE(body, authValue []byte, seqNum uint64) (plaintext []byte, err error) {
+	if client.sessionSubKey.KeyType == etypeID.RC4_HMAC {
+		return unwrapDCERC4(client.sessionSubKey.KeyValue, body, authValue, uint32(seqNum), false)
+	}
 	return UnwrapDCE(client.sessionSubKey, gss.KGUsageAcceptorSeal, body, authValue, seqNum)
+}
+
+// GetMICDCE computes a MIC token (RFC 4121 Section 4.2.6.1) over data
+// using the acceptor subkey (sessionSubKey). Used for DCE-RPC PktIntegrity.
+func (client *Client) GetMICDCE(data []byte, seqNum uint64) ([]byte, error) {
+	if client.sessionSubKey.KeyType == etypeID.RC4_HMAC {
+		return getMICRC4(client.sessionSubKey.KeyValue, data, uint32(seqNum), true)
+	}
+	micToken := MICToken{
+		TokenId:      0x0404,
+		Flags:        0x04, // AcceptorSubkey
+		Filler:       []byte{0xff, 0xff, 0xff, 0xff, 0xff},
+		SenderSeqNum: seqNum,
+		Payload:      data,
+	}
+	buf := make([]byte, MICTokenHdrLen+len(data))
+	copy(buf, data)
+	copy(buf[len(data):], micToken.MarshalHeader())
+
+	encType, err := crypto.GetEtype(client.sessionSubKey.KeyType)
+	if err != nil {
+		return nil, fmt.Errorf("GetMICDCE: failed to get etype: %w", err)
+	}
+	checksum, err := encType.GetChecksumHash(client.sessionSubKey.KeyValue, buf, gss.KGUsageInitiatorSign)
+	if err != nil {
+		return nil, fmt.Errorf("GetMICDCE: checksum failed: %w", err)
+	}
+	micToken.Checksum = checksum
+	return micToken.MarshalBinary()
+}
+
+// VerifyMICDCE verifies a MIC token received from the acceptor using the
+// acceptor subkey (sessionSubKey). Used for DCE-RPC PktIntegrity.
+func (client *Client) VerifyMICDCE(data, token []byte, expectedSeqNum uint64) error {
+	if client.sessionSubKey.KeyType == etypeID.RC4_HMAC {
+		return verifyMICRC4(client.sessionSubKey.KeyValue, data, token, uint32(expectedSeqNum), false)
+	}
+	if len(token) < MICTokenHdrLen {
+		return fmt.Errorf("VerifyMICDCE: token too short: %d bytes", len(token))
+	}
+
+	gotSeqNum := be.Uint64(token[8:16])
+	if gotSeqNum != expectedSeqNum {
+		return fmt.Errorf("VerifyMICDCE: sequence number mismatch: got %d, want %d", gotSeqNum, expectedSeqNum)
+	}
+
+	receivedChecksum := token[MICTokenHdrLen:]
+
+	// Rebuild the MIC header with received fields
+	micToken := MICToken{
+		TokenId:      0x0404,
+		Flags:        token[2],
+		Filler:       token[3:8],
+		SenderSeqNum: gotSeqNum,
+		Payload:      data,
+	}
+	buf := make([]byte, MICTokenHdrLen+len(data))
+	copy(buf, data)
+	copy(buf[len(data):], micToken.MarshalHeader())
+
+	encType, err := crypto.GetEtype(client.sessionSubKey.KeyType)
+	if err != nil {
+		return fmt.Errorf("VerifyMICDCE: failed to get etype: %w", err)
+	}
+	// Acceptor sends with AcceptorSign usage
+	expectedChecksum, err := encType.GetChecksumHash(client.sessionSubKey.KeyValue, buf, gss.KGUsageAcceptorSign)
+	if err != nil {
+		return fmt.Errorf("VerifyMICDCE: checksum failed: %w", err)
+	}
+
+	if !bytes.Equal(receivedChecksum, expectedChecksum) {
+		return fmt.Errorf("VerifyMICDCE: checksum mismatch")
+	}
+	return nil
+}
+
+// MICTokenSize returns the MIC token size for the current session key type.
+func (client *Client) MICTokenSize() int {
+	if client.sessionSubKey.KeyType == etypeID.RC4_HMAC {
+		return micTokenRC4Size()
+	}
+	encType, err := crypto.GetEtype(client.sessionSubKey.KeyType)
+	if err != nil {
+		log.Errorf("MICTokenSize failed: %v\n", err)
+		return 0
+	}
+	return MICTokenHdrLen + encType.GetHMACBitLength()/8
 }
 
 // WrapTokenOverhead returns the signature size and encryption overhead
 // for the current session key type.
 func (client *Client) WrapTokenOverhead() (signatureSize, encryptionOverhead int) {
+	if client.sessionSubKey.KeyType == etypeID.RC4_HMAC {
+		return wrapTokenRC4Overhead()
+	}
 	sigSize, overhead, err := WrapTokenOverhead(client.sessionSubKey.KeyType)
 	if err != nil {
 		log.Errorf("WrapTokenOverhead failed: %v\n", err)

@@ -212,7 +212,7 @@ func (c *Connection) NegotiateProtocol() error {
 	}
 
 	negRes1 := NewNegotiateRes()
-	log.Debugln("Unmarshalling NegotiateProtocol response")
+	log.Traceln("Unmarshalling NegotiateProtocol response")
 	if err := encoder.Unmarshal(negResBuf, &negRes1); err != nil {
 		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
 		return err
@@ -249,7 +249,7 @@ func (c *Connection) NegotiateProtocol() error {
 		}
 
 		negRes = NewNegotiateRes()
-		log.Debugln("Unmarshalling second NegotiateProtocol response")
+		log.Traceln("Unmarshalling second NegotiateProtocol response")
 		if err := encoder.Unmarshal(negResBuf, &negRes); err != nil {
 			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
 			return err
@@ -461,7 +461,7 @@ func (c *Connection) SessionSetup() error {
 		return err
 	}
 
-	log.Debugln("Unmarshalling SessionSetup1 response")
+	log.Traceln("Unmarshalling SessionSetup1 response")
 	if err := encoder.Unmarshal(ssresbuf, &ssres); err != nil {
 		log.Debugln(err)
 		return err
@@ -608,7 +608,7 @@ func (c *Connection) SessionSetup() error {
 			log.Errorln(err)
 			return err
 		}
-		log.Debugln("Unmarshalling SessionSetup2 response header")
+		log.Traceln("Unmarshalling SessionSetup2 response header")
 
 		var authResp Header
 		if err := encoder.Unmarshal(ss2resbuf, &authResp); err != nil {
@@ -626,7 +626,7 @@ func (c *Connection) SessionSetup() error {
 			return status
 		}
 
-		log.Debugln("Unmarshalling SessionSetup2 response")
+		log.Traceln("Unmarshalling SessionSetup2 response")
 		ssres2, err := NewSessionSetup2Res()
 		if err != nil {
 			log.Debugln(err)
@@ -800,7 +800,7 @@ func (c *Connection) Logoff() error {
 	}
 
 	res := NewLogoffRes()
-	log.Debugln("Unmarshalling Logoff response")
+	log.Traceln("Unmarshalling Logoff response")
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugln(err)
 		return err
@@ -932,7 +932,7 @@ func (c *Connection) TreeConnect(name string) error {
 	}
 
 	var resHeader Header
-	log.Debugf("Unmarshalling TreeConnect response Header [%s]\n", name)
+	log.Tracef("Unmarshalling TreeConnect response Header [%s]\n", name)
 	if err := encoder.Unmarshal(buf[:64], &resHeader); err != nil {
 		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return err
@@ -945,7 +945,7 @@ func (c *Connection) TreeConnect(name string) error {
 
 	var res TreeConnectRes
 
-	log.Debugf("Unmarshalling TreeConnect response [%s]\n", name)
+	log.Tracef("Unmarshalling TreeConnect response [%s]\n", name)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return err
@@ -999,7 +999,7 @@ func (c *Connection) TreeDisconnect(name string) error {
 		log.Debugln(err)
 		return err
 	}
-	log.Debugf("Unmarshalling TreeDisconnect response for [%s]\n", name)
+	log.Tracef("Unmarshalling TreeDisconnect response for [%s]\n", name)
 	var res TreeDisconnectRes
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
@@ -1047,7 +1047,7 @@ func (f *File) CloseFile() error {
 		return err
 	}
 	var res CloseRes
-	log.Debugf("Unmarshalling Close response [%s] for fileid [%x]\n", f.share, f.fd)
+	log.Tracef("Unmarshalling Close response [%s] for fileid [%x]\n", f.share, f.fd)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugln(err)
 		return err
@@ -1094,7 +1094,7 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 	}
 
 	var res QueryDirectoryRes
-	log.Debugf("Unmarshalling QueryDirectory response [%s]\n", f.share)
+	log.Tracef("Unmarshalling QueryDirectory response [%s]\n", f.share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return sf, err
@@ -1190,7 +1190,7 @@ func (f *File) QueryInfoSecurity(bufferSize uint32) (fs *FileSecurityInformation
 	}
 
 	var res QueryInfoRes
-	log.Debugf("Unmarshalling QueryInfo response [%s]\n", f.share)
+	log.Tracef("Unmarshalling QueryInfo response [%s]\n", f.share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return nil, err
@@ -1280,7 +1280,7 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 	}
 
 	var res CreateRes
-	log.Debugf("Unmarshalling Create response [%s]\n", share)
+	log.Tracef("Unmarshalling Create response [%s]\n", share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return files, err
@@ -1422,7 +1422,7 @@ func (s *Connection) OpenFileExt(tree string, filepath string, opts *CreateReqOp
 	}
 
 	var res CreateRes
-	log.Debugf("Unmarshalling Create response [%s]\n", tree)
+	log.Tracef("Unmarshalling Create response [%s]\n", tree)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return nil, err
@@ -1524,7 +1524,7 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 	}
 
 	var res CreateRes
-	log.Debugf("Unmarshalling Create response [%s]\n", share)
+	log.Tracef("Unmarshalling Create response [%s]\n", share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err
@@ -1542,7 +1542,7 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 		return
 	}
 
-	log.Debugln("Sending ReadFile requests")
+	log.Traceln("Sending ReadFile requests")
 	data := make([]byte, s.maxReadSize)
 	fileSize := res.EndOfFile
 
@@ -1605,7 +1605,6 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 		return
 	}
 
-	log.Debugln("Reading response")
 	var h Header
 	if err := encoder.Unmarshal(buf[:64], &h); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
@@ -1636,7 +1635,7 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 	}
 
 	var res ReadRes
-	log.Debugf("Unmarshalling Read response [%s]\n", f.share)
+	log.Tracef("Unmarshalling Read response [%s]\n", f.share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugln(err)
 		return n, err
@@ -1721,7 +1720,7 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 	}
 
 	var res CreateRes
-	log.Debugf("Unmarshalling Create response [%s]\n", share)
+	log.Tracef("Unmarshalling Create response [%s]\n", share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err
@@ -1735,7 +1734,7 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 	}
 	defer f.CloseFile()
 
-	log.Debugln("Sending WriteFile requests")
+	log.Traceln("Sending WriteFile requests")
 
 	writeOffset := offset
 	for {
@@ -1792,7 +1791,7 @@ func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
 	}
 
 	var res WriteRes
-	log.Debugf("Unmarshalling Write response [%s]\n", f.share)
+	log.Tracef("Unmarshalling Write response [%s]\n", f.share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return n, err
@@ -1885,7 +1884,7 @@ func (s *Connection) deleteFileDir(share string, path string, isDir bool) (err e
 	}
 
 	var res CreateRes
-	log.Debugf("Unmarshalling Create response [%s]\n", share)
+	log.Tracef("Unmarshalling Create response [%s]\n", share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugln(err)
 		return err
@@ -1966,7 +1965,7 @@ func (s *Connection) WriteIoCtlReq(req *IoCtlReq) (res IoCtlRes, err error) {
 			return
 		}
 		err = status
-		log.Errorf("IoCtlRequest failed with status: %s\n", status)
+		log.Debugf("IoCtlRequest failed with status: %s\n", status)
 		return
 	}
 
@@ -2052,7 +2051,7 @@ func (s *Connection) Mkdir(share string, path string) (err error) {
 	}
 
 	var res CreateRes
-	log.Debugf("Unmarshalling Create response [%s]\n", share)
+	log.Tracef("Unmarshalling Create response [%s]\n", share)
 	if err := encoder.Unmarshal(buf, &res); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err

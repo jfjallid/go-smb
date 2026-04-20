@@ -544,7 +544,7 @@ ClientLoop:
 							continue ClientLoop
 						}
 
-						log.Debugln("Unmarshalling SessionSetup2 response header")
+						log.Traceln("Unmarshalling SessionSetup2 response header")
 						var authResp Header
 						if err := encoder.Unmarshal(ss2resbuf, &authResp); err != nil {
 							log.Errorln(err)
@@ -586,7 +586,7 @@ ClientLoop:
 							}
 						}
 
-						log.Debugln("Unmarshalling SessionSetup2 response")
+						log.Traceln("Unmarshalling SessionSetup2 response")
 						ssres2, _ := NewSessionSetup2Res()
 						if err := encoder.Unmarshal(ss2resbuf, &ssres2); err != nil {
 							log.Errorln(err)

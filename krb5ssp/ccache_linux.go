@@ -30,7 +30,7 @@ import (
 	"github.com/jfjallid/gokrb5/v8/credentials"
 )
 
-func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string, settings ...func(*client.Settings)) (c *client.Client, err error) {
+func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string, settings ...func(*client.Settings)) (c *client.Client, fallbackSPN string, err error) {
 	cacheFile := os.Getenv("KRB5CCNAME")
 	if cacheFile != "" {
 		var cache *credentials.CCache
@@ -41,6 +41,7 @@ func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string,
 			log.Errorln(err)
 			return
 		}
+		log.Debugf("Found ccache file: %s\n", cacheFile)
 		mode := fileinfo.Mode()
 		if mode.IsRegular() {
 			// Try loading TGT and TGS from ccache
@@ -50,7 +51,9 @@ func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string,
 				return
 			}
 			cacheDomain := cache.GetClientRealm()
-			if domain != "" && !strings.EqualFold(cacheDomain, domain) {
+			// Might be that ccache domain is fqdn but user provides netbios domain name.
+			netbiosDomain := strings.Split(cacheDomain, ".")[0]
+			if domain != "" && (!strings.EqualFold(cacheDomain, domain) && !strings.EqualFold(netbiosDomain, domain)) {
 				log.Infof("Kerberos cache only contains credentials for the %s domain, but not for %s as requested\n", cacheDomain, domain)
 				return
 			}
@@ -59,11 +62,35 @@ func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string,
 				log.Infof("Kerberos cache only contains credentials for the %s username, but not for %s as requested\n", cacheUser, username)
 				return
 			}
+			// For certain SPNs like cifs, a service ticket for "host" migth suffice
+			checkHostSPN := false
+			hostSPN := []string{"host"}
+			parts := strings.Split(spn, "/")
+			if strings.EqualFold(parts[0], "cifs") {
+				checkHostSPN = true
+				hostSPN = append(hostSPN, parts[1:]...)
+			}
+			// Attempt 1
 			c, err = client.NewFromCCache(cache, strings.Split(spn, "/"), cfg, settings...)
-			if err != nil {
-				log.Errorln(err)
+			if err != nil && checkHostSPN {
+				log.Debugf("Requested SPN was %q but no cached ticket for that SPN was available. Let's also try the 'host' SPN", spn)
+				// Attempt 2
+				var err2 error
+				c, err2 = client.NewFromCCache(cache, hostSPN, cfg, settings...)
+				if err2 != nil {
+					log.Errorf("error looking for cached ticket for SPN %q: %s", strings.Join(hostSPN, "/"), err2)
+				} else {
+					err = nil
+					fallbackSPN = strings.Join(hostSPN, "/")
+				}
+			}
+			if c == nil {
+				if err != nil {
+					log.Errorf("error looking for cached ticket for SPN %q: %s", spn, err)
+				}
 				return
 			}
+			log.Debugln("Created client from ccache")
 		} else if mode.IsDir() {
 			log.Errorln("KRB5CCNAME points to a directory and not a file which is not supported")
 			return

@@ -24,13 +24,95 @@ package msrrp
 import (
 	"encoding/binary"
 	"fmt"
+	"unicode/utf16"
 
-	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/go-smb/dcerpc"
+	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/golog"
+	"github.com/jfjallid/mstypes"
 )
 
 var log = golog.Get("github.com/jfjallid/go-smb/dcerpc/msrrp")
+
+// fromUnicodeStrArray decodes a REG_MULTI_SZ payload (a sequence of UTF-16LE
+// strings each terminated by a null WCHAR, with the list itself terminated by
+// a final null WCHAR) into a slice of Go strings.
+func fromUnicodeStrArray(buf []byte) (result []string, err error) {
+	if len(buf) < 2 {
+		return
+	}
+	var currentString []uint16
+	for i := 0; i < len(buf); i += 2 {
+		// Ensure we have enough bytes for a uint16
+		if i+1 >= len(buf) {
+			break
+		}
+
+		// Combine two bytes into a UTF-16LE character
+		char := (uint16(buf[i+1]) << 8) | uint16(buf[i])
+
+		// Check if this is a null terminator
+		if char == 0 {
+			// If we have characters, add the string to result
+			if len(currentString) > 0 {
+				result = append(result, string(utf16.Decode(currentString)))
+				currentString = nil
+			} else {
+				// Double null terminator - end of list
+				break
+			}
+		} else {
+			// Add character to current string
+			currentString = append(currentString, char)
+		}
+	}
+	return
+}
+
+// newRRPString builds an mstypes.RPCUnicodeString for the RRP semantic where
+// the wire value is null-terminated. Both Length and MaximumLength include
+// the trailing null, matching the pattern used by MS-RRP requests.
+func newRRPString(s string) mstypes.RPCUnicodeString {
+	ns := msdtyp.NullTerminate(s)
+	l := uint16(len(ns)) * 2
+	return mstypes.RPCUnicodeString{
+		Length:        l,
+		MaximumLength: l,
+		Value:         ns,
+	}
+}
+
+// newRRPStringBuffer builds an empty mstypes.RPCUnicodeString with a
+// MaximumLength reserved for the given number of WCHARs. Use for [in, out]
+// parameters where the client pre-allocates a buffer for the server to fill.
+func newRRPStringBuffer(maxChars uint16) mstypes.RPCUnicodeString {
+	return mstypes.RPCUnicodeString{
+		Length:        0,
+		MaximumLength: maxChars * 2,
+		Value:         "",
+	}
+}
+
+// newRRPInBuffer builds an empty rrpInBufferString reserving maxChars WCHARs
+// for the server to write into. Used for [in,out] PRRP_UNICODE_STRING /
+// PRPC_UNICODE_STRING parameters where the client must transmit a non-NULL
+// Buffer pointer (with empty conformant body) so the server can write the
+// response in place.
+func newRRPInBuffer(maxChars uint16) rrpInBufferString {
+	return rrpInBufferString{
+		Length:        0,
+		MaximumLength: maxChars * 2,
+		Buffer:        "",
+	}
+}
+
+// newRRPInBufferPtr returns a pointer wrapper for newRRPInBuffer, used for
+// [in,out,unique] parameters that require the outer pointer to also be
+// non-NULL.
+func newRRPInBufferPtr(maxChars uint16) *rrpInBufferString {
+	b := newRRPInBuffer(maxChars)
+	return &b
+}
 
 var (
 	MSRRPUuid                = "338CD001-2244-31F1-AAAA-900038001003"
@@ -248,7 +330,7 @@ func (r *RPCCon) OpenBaseKey(baseName byte) (handle []byte, err error) {
 		return
 	}
 
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -262,7 +344,7 @@ func (r *RPCCon) OpenBaseKey(baseName byte) (handle []byte, err error) {
 
 	// Retrieve context handle from response
 	res := OpenKeyRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -272,17 +354,19 @@ func (r *RPCCon) OpenBaseKey(baseName byte) (handle []byte, err error) {
 		err = ReturnCodeMap[res.ReturnCode]
 	}
 
-	handle = res.HKey
+	handle = res.HKey[:]
 	return
 }
 
 func (r *RPCCon) CloseKeyHandle(hKey []byte) (err error) {
-	req := BaseRegCloseKeyReq{
-		HKey: hKey,
+	req := BaseRegCloseKeyReq{}
+	if len(hKey) != 20 {
+		return fmt.Errorf("Invalid length of HKey in CloseKeyHandle")
 	}
+	copy(req.HKey[:], hKey)
 
 	log.Debugf("Trying to close basekey handle (0x%x)\n", hKey)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -314,23 +398,24 @@ func (r *RPCCon) CreateKey(hKey []byte, name, class string, options, desiredAcce
 	if desiredAccess == 0 {
 		desiredAccess = PermMaximumAllowed
 	}
+	if len(hKey) != 20 {
+		err = fmt.Errorf("Invalid length of HKey in CreateKey")
+		return
+	}
 
+	dispIn := RegCreatedNewKey
 	req := BaseRegCreateKeyReq{
-		HKey: hKey,
-		SubKey: RRPUnicodeStr{
-			S: msdtyp.NullTerminate(name),
-		},
-		Class: RRPUnicodeStr{
-			S: msdtyp.NullTerminate(class),
-		},
+		SubKey:        newRRPString(name),
+		Class:         newRRPString(class),
 		Options:       options,
 		DesiredAccess: desiredAccess,
 		SecurityAttr:  sa,
-		Disposition:   RegCreatedNewKey,
+		Disposition:   &dispIn,
 	}
+	copy(req.HKey[:], hKey)
 
 	log.Debugf("Trying to create registry key (%s)\n", name)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -346,27 +431,30 @@ func (r *RPCCon) CreateKey(hKey []byte, name, class string, options, desiredAcce
 		return
 	}
 	var res BaseRegCreateKeyRes
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
-	hSubKey = res.HKey
-	disposition = res.Disposition
+	hSubKey = res.HKey[:]
+	if res.Disposition != nil {
+		disposition = *res.Disposition
+	}
 	return
 }
 
 // Opnum 7
 func (r *RPCCon) DeleteKey(hKey []byte, name string) (err error) {
-	req := BaseRegDeleteKeyReq{
-		HKey: hKey,
-		SubKey: RRPUnicodeStr{
-			S: msdtyp.NullTerminate(name),
-		},
+	if len(hKey) != 20 {
+		return fmt.Errorf("Invalid length of HKey in DeleteKey")
 	}
+	req := BaseRegDeleteKeyReq{
+		SubKey: newRRPString(name),
+	}
+	copy(req.HKey[:], hKey)
 
 	log.Debugf("Trying to delete registry key (%s)\n", name)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -396,15 +484,16 @@ func (r *RPCCon) DeleteKey(hKey []byte, name string) (err error) {
 
 // Opnum 8
 func (r *RPCCon) DeleteValue(hKey []byte, name string) (err error) {
-	req := BaseRegDeleteValueReq{
-		HKey: hKey,
-		ValueName: RRPUnicodeStr{
-			S: msdtyp.NullTerminate(name),
-		},
+	if len(hKey) != 20 {
+		return fmt.Errorf("Invalid length of HKey in DeleteValue")
 	}
+	req := BaseRegDeleteValueReq{
+		ValueName: newRRPString(name),
+	}
+	copy(req.HKey[:], hKey)
 
 	log.Debugf("Trying to delete registry key value (%s)\n", name)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -434,20 +523,20 @@ func (r *RPCCon) DeleteValue(hKey []byte, name string) (err error) {
 
 // Opnum 9
 func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
-	req := BaseRegEnumKeyReq{
-		HKey:  hKey,
-		Index: index,
-		NameIn: RRPUnicodeStr{
-			MaxLength: 256,
-		},
-		ClassIn: RRPUnicodeStr{
-			MaxLength: 256,
-		},
-		LastWriteTime: &msdtyp.PFiletime{LowDateTime: 1, HighDateTime: 2},
+	if len(hKey) != 20 {
+		err = fmt.Errorf("Invalid length of HKey in EnumKey")
+		return
 	}
+	req := BaseRegEnumKeyReq{
+		Index:         index,
+		NameIn:        newRRPInBuffer(256),
+		ClassIn:       newRRPInBufferPtr(256),
+		LastWriteTime: &mstypes.FileTime{LowDateTime: 1, HighDateTime: 2},
+	}
+	copy(req.HKey[:], hKey)
 
 	log.Debugf("Trying to enumerate subkey (%d) for key handle (0x%x)\n", index, hKey)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -460,7 +549,7 @@ func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 	}
 
 	res := BaseRegEnumKeyRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -471,8 +560,10 @@ func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 	}
 
 	info = &KeyInfo{
-		KeyName:   res.NameOut.S,
-		ClassName: res.ClassOut.S,
+		KeyName: res.NameOut.Value,
+	}
+	if res.ClassOut != nil {
+		info.ClassName = res.ClassOut.Value
 	}
 	return
 }
@@ -480,17 +571,20 @@ func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 // Opnum 10
 func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err error) {
 
+	keyType := uint32(1024)
+	maxLen := uint32(4096)
+	dataLen := uint32(0)
 	req := BaseRegEnumValueReq{
-		HKey:    hKey,
 		Index:   index,
-		NameIn:  RRPUnicodeStr{MaxLength: 4096},
-		Type:    1024,
-		MaxLen:  4096,
-		DataLen: 0,
+		NameIn:  rrpInBufferString{MaximumLength: 4096},
+		Type:    &keyType,
+		MaxLen:  &maxLen,
+		DataLen: &dataLen,
 	}
+	copy(req.HKey[:], hKey)
 
 	log.Debugf("Trying to enumerate value name for index (%d) for key handle (0x%x)\n", index, hKey)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -503,7 +597,7 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 	}
 
 	res := BaseRegEnumValueRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -513,7 +607,7 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 		log.Debugln("EnumValue failed with ERROR_MORE_DATA. Making another request with a larger buffer.")
 		// Make another request with the correct buffer size
 		req.MaxLen = res.DataLen
-		reqBuf, err = req.MarshalBinary()
+		reqBuf, err = req.Marshal()
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -524,7 +618,7 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 			return
 		}
 		res = BaseRegEnumValueRes{}
-		err = res.UnmarshalBinary(buffer)
+		err = res.Unmarshal(buffer)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -540,15 +634,15 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 		return
 	}
 
-	typeName, found := RegValueTypeMap[res.Type]
+	typeName, found := RegValueTypeMap[*res.Type]
 	if !found {
 		typeName = "<Unknown>"
 	}
 	value = &ValueInfo{
-		Name:     res.NameOut.S,
-		Type:     res.Type,
+		Name:     res.NameOut.Value,
+		Type:     *res.Type,
 		TypeName: typeName,
-		ValueLen: res.DataLen,
+		ValueLen: *res.DataLen,
 		Value:    res.Data,
 	}
 	return
@@ -625,15 +719,19 @@ func (r *RPCCon) OpenSubKeyExt(hKey []byte, subkey string, opts, desiredAccess u
 	if desiredAccess == 0 {
 		desiredAccess = PermMaximumAllowed
 	}
+	if len(hKey) != 20 {
+		err = fmt.Errorf("Invalid length of HKey in OpenSubKeyExt")
+		return
+	}
 	req := BaseRegOpenKeyReq{
-		HKey:          hKey,
-		SubKey:        RRPUnicodeStr{MaxLength: uint16(len(subkey)), S: subkey},
+		SubKey:        newRRPString(subkey),
 		Options:       opts,
 		DesiredAccess: desiredAccess,
 	}
+	copy(req.HKey[:], hKey)
 
 	log.Debugf("Trying to open subkey (%s)\n", subkey)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -647,7 +745,7 @@ func (r *RPCCon) OpenSubKeyExt(hKey []byte, subkey string, opts, desiredAccess u
 
 	// Retrieve context handle from response
 	res := OpenKeyRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -664,20 +762,22 @@ func (r *RPCCon) OpenSubKeyExt(hKey []byte, subkey string, opts, desiredAccess u
 		return
 	}
 
-	handle = res.HKey
+	handle = res.HKey[:]
 	return
 }
 
 func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
-	req := BaseRegQueryInfoKeyReq{
-		HKey: hKey,
-		ClassIn: RRPUnicodeStr{
-			MaxLength: 18,
-		},
+	if len(hKey) != 20 {
+		err = fmt.Errorf("Invalid length of HKey in QueryKeyInfo")
+		return
 	}
+	req := BaseRegQueryInfoKeyReq{
+		ClassIn: newRRPStringBuffer(18),
+	}
+	copy(req.HKey[:], hKey)
 
 	log.Debugf("Trying to Query key info for key handle (0x%x)\n", hKey)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -689,7 +789,7 @@ func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 	}
 
 	res := BaseRegQueryInfoKeyRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -700,7 +800,7 @@ func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 	}
 
 	info = &KeyInfo{
-		ClassName:       res.ClassOut.S,
+		ClassName:       res.ClassOut.Value,
 		SubKeys:         res.SubKeys,
 		MaxSubKeyLen:    res.MaxSubKeyLen,
 		MaxClassLen:     res.MaxClassLen,
@@ -708,14 +808,16 @@ func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 		MaxValueNameLen: res.MaxValueNameLen,
 		MaxValueLen:     res.MaxValueLen,
 	}
-	info.ClassName = info.ClassName[:len(info.ClassName)-1] // Remove null byte
+	if len(info.ClassName) > 0 {
+		info.ClassName = info.ClassName[:len(info.ClassName)-1] // Remove null byte
+	}
 
 	return
 }
 
 func (r *RPCCon) QueryValueExt(hKey []byte, name string) (result any, dataType uint32, err error) {
 	var data []byte
-	data, dataType, err = r.QueryValue2(hKey, name)
+	data, dataType, _, err = r.QueryValue2(hKey, name)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -773,23 +875,26 @@ func (r *RPCCon) QueryValueExt(hKey []byte, name string) (result any, dataType u
 	return
 }
 
-func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType uint32, err error) {
+func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType uint32, found bool, err error) {
 	// If I send the parameter Data (lpData) as nil and the DataLen(lpcbData) and MaxSize(lpcbLen) to 0
 	// The server will respond with the size of the requested value in the lpcbData parameter.
 
 	name = msdtyp.NullTerminate(name)
 
+	keyType := uint32(1024)
+	maxLen := uint32(1024)
+	dataLen := uint32(0)
 	req := BaseRegQueryValueReq{
-		HKey:      hKey,
-		ValueName: RRPUnicodeStr{MaxLength: uint16(len(name)), S: name},
-		Type:      1024,
+		ValueName: newRRPString(name),
+		Type:      &keyType,
 		Data:      nil,
-		MaxLen:    1024,
-		DataLen:   0,
+		MaxLen:    &maxLen,
+		DataLen:   &dataLen,
 	}
+	copy(req.HKey[:], hKey)
 
 	log.Debugf("Trying to Query key value for (%s)\n", name)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -801,7 +906,7 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 	}
 
 	res := BaseRegQueryValueRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -811,7 +916,7 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 		log.Debugln("EnumValue failed with ERROR_MORE_DATA. Making another request with a larger buffer.")
 		// Make another request with the correct buffer size
 		req.MaxLen = res.DataLen
-		reqBuf, err = req.MarshalBinary()
+		reqBuf, err = req.Marshal()
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -822,7 +927,7 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 			return
 		}
 		res = BaseRegQueryValueRes{}
-		err = res.UnmarshalBinary(buffer)
+		err = res.Unmarshal(buffer)
 		if err != nil {
 			log.Errorln(err)
 			return
@@ -838,20 +943,27 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 				err = fmt.Errorf("Provided name of registry key value not found")
 			}
 		}
-		log.Errorln(err)
+		log.Debugln(err)
 		return
 	}
+	if res.Type != nil {
+		dataType = *res.Type
+	}
 
-	return res.Data, res.Type, nil
+	return res.Data, dataType, true, nil
 }
 
 func (r *RPCCon) QueryValue(hKey []byte, name string) (result []byte, err error) {
-	result, _, err = r.QueryValue2(hKey, name)
+	result, _, _, err = r.QueryValue2(hKey, name)
 	return
 }
 
 func (r *RPCCon) QueryValueString(hKey []byte, name string) (result string, err error) {
-	data, dataType, err := r.QueryValue2(hKey, name)
+	data, dataType, found, err := r.QueryValue2(hKey, name)
+	if !found {
+		// No need to log a missing reg key as an error here
+		return
+	}
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -868,6 +980,10 @@ func (r *RPCCon) QueryValueString(hKey []byte, name string) (result string, err 
 }
 
 func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err error) {
+	if len(hKey) != 20 {
+		err = fmt.Errorf("Invalid length of HKey in RegSaveKey")
+		return
+	}
 	var ownerSid *msdtyp.SID
 	var acl *msdtyp.PACL
 
@@ -892,22 +1008,33 @@ func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err err
 		log.Errorln(err)
 		return
 	}
-	rd := RpcSecurityDescriptor{
-		SecurityDescriptor: sd,
+	sdBytes, err := sd.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
 	}
-
+	sdLen := uint32(len(sdBytes))
 	sa := &RpcSecurityAttributes{
-		SecurityDescriptor: rd,
-		InheritHandle:      0,
+		SecurityDescriptor: RpcSecurityDescriptor{
+			Data:    sdBytes,
+			InSize:  sdLen,
+			OutSize: sdLen,
+		},
+		InheritHandle: 0,
 	}
+	// Length is the total RPC_SECURITY_ATTRIBUTES size: SD bytes + the two
+	// DWORD descriptor length fields + the Length field itself + the
+	// 4-byte-aligned InheritHandle. Kept for wire parity with older builds.
+	sa.Length = sdLen + 12 + 8
+
 	req := BaseRegSaveKeyReq{
-		HKey:               hKey,
-		FileName:           RRPUnicodeStr{MaxLength: uint16(len(filename)), S: filename},
-		SecurityAttributes: *sa,
+		FileName:           newRRPString(filename),
+		SecurityAttributes: sa,
 	}
+	copy(req.HKey[:], hKey)
 
 	log.Debugf("Trying to save reg key to file (%s)\n", filename)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -940,20 +1067,24 @@ func (r *RPCCon) GetKeySecurityExt(hKey []byte, securityInformation uint32) (sd 
 	if securityInformation == 0 {
 		securityInformation = OwnerSecurityInformation
 	}
+	if len(hKey) != 20 {
+		err = fmt.Errorf("Invalid length of HKey in GetKeySecurityExt")
+		return
+	}
 
 	//TODO check if I can ask for size first and then send another request with that size
 	// Suggest a pretty big security descriptor like 4096 bytes, but check if server responds with error
 	// that the buffer was too small and if so, send another request with as big of a buffer as the server demands
 	req := BaseRegGetKeySecurityReq{
-		HKey:                hKey,
 		SecurityInformation: securityInformation,
 		SecurityDescriptorIn: RpcSecurityDescriptor{
-			InSecurityDescriptor: 4096,
+			InSize: 4096,
 		},
 	}
+	copy(req.HKey[:], hKey)
 
 	//log.Debugf("Trying to Query key value for (%s)\n", name)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -966,7 +1097,7 @@ func (r *RPCCon) GetKeySecurityExt(hKey []byte, securityInformation uint32) (sd 
 	}
 
 	res := BaseRegGetKeySecurityRes{}
-	err = res.UnmarshalBinary(buffer)
+	err = res.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -978,18 +1109,39 @@ func (r *RPCCon) GetKeySecurityExt(hKey []byte, securityInformation uint32) (sd 
 		return
 	}
 	log.Debugln("Successfully got the security information")
-	sd = res.SecurityDescriptorOut.SecurityDescriptor
+	if len(res.SecurityDescriptorOut.Data) == 0 {
+		err = fmt.Errorf("BaseRegGetKeySecurity response contained an empty security descriptor")
+		return
+	}
+	sdOut := &msdtyp.SecurityDescriptor{}
+	if err = sdOut.UnmarshalBinary(res.SecurityDescriptorOut.Data); err != nil {
+		log.Errorln(err)
+		return
+	}
+	sd = sdOut
 
 	return
 }
 
 func (r *RPCCon) SetKeySecurity(hKey []byte, sd *msdtyp.SecurityDescriptor) (err error) {
+	if len(hKey) != 20 {
+		err = fmt.Errorf("Invalid length of HKey in SetKeySecurity")
+		return
+	}
+	sdBytes, err := sd.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	sdLen := uint32(len(sdBytes))
 	req := BaseRegSetKeySecurityReq{
-		HKey: hKey,
 		SecurityDescriptorIn: RpcSecurityDescriptor{
-			SecurityDescriptor: sd,
+			Data:    sdBytes,
+			InSize:  sdLen,
+			OutSize: sdLen,
 		},
 	}
+	copy(req.HKey[:], hKey)
 	if sd.Sacl != nil {
 		req.SecurityInformation |= SACLSecurityInformation
 	}
@@ -1004,7 +1156,7 @@ func (r *RPCCon) SetKeySecurity(hKey []byte, sd *msdtyp.SecurityDescriptor) (err
 	}
 
 	//log.Debugf("Trying to Query key value for (%s)\n", name)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -1163,15 +1315,20 @@ func (r *RPCCon) SetValue(hKey []byte, name string, value any, dataType uint32) 
 		log.Errorln(err)
 		return
 	}
+	if len(hKey) != 20 {
+		err = fmt.Errorf("Invalid length of HKey in SetValue")
+		return
+	}
 	req := BaseRegSetValueReq{
-		HKey:      hKey,
-		ValueName: RRPUnicodeStr{MaxLength: uint16(len(name)), S: name},
+		ValueName: newRRPString(name),
 		Type:      dataType,
 		Data:      data,
+		DataLen:   uint32(len(data)),
 	}
+	copy(req.HKey[:], hKey)
 
 	log.Debugf("Trying to Set the key value for (%s)\n", name)
-	reqBuf, err := req.MarshalBinary()
+	reqBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return

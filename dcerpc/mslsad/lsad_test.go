@@ -35,6 +35,7 @@ import (
 	"testing"
 
 	"github.com/jfjallid/go-smb/msdtyp"
+	"github.com/jfjallid/mstypes"
 )
 
 func TestLsarCloseHandleReq(t *testing.T) {
@@ -42,9 +43,8 @@ func TestLsarCloseHandleReq(t *testing.T) {
 	pkt, _ := hex.DecodeString("0000000013d8cd7a32dac447a2d2e1094606f710")
 
 	handle, _ := hex.DecodeString("0000000013d8cd7a32dac447a2d2e1094606f710")
-	req := LsarCloseReq{
-		ObjectHandle: handle,
-	}
+	req := LsarCloseReq{}
+	copy(req.ObjectHandle[:], handle)
 
 	buf, err := req.MarshalBinary()
 	if err != nil {
@@ -63,9 +63,9 @@ func TestLsarQueryInformationPolicyReq(t *testing.T) {
 	policyHandle, _ := hex.DecodeString("000000002576201d63a8614681d8eeb1380e1520")
 
 	req := LsarQueryInformationPolicyReq{
-		PolicyHandle:     policyHandle,
 		InformationClass: 3,
 	}
+	copy(req.PolicyHandle[:], policyHandle)
 
 	buf, err := req.MarshalBinary()
 	if err != nil {
@@ -87,8 +87,9 @@ func TestLsarQueryInformationPolicyRes(t *testing.T) {
 		t.Fatal(err)
 	}
 	var info *LsaprPolicyPrimaryDomInfo
-	info = resp.PolicyInformation.(*LsaprPolicyPrimaryDomInfo)
-	if info.Name != "SKYNET" {
+	//info = resp.PolicyInformation.(*LsaprPolicyPrimaryDomInfo)
+	info = &resp.PolicyInformation.PolicyPrimaryDomainInfo
+	if info.Name.String() != "SKYNET" {
 		t.Fatalf("expected info.Name==SKYNET, got %v", info.Name)
 	}
 	if info.Sid.ToString() != "S-1-5-21-1023064509-695355555-2046574917" {
@@ -139,10 +140,10 @@ func TestLsarEnumerateAccountsReq(t *testing.T) {
 	policyHandle, _ := hex.DecodeString("000000000f0b08773dd4954a885f252d1e3571fd")
 
 	req := LsarEnumerateAccountsReq{
-		PolicyHandle:       policyHandle,
 		EnumerationContext: 0,
 		PreferredMaxLength: 4096,
 	}
+	copy(req.PolicyHandle[:], policyHandle)
 
 	buf, err := req.MarshalBinary()
 	if err != nil {
@@ -176,10 +177,10 @@ func TestLsarOpenAccountReq(t *testing.T) {
 	sid, _ := msdtyp.ConvertStrToSID("S-1-5-21-1023064509-695355555-2046574917-1106")
 
 	req := LsarOpenAccountReq{
-		PolicyHandle:  policyHandle,
 		AccountSid:    *sid,
 		DesiredAccess: MaximumAllowed,
 	}
+	copy(req.PolicyHandle[:], policyHandle)
 
 	buf, err := req.MarshalBinary()
 	if err != nil {
@@ -199,7 +200,7 @@ func TestLsarOpenAccountRes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(resp.AccountHandle, handle) {
+	if !bytes.Equal(resp.AccountHandle[:], handle) {
 		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", handle, resp.AccountHandle)
 	}
 }
@@ -209,10 +210,8 @@ func TestLsarGetSystemAccessAccountReq(t *testing.T) {
 	pkt, _ := hex.DecodeString("00000000dcc6a0b132ead24785decd3b8a1723b5")
 	accountHandle, _ := hex.DecodeString("00000000dcc6a0b132ead24785decd3b8a1723b5")
 
-	req := LsarGetSystemAccessAccountReq{
-		AccountHandle: accountHandle,
-	}
-
+	req := LsarGetSystemAccessAccountReq{}
+	copy(req.AccountHandle[:], accountHandle)
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
@@ -242,9 +241,9 @@ func TestLsarSetSystemAccessAccountReq(t *testing.T) {
 	accountHandle, _ := hex.DecodeString("0000000054bd1c622f4ec44194c665bb6d9936c6")
 
 	req := LsarSetSystemAccessAccountReq{
-		AccountHandle: accountHandle,
-		SystemAccess:  SeInteractiveLogonRight,
+		SystemAccess: SeInteractiveLogonRight,
 	}
+	copy(req.AccountHandle[:], accountHandle)
 
 	buf, err := req.MarshalBinary()
 	if err != nil {
@@ -263,9 +262,9 @@ func TestLsarEnumerateAccountRightsReq(t *testing.T) {
 
 	sid, _ := msdtyp.ConvertStrToSID("S-1-5-21-1023064509-695355555-2046574917-1106")
 	req := LsarEnumerateAccountRightsReq{
-		PolicyHandle: policyHandle,
-		AccountSid:   *sid,
+		AccountSid: *sid,
 	}
+	copy(req.PolicyHandle[:], policyHandle)
 
 	buf, err := req.MarshalBinary()
 	if err != nil {
@@ -287,21 +286,23 @@ func TestLsarEnumerateAccountRightsRes(t *testing.T) {
 	if resp.UserRights.Entries != 1 {
 		t.Fatalf("expected resp.UserRights.Entries==1, got %v", resp.UserRights.Entries)
 	}
-	if resp.UserRights.UserRights[0] != "SeBackupPrivilege" {
+	if resp.UserRights.UserRights[0].String() != "SeBackupPrivilege" {
 		t.Fatalf("expected resp.UserRights.UserRights[0]==SeBackupPrivilege, got %v", resp.UserRights.UserRights[0])
 	}
 }
 
 func TestLsarAddAccountRightsReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, _ := hex.DecodeString("000000004434e0c899f505488f125fc485ca3a8705000000010500000000000515000000bdb9fa3ca34872294541fc795204000001000000010000000100000024002600020000001300000000000000120000005300650052006500730074006f0072006500500072006900760069006c00650067006500")
-	policyHandle, _ := hex.DecodeString("000000004434e0c899f505488f125fc485ca3a87")
-	sid, _ := msdtyp.ConvertStrToSID("S-1-5-21-1023064509-695355555-2046574917-1106")
+	//pkt, _ := hex.DecodeString("000000004434e0c899f505488f125fc485ca3a8705000000010500000000000515000000bdb9fa3ca34872294541fc795204000001000000010000000100000024002600020000001300000000000000120000005300650052006500730074006f0072006500500072006900760069006c00650067006500")
+	pkt, _ := hex.DecodeString("00000000d1aab5e2bcbe114383aef46d7674139605000000010500000000000515000000e1173710704343f12e96fa8ce903000001000000000002000100000024002600040002001300000000000000120000005300650052006500730074006f0072006500500072006900760069006c00650067006500")
+	policyHandle, _ := hex.DecodeString("00000000d1aab5e2bcbe114383aef46d76741396")
+	sid, _ := msdtyp.ConvertStrToSID("S-1-5-21-272046049-4047717232-2365232686-1001")
 	req := LsarAddAccountRightsReq{
-		PolicyHandle: policyHandle,
-		AccountSid:   *sid,
-		UserRights:   LsaprUserRightSet{UserRights: []string{"SeRestorePrivilege"}},
+		AccountSid: *sid,
 	}
+	copy(req.PolicyHandle[:], policyHandle)
+	req.UserRights.UserRights = append(req.UserRights.UserRights, *mstypes.NewRPCUnicodeString("SeRestorePrivilege", true))
+	req.UserRights.Entries = 1
 
 	buf, err := req.MarshalBinary()
 	if err != nil {
@@ -315,16 +316,17 @@ func TestLsarAddAccountRightsReq(t *testing.T) {
 
 func TestLsarRemoveAccountRightsReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, _ := hex.DecodeString("000000008a5f943e238b5e4e89106934c5bb01de05000000010500000000000515000000bdb9fa3ca34872294541fc79520400000000000001000000010000000100000024002600020000001300000000000000120000005300650052006500730074006f0072006500500072006900760069006c00650067006500")
-	policyHandle, _ := hex.DecodeString("000000008a5f943e238b5e4e89106934c5bb01de")
-	sid, _ := msdtyp.ConvertStrToSID("S-1-5-21-1023064509-695355555-2046574917-1106")
+	pkt, _ := hex.DecodeString("00000000681bd23968dc4b49835255909face84205000000010500000000000515000000e1173710704343f12e96fa8ce90300000000000001000000000002000100000024002400040002001200000000000000120000005300650052006500730074006f0072006500500072006900760069006c00650067006500")
+	policyHandle, _ := hex.DecodeString("00000000681bd23968dc4b49835255909face842")
+	sid, _ := msdtyp.ConvertStrToSID("S-1-5-21-272046049-4047717232-2365232686-1001")
 
 	req := LsarRemoveAccountRightsReq{
-		PolicyHandle: policyHandle,
-		AccountSid:   *sid,
-		AllRights:    false,
-		UserRights:   LsaprUserRightSet{UserRights: []string{"SeRestorePrivilege"}},
+		AccountSid: *sid,
+		AllRights:  false,
 	}
+	copy(req.PolicyHandle[:], policyHandle)
+	req.UserRights.UserRights = append(req.UserRights.UserRights, *mstypes.NewRPCUnicodeString("SeRestorePrivilege", false))
+	req.UserRights.Entries = 1
 
 	buf, err := req.MarshalBinary()
 	if err != nil {
@@ -337,7 +339,7 @@ func TestLsarRemoveAccountRightsReq(t *testing.T) {
 
 func TestLsarOpenPolicy2Req(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, _ := hex.DecodeString("000000001800000000000000000000000000000000000000010000000c0000000200010000000002")
+	pkt, _ := hex.DecodeString("00000200010000000000000001000000000000001800000000000000000000000000000000000000040002000c0000000200010000000002")
 	req := LsarOpenPolicy2Req{
 		SystemName: "",
 		ObjectAttributes: LsaprObjectAttributes{

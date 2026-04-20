@@ -27,9 +27,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/go-smb/dcerpc"
+	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/golog"
+	"github.com/jfjallid/mstypes"
 )
 
 var (
@@ -83,7 +84,7 @@ var ResponseCodeMap = map[uint32]error{
 	StatusSuccess:             fmt.Errorf("The operation completed successfully"),
 	StatusAccessDenied:        fmt.Errorf("Access is denied"),
 	StatusInvalidParameter:    fmt.Errorf("One of the function parameters is not valid."),
-	StatusObjectNameCollision: fmt.Errorf("Another TDO already exists that matches some of the identifying information of the supplied information"),
+	StatusObjectNameCollision: fmt.Errorf("Name collision"),
 	StatusNoSuchPrivilege:     fmt.Errorf("No such privilege"),
 	StatusInvalidSID:          fmt.Errorf("The security identifier of the trusted domain is not valid"),
 	StatusInvalidHandle:       fmt.Errorf("PolicyHandle is not a valid handle."),
@@ -153,11 +154,10 @@ func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 }
 
 func (sb *RPCCon) LsarCloseHandle(handle []byte) (err error) {
-	log.Debugln("In LsarCloseHandle")
+	log.Traceln("In LsarCloseHandle")
 
-	innerReq := LsarCloseReq{
-		ObjectHandle: handle,
-	}
+	innerReq := LsarCloseReq{}
+	copy(innerReq.ObjectHandle[:], handle[:20])
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
@@ -190,16 +190,16 @@ func (sb *RPCCon) LsarCloseHandle(handle []byte) (err error) {
 }
 
 func (sb *RPCCon) LsarQueryInformationPolicy(policyHandle []byte, informationClass uint16) (res LsaprPolicyInformation, err error) {
-	log.Debugln("In LsarQueryInformationPolicy")
+	log.Traceln("In LsarQueryInformationPolicy")
 	if informationClass != PolicyPrimaryDomainInformation {
 		err = fmt.Errorf("Currently, only informationClass PolicyPrimaryDomainInformation (%d) is supported", PolicyPrimaryDomainInformation)
 		return
 	}
 
 	innerReq := LsarQueryInformationPolicyReq{
-		PolicyHandle:     policyHandle,
 		InformationClass: informationClass,
 	}
+	copy(innerReq.PolicyHandle[:], policyHandle[:20])
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
@@ -213,7 +213,7 @@ func (sb *RPCCon) LsarQueryInformationPolicy(policyHandle []byte, informationCla
 	}
 
 	if len(buffer) < 32 {
-		return nil, fmt.Errorf("Server response to LsarQueryInformationPolicy was too small. Expected at atleast 32 bytes")
+		return res, fmt.Errorf("Server response to LsarQueryInformationPolicy was too small. Expected at atleast 32 bytes")
 	}
 
 	var resp LsarQueryInformationPolicyRes
@@ -222,27 +222,31 @@ func (sb *RPCCon) LsarQueryInformationPolicy(policyHandle []byte, informationCla
 		log.Errorln(err)
 		return
 	}
-	res = resp.PolicyInformation
+	//TODO Any checks here? or maybe return a pointer instead?
+	if resp.PolicyInformation != nil {
+		res = *resp.PolicyInformation
+	}
 
 	return
 }
 
 func (sb *RPCCon) LsarCreateAccount(policyHandle []byte, sid string, desiredAccess uint32) (accountHandle []byte, err error) {
-	log.Debugln("In LsarCreateAccount")
+	log.Traceln("In LsarCreateAccount")
 	if desiredAccess == 0 {
 		desiredAccess = MaximumAllowed
 	}
 
 	innerReq := LsarCreateAccountReq{
-		PolicyHandle:  policyHandle,
 		DesiredAccess: desiredAccess,
 	}
+	copy(innerReq.PolicyHandle[:], policyHandle[:20])
 
-	innerReq.AccountSid, err = msdtyp.ConvertStrToSID(sid)
+	s, err := msdtyp.ConvertStrToSID(sid)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
+	innerReq.AccountSid = *s
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
@@ -266,7 +270,7 @@ func (sb *RPCCon) LsarCreateAccount(policyHandle []byte, sid string, desiredAcce
 		return
 	}
 
-	accountHandle = resp.AccountHandle
+	accountHandle = resp.AccountHandle[:]
 
 	if resp.ReturnCode > 0 {
 		status, found := ResponseCodeMap[resp.ReturnCode]
@@ -283,13 +287,13 @@ func (sb *RPCCon) LsarCreateAccount(policyHandle []byte, sid string, desiredAcce
 }
 
 func (sb *RPCCon) LsarEnumerateAccounts(policyHandle []byte) (accounts []msdtyp.SID, err error) {
-	log.Debugln("In LsarEnumerateAccounts")
+	log.Traceln("In LsarEnumerateAccounts")
 
 	innerReq := LsarEnumerateAccountsReq{
-		PolicyHandle:       policyHandle,
 		EnumerationContext: 0,
 		PreferredMaxLength: 4096,
 	}
+	copy(innerReq.PolicyHandle[:], policyHandle[:20])
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
@@ -302,7 +306,7 @@ func (sb *RPCCon) LsarEnumerateAccounts(policyHandle []byte) (accounts []msdtyp.
 		return
 	}
 
-	if len(buffer) < 20 {
+	if len(buffer) < 16 {
 		return nil, fmt.Errorf("Server response to LsarEnumerateAccounts was too small. Expected at atleast 20 bytes")
 	}
 
@@ -336,16 +340,16 @@ func (sb *RPCCon) LsarEnumerateAccounts(policyHandle []byte) (accounts []msdtyp.
 }
 
 func (sb *RPCCon) LsarOpenAccount(policyHandle []byte, sid *msdtyp.SID, desiredAccess uint32) (accountHandle []byte, err error) {
-	log.Debugln("In LsarOpenAccount")
+	log.Traceln("In LsarOpenAccount")
 	if desiredAccess == 0 {
 		desiredAccess = MaximumAllowed
 	}
 
 	innerReq := LsarOpenAccountReq{
-		PolicyHandle:  policyHandle,
 		AccountSid:    *sid,
 		DesiredAccess: desiredAccess,
 	}
+	copy(innerReq.PolicyHandle[:], policyHandle[:20])
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
@@ -380,16 +384,15 @@ func (sb *RPCCon) LsarOpenAccount(policyHandle []byte, sid *msdtyp.SID, desiredA
 		log.Errorln(err)
 		return
 	}
-	accountHandle = resp.AccountHandle
+	accountHandle = resp.AccountHandle[:]
 	return
 }
 
 func (sb *RPCCon) LsarGetSystemAccessAccount(accountHandle []byte) (systemAccess uint32, err error) {
-	log.Debugln("In LsarGetSystemAccessAccount")
+	log.Traceln("In LsarGetSystemAccessAccount")
 
-	innerReq := LsarGetSystemAccessAccountReq{
-		AccountHandle: accountHandle,
-	}
+	innerReq := LsarGetSystemAccessAccountReq{}
+	copy(innerReq.AccountHandle[:], accountHandle[:20])
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
@@ -429,12 +432,12 @@ func (sb *RPCCon) LsarGetSystemAccessAccount(accountHandle []byte) (systemAccess
 }
 
 func (sb *RPCCon) LsarSetSystemAccessAccount(accountHandle []byte, systemAccess uint32) (err error) {
-	log.Debugln("In LsarSetSystemAccessAccount")
+	log.Traceln("In LsarSetSystemAccessAccount")
 
 	innerReq := LsarSetSystemAccessAccountReq{
-		AccountHandle: accountHandle,
-		SystemAccess:  systemAccess,
+		SystemAccess: systemAccess,
 	}
+	copy(innerReq.AccountHandle[:], accountHandle[:20])
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
@@ -467,12 +470,12 @@ func (sb *RPCCon) LsarSetSystemAccessAccount(accountHandle []byte, systemAccess 
 }
 
 func (sb *RPCCon) LsarEnumerateAccountRights(policyHandle []byte, sid *msdtyp.SID) (rights []string, err error) {
-	log.Debugln("In LsarEnumerateAccountRights")
+	log.Traceln("In LsarEnumerateAccountRights")
 
 	innerReq := LsarEnumerateAccountRightsReq{
-		PolicyHandle: policyHandle,
-		AccountSid:   *sid,
+		AccountSid: *sid,
 	}
+	copy(innerReq.PolicyHandle[:], policyHandle[:20])
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
@@ -510,19 +513,23 @@ func (sb *RPCCon) LsarEnumerateAccountRights(policyHandle []byte, sid *msdtyp.SI
 		log.Errorln(err)
 		return
 	}
-	rights = resp.UserRights.UserRights
+	for _, str := range resp.UserRights.UserRights {
+		rights = append(rights, str.Value)
+	}
 	return
 }
 
 func (sb *RPCCon) LsarAddAccountRights(policyHandle []byte, sid *msdtyp.SID, rights []string) (err error) {
-	log.Debugln("In LsarAddAccountRights")
+	log.Traceln("In LsarAddAccountRights")
 
 	innerReq := LsarAddAccountRightsReq{
-		PolicyHandle: policyHandle,
-		AccountSid:   *sid,
-		UserRights:   LsaprUserRightSet{UserRights: rights},
+		AccountSid: *sid,
 	}
-
+	copy(innerReq.PolicyHandle[:], policyHandle[:20])
+	for _, str := range rights {
+		innerReq.UserRights.UserRights = append(innerReq.UserRights.UserRights, *mstypes.NewRPCUnicodeString(str, true))
+	}
+	innerReq.UserRights.Entries = uint32(len(rights))
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
 		log.Errorln(err)
@@ -555,14 +562,17 @@ func (sb *RPCCon) LsarAddAccountRights(policyHandle []byte, sid *msdtyp.SID, rig
 }
 
 func (sb *RPCCon) LsarRemoveAccountRights(policyHandle []byte, sid *msdtyp.SID, rights []string, removeAllRights bool) (err error) {
-	log.Debugln("In LsarRemoveAccountRights")
+	log.Traceln("In LsarRemoveAccountRights")
 
 	innerReq := LsarRemoveAccountRightsReq{
-		PolicyHandle: policyHandle,
-		AccountSid:   *sid,
-		AllRights:    removeAllRights,
-		UserRights:   LsaprUserRightSet{UserRights: rights},
+		AccountSid: *sid,
+		AllRights:  removeAllRights,
 	}
+	copy(innerReq.PolicyHandle[:], policyHandle[:20])
+	for _, str := range rights {
+		innerReq.UserRights.UserRights = append(innerReq.UserRights.UserRights, *mstypes.NewRPCUnicodeString(str, false))
+	}
+	innerReq.UserRights.Entries = uint32(len(rights))
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
@@ -600,8 +610,7 @@ func (sb *RPCCon) LsarRemoveAccountRights(policyHandle []byte, sid *msdtyp.SID, 
 }
 
 func (sb *RPCCon) LsarOpenPolicy2(systemName string) (policyHandle []byte, err error) {
-	log.Debugln("In LsarOpenPolicy2")
-
+	log.Traceln("In LsarOpenPolicy2")
 	innerReq := LsarOpenPolicy2Req{
 		SystemName: systemName,
 		ObjectAttributes: LsaprObjectAttributes{
@@ -637,12 +646,12 @@ func (sb *RPCCon) LsarOpenPolicy2(systemName string) (policyHandle []byte, err e
 		return
 	}
 
-	policyHandle = resp.PolicyHandle
+	policyHandle = resp.PolicyHandle[:]
 	return
 }
 
 func (sb *RPCCon) ListAccounts() (accounts []msdtyp.SID, err error) {
-	log.Debugln("In ListAccounts")
+	log.Traceln("In ListAccounts")
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
@@ -655,7 +664,7 @@ func (sb *RPCCon) ListAccounts() (accounts []msdtyp.SID, err error) {
 }
 
 func (sb *RPCCon) ListAccountRights(sid string) (rights []string, err error) {
-	log.Debugln("In ListAccountRights")
+	log.Traceln("In ListAccountRights")
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
@@ -673,7 +682,7 @@ func (sb *RPCCon) ListAccountRights(sid string) (rights []string, err error) {
 }
 
 func (sb *RPCCon) AddAccountRights(sid string, rights []string) (err error) {
-	log.Debugln("In AddAccountRights")
+	log.Traceln("In AddAccountRights")
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
@@ -691,7 +700,7 @@ func (sb *RPCCon) AddAccountRights(sid string, rights []string) (err error) {
 }
 
 func (sb *RPCCon) RemoveAccountRights(sid string, rights []string, removeAllRights bool) (err error) {
-	log.Debugln("In RemoveAccountRights")
+	log.Traceln("In RemoveAccountRights")
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
@@ -709,7 +718,7 @@ func (sb *RPCCon) RemoveAccountRights(sid string, rights []string, removeAllRigh
 }
 
 func (sb *RPCCon) GetSystemAccessAccount(accountSid string) (rights []string, err error) {
-	log.Debugln("In GetSystemAccessAccount")
+	log.Traceln("In GetSystemAccessAccount")
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
@@ -762,7 +771,7 @@ func (sb *RPCCon) GetSystemAccessAccount(accountSid string) (rights []string, er
 }
 
 func (sb *RPCCon) SetSystemAccessAccount(accountSid string, rights []string) (err error) {
-	log.Debugln("In SetSystemAccessAccount")
+	log.Traceln("In SetSystemAccessAccount")
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
@@ -811,6 +820,6 @@ func (sb *RPCCon) GetPrimaryDomainInfo() (domainInfo *LsaprPolicyPrimaryDomInfo,
 		log.Errorln(err)
 		return
 	}
-	domainInfo = res.(*LsaprPolicyPrimaryDomInfo)
+	domainInfo = &res.PolicyPrimaryDomainInfo
 	return
 }

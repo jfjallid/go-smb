@@ -245,9 +245,9 @@ func TestEptMapResponseUnmarshal(t *testing.T) {
 	// (not hoisted), then offset/actual_count, then referent IDs for each element.
 	// The recursive process() also immediately processes all deferred pointer data
 	// (actual tower structs) before returning, so Status must come AFTER tower data.
-	binary.Write(&buf, le, uint32(1)) // max_count
-	binary.Write(&buf, le, uint32(0)) // offset
-	binary.Write(&buf, le, uint32(1)) // actual_count
+	binary.Write(&buf, le, uint32(1))          // max_count
+	binary.Write(&buf, le, uint32(0))          // offset
+	binary.Write(&buf, le, uint32(1))          // actual_count
 	binary.Write(&buf, le, uint32(0x00020000)) // referent ID for towers[0] (non-null)
 
 	// Deferred tower pointer data (consumed by inner process() before Status is read).
@@ -531,8 +531,8 @@ func TestFloorGetNetBIOSName(t *testing.T) {
 func TestGetTCPPorts(t *testing.T) {
 	tower := &Tower{
 		Floors: []Floor{
-			{ProtocolID: FloorProtoTCP, RHSData: []byte{0x00, 0x50}},  // port 80
-			{ProtocolID: FloorProtoTCP, RHSData: []byte{0x01, 0xBB}},  // port 443
+			{ProtocolID: FloorProtoTCP, RHSData: []byte{0x00, 0x50}}, // port 80
+			{ProtocolID: FloorProtoTCP, RHSData: []byte{0x01, 0xBB}}, // port 443
 			{ProtocolID: FloorProtoIP, RHSData: []byte{10, 0, 0, 1}},
 		},
 	}
@@ -693,8 +693,8 @@ func TestGetTCPPortForInterfaceMultipleTowers(t *testing.T) {
 	// a live RPCCon, so we exercise the tower-level helpers directly and confirm
 	// the []StringBinding aggregation logic).
 	type tc struct {
-		tower   *Tower
-		wantIP  string
+		tower    *Tower
+		wantIP   string
 		wantPort uint16
 	}
 	cases := []tc{

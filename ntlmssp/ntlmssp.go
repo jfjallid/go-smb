@@ -100,18 +100,6 @@ const (
 	MsvAvChannelBindings
 )
 
-type addr struct {
-	typ uint32
-	val []byte
-}
-
-// channelBindings represents gss_channel_bindings_struct
-type channelBindings struct {
-	InitiatorAddress addr
-	AcceptorAddress  addr
-	AppData          []byte
-}
-
 type Version struct {
 	ProductMajorVersion byte
 	ProductMinorVersion byte
@@ -464,7 +452,7 @@ func (s *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 }
 
 func (s *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	log.Debugln("In UnmarshalBinary for Authenticate")
+	log.Traceln("In UnmarshalBinary for Authenticate")
 	baseSize := 64
 	bufLen := len(buf)
 	if bufLen < baseSize {

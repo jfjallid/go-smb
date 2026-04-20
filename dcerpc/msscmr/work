@@ -1,0 +1,18 @@
+● All 18 tests pass. The plan is now complete. Here's a summary of all steps:
+
+  Steps 1-8 (completed in previous sessions): Opnums 0, 2, 6, 1, 16, 15, 19, 17
+
+  Step 9 — RChangeServiceConfigW: Unique pointer strings with toppointer,pointer, *uint32 TagId, []byte dependencies/password.
+
+  Step 10 — RCreateServiceW: Mix of ref (toppointer) and unique (toppointer,pointer) pointer strings, same TagId/deps/password pattern.
+
+  Step 11 — RChangeServiceConfig2W: Converted ConfigInfoW from interface-based union to NDR unionTag/unionField struct with SwitchFunc. Renamed ServiceDescription →
+  ServiceDescriptionW with embedded pointer string. Removed ConfigInfoWUnion interface.
+
+  Step 12 — RQueryServiceConfig2W: [20]byte handle, NDR conformant on response Buffer []byte. Replaced manual seek-based response parsing with NDR decoder.
+
+  Step 13 — REnumServicesStatusW: NDR Marshal for request (with validation preserved). Response kept manual (Unmarshal renamed from UnmarshalBinary) due to opaque buffer
+  with offset-based string pointers.
+
+  Overall: Zero MarshalBinary/UnmarshalBinary references remain. All handles are [20]byte. All request/response structs use NDR tags except REnumServicesStatusWRes (manual
+   parse kept).

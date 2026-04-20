@@ -23,17 +23,13 @@
 package mswkst
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/jfjallid/go-smb/dcerpc"
 	"github.com/jfjallid/golog"
 )
 
-var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/mswkst")
-	le  binary.ByteOrder = binary.LittleEndian
-)
+var log = golog.Get("github.com/jfjallid/go-smb/dcerpc/mswkst")
 
 const (
 	MSRPCUuidWksSvc                = "6BFFD098-A112-3610-9833-46C3F87E345A"
@@ -77,23 +73,26 @@ func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 	return &RPCCon{sb}
 }
 
-func (sb *RPCCon) EnumWkstLoggedOnUsers(level int) (res WkstaUserEnumUnion, err error) {
-	log.Debugln("In EnumWkstLoggedOnUsers")
+func (sb *RPCCon) EnumWkstLoggedOnUsers(level int) (res *WkstaUserEnum, err error) {
+	log.Traceln("In EnumWkstLoggedOnUsers")
 	if level < 0 || level > 1 {
 		return nil, fmt.Errorf("Only levels 0 and 1 are valid")
 	}
 
-	innerReq := NetWkstaUserEnumReq{
-		ServerName:             "",
+	req := NetWkstaUserEnumRequest{
+		ServerName:             nil,
 		UserInfo:               WkstaUserEnum{Level: uint32(level)},
 		PreferredMaximumLength: WkstaMaxPreferredLength,
+		ResumeHandle:           nil,
 	}
-	if level == 0 {
-		innerReq.UserInfo.Data = &WkstaUserInfo0Container{}
-	} else {
-		innerReq.UserInfo.Data = &WkstaUserInfo1Container{}
+	switch level {
+	case 0:
+		req.UserInfo.Level0 = &WkstaUserInfo0Container{}
+	case 1:
+		req.UserInfo.Level1 = &WkstaUserInfo1Container{}
 	}
-	innerBuf, err := innerReq.MarshalBinary()
+
+	innerBuf, err := req.Marshal()
 	if err != nil {
 		log.Errorln(err)
 		return
@@ -104,16 +103,24 @@ func (sb *RPCCon) EnumWkstLoggedOnUsers(level int) (res WkstaUserEnumUnion, err 
 		return
 	}
 
-	if len(buffer) < 24 {
-		return nil, fmt.Errorf("Server response to WkstaUserEnum was too small. Expected at atleast 24 bytes")
-	}
-
-	var resp NetWkstaUserEnumRes
-	err = resp.UnmarshalBinary(buffer)
+	var resp NetWkstaUserEnumResponse
+	err = resp.Unmarshal(buffer)
 	if err != nil {
 		log.Errorln(err)
 		return
 	}
 
-	return resp.UserInfo.Data, err
+	if resp.ReturnCode != ErrorSuccess {
+		status, found := ResponseCodeMap[resp.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown WKST return code for NetWkstaEnum response: 0x%x\n", resp.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		log.Errorln(err)
+		return
+	}
+
+	return &resp.UserInfo, nil
 }

@@ -30,38 +30,44 @@ import (
 
 func TestEnumWkstLoggedOnUsersReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, err := hex.DecodeString("000000000000000000000000010000000000000000000000ffffffff00000000")
+	// NDR encoder uses referent IDs starting at 0x00020000
+	pkt, err := hex.DecodeString("000000000000000000000000000002000000000000000000ffffffff00000000")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkt2, err := hex.DecodeString("000000000100000001000000010000000000000000000000ffffffff00000000")
+	pkt2, err := hex.DecodeString("000000000100000001000000000002000000000000000000ffffffff00000000")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := NetWkstaUserEnumReq{
-		ServerName:             "",
-		UserInfo:               WkstaUserEnum{Level: 0, Data: &WkstaUserInfo0Container{}},
+	req := NetWkstaUserEnumRequest{
+		ServerName:             nil,
+		UserInfo:               WkstaUserEnum{Level: 0, Level0: &WkstaUserInfo0Container{}},
 		PreferredMaximumLength: WkstaMaxPreferredLength,
+		ResumeHandle:           nil,
 	}
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if !bytes.Equal(pkt, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("Level 0 request mismatch.\nExpected: %x\nGot:      %x", pkt, buf)
 	}
 
-	req.UserInfo.Data = &WkstaUserInfo1Container{}
-	req.UserInfo.Level = 1
-	buf, err = req.MarshalBinary()
+	req2 := NetWkstaUserEnumRequest{
+		ServerName:             nil,
+		UserInfo:               WkstaUserEnum{Level: 1, Level1: &WkstaUserInfo1Container{}},
+		PreferredMaximumLength: WkstaMaxPreferredLength,
+		ResumeHandle:           nil,
+	}
+	buf, err = req2.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if !bytes.Equal(pkt2, buf) {
-		t.Fatal("Fail")
+		t.Fatalf("Level 1 request mismatch.\nExpected: %x\nGot:      %x", pkt2, buf)
 	}
 }
 
@@ -75,14 +81,14 @@ func TestEnumWkstLoggedOnUsersRes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp NetWkstaUserEnumRes
-	err = resp.UnmarshalBinary(pkt)
+	var resp NetWkstaUserEnumResponse
+	err = resp.Unmarshal(pkt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var resp2 NetWkstaUserEnumRes
-	err = resp2.UnmarshalBinary(pkt2)
+	var resp2 NetWkstaUserEnumResponse
+	err = resp2.Unmarshal(pkt2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,9 +102,10 @@ func TestEnumWkstLoggedOnUsersRes(t *testing.T) {
 	if resp.UserInfo.Level != 0 {
 		t.Fatal("Fail")
 	}
-	var data *WkstaUserInfo0Container
-	data = resp.UserInfo.Data.(*WkstaUserInfo0Container)
-	if data.Buffer[0].Username != "Administrator" {
+	if resp.UserInfo.Level0 == nil {
+		t.Fatal("Level0 is nil")
+	}
+	if resp.UserInfo.Level0.Buffer[0].Username != "Administrator" {
 		t.Fatal("Fail")
 	}
 
@@ -111,12 +118,13 @@ func TestEnumWkstLoggedOnUsersRes(t *testing.T) {
 	if resp2.UserInfo.Level != 1 {
 		t.Fatal("Fail")
 	}
-	var data2 *WkstaUserInfo1Container
-	data2 = resp2.UserInfo.Data.(*WkstaUserInfo1Container)
-	if data2.Buffer[0].Username != "Administrator" {
+	if resp2.UserInfo.Level1 == nil {
+		t.Fatal("Level1 is nil")
+	}
+	if resp2.UserInfo.Level1.Buffer[0].Username != "Administrator" {
 		t.Fatal("Fail")
 	}
-	if data2.Buffer[0].LogonDomain != "FIFTH" {
+	if resp2.UserInfo.Level1.Buffer[0].LogonDomain != "FIFTH" {
 		t.Fatal("Fail")
 	}
 }

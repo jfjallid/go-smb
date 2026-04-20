@@ -19,13 +19,6 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
-//
-// The marshal/unmarshal of requests and responses according to the NDR syntax
-// has been implemented on a per RPC request basis and not in any complete way.
-// As such, for each new functionality, a manual marshal and unmarshal method
-// has to be written for the relevant messages. This makes it a bit easier to
-// define the message structs but more of the heavy lifting has to be performed
-// by the marshal/unmarshal functions.
 
 package mslsad
 
@@ -84,12 +77,12 @@ const (
 )
 
 func (sb *RPCCon) LsarGetUserName() (username, domain string, err error) {
-	log.Debugln("In LsarGetUserName")
+	log.Traceln("In LsarGetUserName")
 
 	innerReq := LsarGetUserNameReq{
 		SystemName: "",
 		UserName:   &mstypes.PRPCUnicodeString{},
-		DomainName: &mstypes.PRPCUnicodeString{Data: &mstypes.RPCUnicodeString{}},
+		DomainName: &mstypes.PRPCUnicodeString{},
 	}
 
 	innerBuf, err := innerReq.Marshal()
@@ -104,7 +97,7 @@ func (sb *RPCCon) LsarGetUserName() (username, domain string, err error) {
 	}
 
 	if len(buffer) < 12 {
-		return "", "", fmt.Errorf("Server response to LsarGetUserName was too small. Expected at atleast 12 bytes")
+		return "", "", fmt.Errorf("server response to LsarGetUserName was too small. Expected at atleast 12 bytes")
 	}
 
 	resp := LsarGetUserNameRes{
@@ -116,6 +109,15 @@ func (sb *RPCCon) LsarGetUserName() (username, domain string, err error) {
 		log.Errorln(err)
 		return
 	}
+	if resp.ReturnCode > 0 {
+		status, found := ResponseCodeMap[resp.ReturnCode]
+		if !found {
+			err = fmt.Errorf("received unknown LSAT return code for LsarGetUserName response: 0x%x", resp.ReturnCode)
+			return
+		}
+		err = fmt.Errorf("received error in LsarGetUserName response: %s", status)
+		return
+	}
 	username = resp.UserName.Data.String()
 	domain = resp.DomainName.Data.String()
 
@@ -123,7 +125,7 @@ func (sb *RPCCon) LsarGetUserName() (username, domain string, err error) {
 }
 
 func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res SidTranslations, err error) {
-	log.Debugln("In LsarLookupSids2")
+	log.Traceln("In LsarLookupSids2")
 	if len(sids) == 0 {
 		err = fmt.Errorf("Must specify atleast one SID to lookup")
 		return
@@ -195,7 +197,7 @@ func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res Sid
 }
 
 func (sb *RPCCon) LsarLookupNames3(level LsapLookupLevel, names []string) (res NameTranslations, err error) {
-	log.Debugln("In LsarLookupNames3")
+	log.Traceln("In LsarLookupNames3")
 	if len(names) == 0 {
 		err = fmt.Errorf("Must specify atleast one Name to lookup")
 		return

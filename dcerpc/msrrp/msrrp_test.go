@@ -30,13 +30,14 @@ import (
 	"testing"
 
 	"github.com/jfjallid/go-smb/msdtyp"
+	"github.com/jfjallid/mstypes"
 )
 
 // Possible to define an init function that is run before all tests?
 
 func TestEnumKeyReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, err := hex.DecodeString("00000000d2f002b5b16cf04baf78ccd08d590a03010000000000000401000000000200000000000000000000020000000000000403000000000200000000000000000000040000000100000002000000")
+	pkt, err := hex.DecodeString("00000000d2f002b5b16cf04baf78ccd08d590a030100000000000004000002000002000000000000000000000400020000000004080002000002000000000000000000000c0002000100000002000000")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,18 +48,14 @@ func TestEnumKeyReq(t *testing.T) {
 	}
 
 	req := BaseRegEnumKeyReq{
-		HKey:  hKey,
-		Index: 1,
-		NameIn: RRPUnicodeStr{
-			MaxLength: 512,
-		},
-		ClassIn: RRPUnicodeStr{
-			MaxLength: 512,
-		},
-		LastWriteTime: &msdtyp.PFiletime{LowDateTime: 1, HighDateTime: 2},
+		Index:         1,
+		NameIn:        newRRPInBuffer(512),
+		ClassIn:       newRRPInBufferPtr(512),
+		LastWriteTime: &mstypes.FileTime{LowDateTime: 1, HighDateTime: 2},
 	}
+	copy(req.HKey[:], hKey)
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,12 +73,12 @@ func TestEnumKeyRes(t *testing.T) {
 		t.Fatal(err)
 	}
 	var res BaseRegEnumKeyRes
-	err = res.UnmarshalBinary(resPkt)
+	err = res.Unmarshal(resPkt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if res.NameOut.S != "000001F4" {
+	if res.NameOut.Value != "000001F4" {
 		t.Fatal("fail")
 	}
 	if res.LastWriteTime.LowDateTime != binary.LittleEndian.Uint32([]byte{0x19, 0x7a, 0xca, 0x0a}) {
@@ -96,30 +93,29 @@ func TestEnumKeyRes(t *testing.T) {
 }
 
 func TestEnumValueReq(t *testing.T) {
-	//TODO, once working, generate a new example instead of this one which was manually edited to change the RefId ptrs (hopefully)
-	pkt, err := hex.DecodeString("0000000048f6df66ec21ad4aba9f16a6038d393f00000000000000040100000000020000000000000000000002000000000400000300000000040000000000000000000004000000000400000500000000000000")
+	pkt, err := hex.DecodeString("0000000081eb5fab9d2c8c46b20c23278348c1d00000000000000010000002000008000000000000000000000400020000040000080002000010000000000000000000000c000200001000001000020000000000")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	hKey, err := hex.DecodeString("0000000048f6df66ec21ad4aba9f16a6038d393f")
+	hKey, err := hex.DecodeString("0000000081eb5fab9d2c8c46b20c23278348c1d0")
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	keyType := uint32(1024)
+	maxLen := uint32(4096)
+	dataLen := uint32(0)
 	req := BaseRegEnumValueReq{
-		HKey:  hKey,
-		Index: 0,
-		NameIn: RRPUnicodeStr{
-			//MaxLength:  1024,
-			MaxLength: 512,
-		},
-		Type:    1024,
-		MaxLen:  1024,
-		DataLen: 0,
+		Index:   0,
+		NameIn:  rrpInBufferString{MaximumLength: 4096},
+		Type:    &keyType,
+		MaxLen:  &maxLen,
+		DataLen: &dataLen,
 	}
+	copy(req.HKey[:], hKey)
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,14 +133,14 @@ func TestEnumValueRes(t *testing.T) {
 
 	var res BaseRegEnumValueRes
 
-	err = res.UnmarshalBinary(pkt)
+	err = res.Unmarshal(pkt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.NameOut.S != "NL$1\x00" {
-		t.Fatal("fail")
+	if res.NameOut.Value != "NL$1" {
+		t.Fatalf("expected NL$1 but got %s", res.NameOut.Value)
 	}
-	if res.Type != 3 {
+	if *res.Type != 3 {
 		t.Errorf("expected res.Type==3, got %v", res.Type)
 	}
 	nl1 := make([]byte, 168)
@@ -153,10 +149,10 @@ func TestEnumValueRes(t *testing.T) {
 	if !bytes.Equal(res.Data, nl1) {
 		t.Errorf("bytes mismatch\n got:  %x\n want: %x", nl1, res.Data)
 	}
-	if res.DataLen != 168 {
+	if *res.DataLen != 168 {
 		t.Errorf("expected res.DataLen==168, got %v", res.DataLen)
 	}
-	if res.MaxLen != 168 {
+	if *res.MaxLen != 168 {
 		t.Errorf("expected res.MaxLen==168, got %v", res.MaxLen)
 	}
 	if res.ReturnCode != 0 {
@@ -165,7 +161,7 @@ func TestEnumValueRes(t *testing.T) {
 }
 
 func TestSetKeySecurityReq(t *testing.T) {
-	pkt, err := hex.DecodeString("000000008c77795a6df29c48bd0d2948540acbab0400000001000000480000004800000048000000000000004800000001000480000000000000000000000000140000000200340002000000001214003f000f00010100000000000512000000001218000000060001020000000000052000000020020000")
+	pkt, err := hex.DecodeString("000000008c77795a6df29c48bd0d2948540acbab0400000000000200480000004800000048000000000000004800000001000480000000000000000000000000140000000200340002000000001214003f000f00010100000000000512000000001218000000060001020000000000052000000020020000")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,20 +195,28 @@ func TestSetKeySecurityReq(t *testing.T) {
 	}
 
 	sd, err := NewSecurityDescriptor(msdtyp.SecurityDescriptorFlagSR, nil, nil, NewACL([]msdtyp.ACE{*sAce, *aAce}), nil)
-
-	req := BaseRegSetKeySecurityReq{
-		HKey:                hKey,
-		SecurityInformation: DACLSecurityInformation,
-		SecurityDescriptorIn: RpcSecurityDescriptor{
-			SecurityDescriptor: sd,
-		},
-	}
-
-	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
+	sdBytes, err := sd.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdLen := uint32(len(sdBytes))
+	req := BaseRegSetKeySecurityReq{
+		SecurityInformation: DACLSecurityInformation,
+		SecurityDescriptorIn: RpcSecurityDescriptor{
+			Data:    sdBytes,
+			InSize:  sdLen,
+			OutSize: sdLen,
+		},
+	}
+	copy(req.HKey[:], hKey)
 
+	buf, err := req.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Equal(pkt, buf) {
 		t.Errorf("bytes mismatch\n got:  %x\n want: %x", buf, pkt)
 	}
@@ -248,14 +252,14 @@ func TestGetKeySecurityReq(t *testing.T) {
 	}
 
 	req := BaseRegGetKeySecurityReq{
-		HKey:                hKey,
 		SecurityInformation: OwnerSecurityInformation | GroupSecurityInformation | DACLSecurityInformation,
 		SecurityDescriptorIn: RpcSecurityDescriptor{
-			InSecurityDescriptor: 4096,
+			InSize: 4096,
 		},
 	}
+	copy(req.HKey[:], hKey)
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,24 +277,28 @@ func TestGetKeySecurityRes(t *testing.T) {
 
 	var res BaseRegGetKeySecurityRes
 
-	err = res.UnmarshalBinary(pkt)
+	err = res.Unmarshal(pkt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if res.SecurityDescriptorOut.OutSecurityDescriptor != 100 {
+	if res.SecurityDescriptorOut.OutSize != 100 {
 		t.Error("fail")
 	}
-	if res.SecurityDescriptorOut.InSecurityDescriptor != 4096 {
+	if res.SecurityDescriptorOut.InSize != 4096 {
 		t.Error("fail")
 	}
 
-	sd := *res.SecurityDescriptorOut.SecurityDescriptor
+	sd := msdtyp.SecurityDescriptor{}
+	err = sd.UnmarshalBinary(res.SecurityDescriptorOut.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if sd.Control != msdtyp.SecurityDescriptorFlagSR|msdtyp.SecurityDescriptorFlagDP {
 		t.Errorf("expected sd.Control==msdtyp.SecurityDescriptorFlagSR|msdtyp.SecurityDescriptorFlagDP, got %v", sd.Control)
 	}
-	if !bytes.Equal(sd.OwnerSid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
+	if !bytes.Equal(sd.OwnerSid.Authority[:], []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Error("Fail")
 	}
 	if sd.OwnerSid.SubAuthorities[0] != 32 {
@@ -300,7 +308,7 @@ func TestGetKeySecurityRes(t *testing.T) {
 		t.Errorf("expected sd.OwnerSid.SubAuthorities[1]==544, got %v", sd.OwnerSid.SubAuthorities[1])
 	}
 
-	if !bytes.Equal(sd.GroupSid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
+	if !bytes.Equal(sd.GroupSid.Authority[:], []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Error("Fail")
 	}
 	if sd.GroupSid.SubAuthorities[0] != 18 {
@@ -322,7 +330,7 @@ func TestGetKeySecurityRes(t *testing.T) {
 	if acls[0].Header.Flags != 0x12 {
 		t.Errorf("expected acls[0].Header.Flags==0x12, got %v", acls[0].Header.Flags)
 	}
-	if !bytes.Equal(acls[0].Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
+	if !bytes.Equal(acls[0].Sid.Authority[:], []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Error("Fail")
 	}
 
@@ -336,7 +344,7 @@ func TestGetKeySecurityRes(t *testing.T) {
 	if acls[1].Header.Flags != 0x12 {
 		t.Errorf("expected acls[1].Header.Flags==0x12, got %v", acls[1].Header.Flags)
 	}
-	if !bytes.Equal(acls[1].Sid.Authority, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
+	if !bytes.Equal(acls[1].Sid.Authority[:], []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x5}) {
 		t.Error("Fail")
 	}
 
@@ -355,7 +363,7 @@ func TestGetKeySecurityRes(t *testing.T) {
 
 func TestOpenKeyReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, err := hex.DecodeString("000000007660be608d829f419adebc8ce25585701000100001000000080000000000000008000000530041004d005c00530041004d0000000000000000000002")
+	pkt, err := hex.DecodeString("000000007660be608d829f419adebc8ce25585701000100000000200080000000000000008000000530041004d005c00530041004d0000000000000000000002")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,16 +374,13 @@ func TestOpenKeyReq(t *testing.T) {
 	}
 
 	req := BaseRegOpenKeyReq{
-		HKey: hKey,
-		SubKey: RRPUnicodeStr{
-			MaxLength: 8,
-			S:         "SAM\\SAM",
-		},
+		SubKey:        newRRPString("SAM\\SAM"),
 		Options:       0,
 		DesiredAccess: 0x02000000,
 	}
+	copy(req.HKey[:], hKey)
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,13 +402,13 @@ func TestOpenKeyRes(t *testing.T) {
 	}
 
 	var res OpenKeyRes
-	err = res.UnmarshalBinary(resPkt)
+	err = res.Unmarshal(resPkt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !bytes.Equal(res.HKey, handle) {
-		t.Errorf("bytes mismatch\n got:  %x\n want: %x", handle, res.HKey)
+	if !bytes.Equal(res.HKey[:], handle) {
+		t.Errorf("bytes mismatch\n got:  %x\n want: %x", handle, res.HKey[:])
 	}
 
 	if res.ReturnCode != 0 {
@@ -424,13 +429,11 @@ func TestQueryInfoKeyReq(t *testing.T) {
 	}
 
 	req := BaseRegQueryInfoKeyReq{
-		HKey: hKey,
-		ClassIn: RRPUnicodeStr{
-			MaxLength: 18,
-		},
+		ClassIn: newRRPStringBuffer(18),
 	}
+	copy(req.HKey[:], hKey)
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,13 +451,13 @@ func TestQueryInfoKeyRes(t *testing.T) {
 	}
 
 	var res BaseRegQueryInfoKeyRes
-	err = res.UnmarshalBinary(resPkt)
+	err = res.Unmarshal(resPkt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if res.ClassOut.S != "0148322c\x00" {
-		t.Errorf("expected res.ClassOut.S==0148322c\x00, got %v", res.ClassOut.S)
+	if res.ClassOut.Value != "0148322c" {
+		t.Errorf("expected res.ClassOut.Value==0148322c, got %v", res.ClassOut.Value)
 	}
 
 	if res.SubKeys != 0 {
@@ -490,7 +493,7 @@ func TestQueryInfoKeyRes(t *testing.T) {
 }
 
 func TestQueryValueReq(t *testing.T) {
-	pkt, err := hex.DecodeString("0000000091678d52af1f934fb0445307e96a52d11a001a00010000000d000000000000000d000000430075007200720065006e0074004200750069006c0064000000000002000000000400000300000000040000000000000000000004000000000400000500000000000000")
+	pkt, err := hex.DecodeString("0000000091678d52af1f934fb0445307e96a52d11a001a00000002000d000000000000000d000000430075007200720065006e0074004200750069006c006400000000000400020000040000080002000004000000000000000000000c000200000400001000020000000000")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,19 +504,19 @@ func TestQueryValueReq(t *testing.T) {
 	}
 	name := "CurrentBuild\x00"
 
+	keyType := uint32(1024)
+	maxLen := uint32(1024)
+	dataLen := uint32(0)
 	req := BaseRegQueryValueReq{
-		HKey: hKey,
-		ValueName: RRPUnicodeStr{
-			MaxLength: uint16(len(name)),
-			S:         name,
-		},
-		Type:    1024,
-		Data:    nil,
-		MaxLen:  1024,
-		DataLen: 0,
+		ValueName: newRRPString(name),
+		Type:      &keyType,
+		Data:      nil,
+		MaxLen:    &maxLen,
+		DataLen:   &dataLen,
 	}
+	copy(req.HKey[:], hKey)
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,25 +534,28 @@ func TestQueryValueRes(t *testing.T) {
 
 	var res BaseRegQueryValueRes
 
-	err = res.UnmarshalBinary(pkt)
+	err = res.Unmarshal(pkt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if res.Type != 1 {
+	if *res.Type != 1 {
 		t.Errorf("expected res.Type==1, got %v", res.Type)
 	}
 
 	name, err := msdtyp.FromUnicode(res.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Equal(name, []byte(".\\Administrator\x00")) {
-		t.Errorf("bytes mismatch\n got:  %x\n want: %x", name, []byte(".\\Administrator\x00"))
+		t.Errorf("bytes mismatch\n got: %x\n want: %x", name, []byte(".\\Administrator\x00"))
 	}
 
-	if res.DataLen != 32 {
-		t.Errorf("expected res.DataLen==32, got %v", res.DataLen)
+	if *res.DataLen != 32 {
+		t.Errorf("expected res.DataLen==32, got %v", *res.DataLen)
 	}
-	if res.MaxLen != 32 {
-		t.Errorf("expected res.MaxLen==32, got %v", res.MaxLen)
+	if *res.MaxLen != 32 {
+		t.Errorf("expected res.MaxLen==32, got %v", *res.MaxLen)
 	}
 	if res.ReturnCode != 0 {
 		t.Errorf("expected res.ReturnCode==0, got %v", res.ReturnCode)
@@ -558,7 +564,7 @@ func TestQueryValueRes(t *testing.T) {
 
 func TestSaveKeyReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, err := hex.DecodeString("00000000139a8326558bcd48bbcc6af498ba9b2138003800010000001c000000000000001c00000043003a005c00770069006e0064006f00770073005c00740065006d0070005c007300550046006d007800790056002e006c006f00670000000200000058000000040000004400000044000000000000004400000000000000440000000100048034000000000000000000000014000000020020000100000000021800000005c00102000000000005200000002002000001020000000000052000000020020000")
+	pkt, err := hex.DecodeString("00000000139a8326558bcd48bbcc6af498ba9b2138003800000002001c000000000000001c00000043003a005c00770069006e0064006f00770073005c00740065006d0070005c007300550046006d007800790056002e006c006f00670000000400020058000000080002004400000044000000000000004400000000000000440000000100048034000000000000000000000014000000020020000100000000021800000005c00102000000000005200000002002000001020000000000052000000020020000")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,9 +597,9 @@ func TestSaveKeyReq(t *testing.T) {
 	}
 	sdbufLen := uint32(len(sdbuf))
 	rd := RpcSecurityDescriptor{
-		SecurityDescriptor:    sd,
-		InSecurityDescriptor:  sdbufLen,
-		OutSecurityDescriptor: sdbufLen,
+		Data:    sdbuf,
+		InSize:  sdbufLen,
+		OutSize: sdbufLen,
 	}
 
 	sa := &RpcSecurityAttributes{
@@ -603,15 +609,12 @@ func TestSaveKeyReq(t *testing.T) {
 	}
 
 	req := BaseRegSaveKeyReq{
-		HKey: hKey,
-		FileName: RRPUnicodeStr{
-			MaxLength: 11,
-			S:         name,
-		},
-		SecurityAttributes: *sa,
+		FileName:           newRRPString(name),
+		SecurityAttributes: sa,
 	}
+	copy(req.HKey[:], hKey)
 
-	buf, err := req.MarshalBinary()
+	buf, err := req.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
