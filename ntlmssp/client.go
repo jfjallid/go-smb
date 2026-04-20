@@ -52,22 +52,38 @@ var version = []byte{
 }
 
 type Client struct {
-	User           string
-	Password       string
-	Hash           []byte // Password Hash
-	NTHash         []byte // Output from Ntowfv2
-	LMHash         []byte // Output from Lmowfv2
-	LocalUser      bool   // Don't use domain name from server
-	Domain         string
-	Workstation    string
-	NullSession    bool
-	guestSession   bool
-	session        *Session
-	neg            *Negotiate
-	negBytes       []byte // Original marshaled Negotiate for MIC computation
-	TargetSPN      string
-	channelBinding *channelBindings // Reserved for future use
+	User               string
+	Password           string
+	Hash               []byte // Password Hash
+	NTHash             []byte // Output from Ntowfv2
+	LMHash             []byte // Output from Lmowfv2
+	LocalUser          bool   // Don't use domain name from server
+	Domain             string
+	Workstation        string
+	NullSession        bool
+	guestSession       bool
+	session            *Session
+	neg                *Negotiate
+	negBytes           []byte // Original marshaled Negotiate for MIC computation
+	TargetSPN          string
+	channelBindingHash [16]byte // MD5 of gss_channel_bindings_struct for EPA
+	hasChannelBinding  bool     // true when channelBindingHash has been set
 
+	// StripFlags specifies NTLM negotiate flags to remove from the Negotiate
+	// (Type 1) message. The flags are cleared before any internal state is
+	// stored, so the flag intersection, MIC, and session keys all remain
+	// consistent. For example, to prevent sealing:
+	//   c.StripFlags = FlgNegSeal
+	// Default (zero) keeps the standard flags (sign + seal + key exchange).
+	StripFlags uint32
+
+	// DisableMIC prevents setting MsvAvFlags 0x02 (MIC_PROVIDED) in the
+	// NtChallengeResponse TargetInfo and skips MIC computation. The MIC
+	// field in the Authenticate message is left as zeros.
+	// This is useful for LDAP authentication without SASL wrapping, where
+	// the server's strict MIC validation may reject the bind when sign/seal
+	// flags are absent.
+	DisableMIC bool
 }
 
 func (c *Client) Negotiate() ([]byte, error) {
@@ -99,6 +115,7 @@ func (c *Client) Negotiate() ([]byte, error) {
 	}
 
 	req.NegotiateFlags |= FlgNegKeyExch
+	req.NegotiateFlags &^= c.StripFlags
 	req.Version = le.Uint64(version)
 	c.neg = &req
 	buf, err := encoder.Marshal(req)
@@ -202,7 +219,9 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	for _, av := range *chall.TargetInfo {
 		if av.AvID == MsvAvFlags {
 			flagsFound = true
-			le.PutUint32(av.Value, le.Uint32(av.Value)|0x02)
+			if !c.DisableMIC {
+				le.PutUint32(av.Value, le.Uint32(av.Value)|0x02)
+			}
 		} else if av.AvID == MsvAvNbComputerName {
 			nbComputerName, err = encoder.FromUnicodeString(av.Value)
 			if err != nil {
@@ -211,6 +230,9 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 			}
 		} else if av.AvID == MsvAvChannelBindings {
 			channelBindingsFound = true
+			if c.hasChannelBinding {
+				copy(av.Value, c.channelBindingHash[:])
+			}
 		} else if av.AvID == MsvAvTimestamp {
 			timestampFound = true
 			copy(timestamp, av.Value[:8])
@@ -228,7 +250,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 		binary.LittleEndian.PutUint64(timestamp, ConvertToFileTime(time.Now()))
 	}
 
-	if !flagsFound {
+	if !flagsFound && !c.DisableMIC {
 		temp := make([]byte, 2)
 		le.PutUint16(temp, MsvAvFlags)
 		temp = le.AppendUint16(temp, 4)
@@ -236,13 +258,17 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 		binary.Write(w, binary.LittleEndian, temp)
 	}
 
-	// MS-NLMP Section 3.1.5.1.2, If the ClientChannelBindingsUnhashed is NULL
-	// Add an empty MsAvChannelBindings
+	// MS-NLMP Section 3.1.5.1.2
+	// Add MsAvChannelBindings with the actual hash if set, otherwise zeros.
 	if !channelBindingsFound {
 		temp := make([]byte, 2)
 		le.PutUint16(temp, MsvAvChannelBindings)
 		temp = le.AppendUint16(temp, 16)
-		temp = append(temp, make([]byte, 16)...)
+		if c.hasChannelBinding {
+			temp = append(temp, c.channelBindingHash[:]...)
+		} else {
+			temp = append(temp, make([]byte, 16)...)
+		}
 		binary.Write(w, binary.LittleEndian, temp)
 	}
 
@@ -414,18 +440,23 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	// Per MS-NLMP, the MIC must be computed over the original wire bytes of each
 	// message, not re-marshaled structs. Re-marshaling can produce different bytes
 	// due to offset recalculation and AV_PAIR mutations (MsvAvFlags).
-	h = hmac.New(md5.New, session.exportedSessionKey)
-	h.Write(c.negBytes)
-	h.Write(originalChallenge)
+	// When DisableMIC is set, MsvAvFlags 0x02 (MIC_PROVIDED) was not included
+	// in the TargetInfo so the server will not verify the MIC. Leave it as zeros.
+	if !c.DisableMIC {
+		h = hmac.New(md5.New, session.exportedSessionKey)
+		h.Write(c.negBytes)
+		h.Write(originalChallenge)
 
-	authBytes, err := encoder.Marshal(&auth)
-	if err != nil {
-		log.Errorln(err)
-		return
+		var authBytes []byte
+		authBytes, err = encoder.Marshal(&auth)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		h.Write(authBytes)
+		mic := h.Sum(nil)
+		copy(auth.MIC, mic[:16])
 	}
-	h.Write(authBytes)
-	mic := h.Sum(nil)
-	copy(auth.MIC, mic[:16])
 
 	session.clientSigningKey = signKey(flags, session.exportedSessionKey, true)
 	session.serverSigningKey = signKey(flags, session.exportedSessionKey, false)
@@ -448,4 +479,13 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 
 func (c *Client) Session() *Session {
 	return c.session
+}
+
+// SetChannelBindingHash sets the pre-computed MD5 hash of the
+// gss_channel_bindings_struct for EPA (Extended Protection for
+// Authentication). When set, the MsvAvChannelBindings AV pair in the
+// Authenticate message will contain this hash instead of zeros.
+func (c *Client) SetChannelBindingHash(hash [16]byte) {
+	c.channelBindingHash = hash
+	c.hasChannelBinding = true
 }

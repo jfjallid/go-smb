@@ -100,18 +100,6 @@ const (
 	MsvAvChannelBindings
 )
 
-type addr struct {
-	typ uint32
-	val []byte
-}
-
-// channelBindings represents gss_channel_bindings_struct
-type channelBindings struct {
-	InitiatorAddress addr
-	AcceptorAddress  addr
-	AppData          []byte
-}
-
 type Version struct {
 	ProductMajorVersion byte
 	ProductMinorVersion byte
