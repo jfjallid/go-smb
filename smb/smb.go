@@ -1575,24 +1575,9 @@ func (s *Session) NewCreateReq(share, name string,
 	header.TreeID = s.trees[share]
 	var buf []byte
 	var nameLen uint16
-	if len(name) > 0 {
-		uname := encoder.ToUnicode(name)
-		nameLen = uint16(len(uname))
-		buf = make([]byte, nameLen)
-		copy(buf, uname)
-	} else {
-		buf = make([]byte, 1)
-	}
-
-	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
-		header.Credits = 127
-		if header.CreditCharge > 127 {
-			header.Credits = header.CreditCharge
-		}
-	}
-
 	var twrpCtx []byte
 	var gmtToken string
+
 	if strings.HasPrefix(name, "@GMT-") {
 		parts := strings.SplitN(name, "\\", 2)
 		gmtToken = parts[0]
@@ -1607,6 +1592,22 @@ func (s *Session) NewCreateReq(share, name string,
 			return CreateReq{}, fmt.Errorf("Invalid GMT token %q: %w", gmtToken, err)
 		}
 		twrpCtx = buildTWrpContext(ft)
+	}
+
+	if len(name) > 0 {
+		uname := encoder.ToUnicode(name)
+		nameLen = uint16(len(uname))
+		buf = make([]byte, nameLen)
+		copy(buf, uname)
+	} else {
+		buf = make([]byte, 1)
+	}
+
+	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
+		header.Credits = 127
+		if header.CreditCharge > 127 {
+			header.Credits = header.CreditCharge
+		}
 	}
 
 	var createContextsOffset uint32
