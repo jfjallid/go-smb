@@ -28,6 +28,8 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/jfjallid/golog"
 
@@ -1124,7 +1126,7 @@ func (s *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 		buf = binary.LittleEndian.AppendUint32(buf, 0)
 		buf = binary.LittleEndian.AppendUint16(buf, 0)
 	} else {
-padding = 8 - ((36 + len(s.Dialects)*2) % 8)
+		padding = 8 - ((36 + len(s.Dialects)*2) % 8)
 		offset := 64 + 36 + len(s.Dialects)*2 + padding
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(offset))
 		buf = binary.LittleEndian.AppendUint16(buf, s.NegotiateContextCount)
@@ -1321,11 +1323,11 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			//Padd:        make([]byte, (8-(len(scBuf)%8))%8), // Padding not needed for the last item in the list.
 		}
 		/*
-		TODO When rewriting the marshalling, move padding to before instead ot after each context based on alignment.
-		The first negotiate context in the list MUST appear at the byte offset
-		indicated by the SMB2 NEGOTIATE request's NegotiateContextOffset field.
-		Subsequent negotiate contexts MUST appear at the first 8-byte-aligned
-		offset following the previous negotiate context.
+			TODO When rewriting the marshalling, move padding to before instead ot after each context based on alignment.
+			The first negotiate context in the list MUST appear at the byte offset
+			indicated by the SMB2 NEGOTIATE request's NegotiateContextOffset field.
+			Subsequent negotiate contexts MUST appear at the first 8-byte-aligned
+			offset following the previous negotiate context.
 		*/
 		req.ContextList = append(req.ContextList, n)
 
@@ -1524,6 +1526,39 @@ func NewTreeDisconnectRes() (TreeDisconnectRes, error) {
 	return TreeDisconnectRes{}, nil
 }
 
+func gmtToFiletime(gmtToken string) (uint64, error) {
+	t, err := time.Parse("@GMT-2006.01.02-15.04.05", gmtToken)
+	if err != nil {
+		return 0, err
+	}
+	epoch := time.Date(1601, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	return uint64(t.Sub(epoch).Nanoseconds() / 100), nil
+}
+
+func buildTWrpContext(filetime uint64) []byte {
+	ctx := make([]byte, 32)
+	// Next (0 = last context in chain)
+	binary.LittleEndian.PutUint32(ctx[0:], 0)
+	// NameOffset = 16 (offset from start of this context to the name)
+	binary.LittleEndian.PutUint16(ctx[4:], 16)
+	// NameLength = 4 ("TWrp")
+	binary.LittleEndian.PutUint16(ctx[6:], 4)
+	// Reserved
+	binary.LittleEndian.PutUint16(ctx[8:], 0)
+	// DataOffset = 24 (offset from start of this context to the data)
+	binary.LittleEndian.PutUint16(ctx[10:], 24)
+	// DataLength = 8
+	binary.LittleEndian.PutUint32(ctx[12:], 8)
+	// Name = "TWrp"
+	copy(ctx[16:], []byte("TWrp"))
+	// 4 bytes padding (already zeroed)
+	// FILETIME
+	binary.LittleEndian.PutUint64(ctx[24:], filetime)
+
+	return ctx
+}
+
 func (s *Session) NewCreateReq(share, name string,
 	opLockLevel byte,
 	impersonationLevel uint32,
@@ -1556,6 +1591,36 @@ func (s *Session) NewCreateReq(share, name string,
 		}
 	}
 
+	var twrpCtx []byte
+	var gmtToken string
+	if strings.HasPrefix(name, "@GMT-") {
+		parts := strings.SplitN(name, "\\", 2)
+		gmtToken = parts[0]
+		if len(parts) > 1 {
+			name = parts[1]
+		} else {
+			name = ""
+		}
+
+		ft, err := gmtToFiletime(gmtToken)
+		if err != nil {
+			return CreateReq{}, fmt.Errorf("Invalid GMT token %q: %w", gmtToken, err)
+		}
+		twrpCtx = buildTWrpContext(ft)
+	}
+
+	var createContextsOffset uint32
+	var createContextsLength uint32
+
+	if twrpCtx != nil {
+		if pad := len(buf) % 8; pad != 0 {
+			buf = append(buf, make([]byte, 8-pad)...)
+		}
+		createContextsOffset = 120 + uint32(len(buf))
+		createContextsLength = uint32(len(twrpCtx))
+		buf = append(buf, twrpCtx...)
+	}
+
 	return CreateReq{
 		Header:               header,
 		StructureSize:        57, // Must be 57
@@ -1571,8 +1636,8 @@ func (s *Session) NewCreateReq(share, name string,
 		CreateOptions:        createOpts,
 		NameOffset:           120, // 120 byte offset from start of CreateReq header to beginning of buffer as name is first entry in buffer.
 		NameLength:           nameLen,
-		CreateContextsOffset: 0,
-		CreateContextsLength: 0,
+		CreateContextsOffset: createContextsOffset,
+		CreateContextsLength: createContextsLength,
 		Buffer:               buf,
 	}, nil
 }
