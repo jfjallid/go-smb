@@ -1624,7 +1624,7 @@ func (s *Session) NewCreateReq(share, name string,
 		buf = append(buf, twrpCtx...)
 	}
 
-	fmt.Printf("name=%q nameLen=%d cco=%d ccl=%d bufLen=%d\n",
+	log.Debugf("name=%q nameLen=%d cco=%d ccl=%d bufLen=%d\n",
 		name, nameLen, createContextsOffset, createContextsLength, len(buf))
 
 	return CreateReq{
