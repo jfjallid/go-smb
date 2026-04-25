@@ -157,6 +157,17 @@ const (
 	DsNameErrorTrustReferral uint32 = 7
 )
 
+var CrackNamesStatusMap = map[uint32]string{
+	DsNameNoError:            "NoError",
+	DsNameErrorResolving:     "ErrorResolving",
+	DsNameErrorNotFound:      "ErrorNotFound",
+	DsNameErrorNotUnique:     "ErrorNotUnique",
+	DsNameErrorNoMapping:     "ErrorNoMapping",
+	DsNameErrorDomainOnly:    "ErrorDomainOnly",
+	DsNameErrorNoSyntactical: "ErrorNoSyntactical",
+	DsNameErrorTrustReferral: "ErrorTrustReferral",
+}
+
 // DRSUAPI return codes
 const (
 	ErrorSuccess   uint32 = 0
@@ -260,7 +271,7 @@ func (c *RPCCon) DRSBind() error {
 	c.drsHandle = make([]byte, 20)
 	copy(c.drsHandle, resp.PhDrs[:])
 
-	log.Infof("DRSBind successful, server caps: 0x%08x", c.serverCaps)
+	log.Debugf("DRSBind successful, server caps: 0x%08x", c.serverCaps)
 	return nil
 }
 
@@ -581,7 +592,7 @@ func (c *RPCCon) ensureDsaGuid(domain string) error {
 
 	// Use the first DC's NTDS DSA GUID (typically the target DC itself)
 	c.ntdsDsaObjectGuid = dcInfos[0].NtdsDsaObjectGuid
-	log.Infof("Using NTDS DSA GUID from DC %q", dcInfos[0].DnsHostName)
+	log.Debugf("Using NTDS DSA GUID from DC %q", dcInfos[0].DnsHostName)
 	return nil
 }
 
@@ -662,7 +673,6 @@ func (c *RPCCon) DCSyncAll(ncDN string, attrs DCSyncAttrs) ([]ReplicatedUser, er
 func (c *RPCCon) resolveTarget(target string) (guid [16]byte, dn string, err error) {
 	// Try to determine the format
 	var formatOffered uint32
-
 	switch {
 	case len(target) > 4 && target[0] == 'S' && target[1] == '-':
 		formatOffered = DSSidOrSidHistoryName
@@ -670,10 +680,12 @@ func (c *RPCCon) resolveTarget(target string) (guid [16]byte, dn string, err err
 		formatOffered = DSUniqueIdName
 	case strings.ContainsRune(target, '\\'):
 		formatOffered = DSNT4AccountName
-	case len(target) > 3 && target[:3] == "CN=" || (len(target) > 3 && target[:3] == "DC="):
+	case len(target) > 3 && target[:3] == "CN=" || (len(target) > 3 && target[:3] == "DC="): // TODO Is this correct?
 		formatOffered = DSFQDNATTName
-	default:
+	case strings.ContainsRune(target, '@'):
 		formatOffered = DSUserPrincipalName
+	default:
+		formatOffered = DSUnknownName
 	}
 
 	// First resolve to DN (FQDN_1779)
@@ -685,7 +697,11 @@ func (c *RPCCon) resolveTarget(target string) (guid [16]byte, dn string, err err
 		return guid, "", fmt.Errorf("no results from CrackNames for %q", target)
 	}
 	if results[0].Status != DsNameNoError {
-		return guid, "", fmt.Errorf("CrackNames failed for %q: status %d", target, results[0].Status)
+		status, found := CrackNamesStatusMap[results[0].Status]
+		if !found {
+			return guid, "", fmt.Errorf("CrackNames failes for %q: status %d", target, results[0].Status)
+		}
+		return guid, "", fmt.Errorf("CrackNames failed for %q: %s", target, status)
 	}
 	dn = results[0].Name
 

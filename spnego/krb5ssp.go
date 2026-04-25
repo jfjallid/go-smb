@@ -70,6 +70,12 @@ type KRB5Initiator struct {
 	DnsTCP      bool
 	Host        string
 	SPN         string
+	// SPNAliases lets the caller specify acceptable fallback service types
+	// when the requested SPN is not found in the ccache. Keys are requested
+	// service types (e.g. "ldap"); values are ordered alternatives (e.g.
+	// {"host"}). nil means use krb5ssp.defaultSPNAliases; an empty (non-nil)
+	// map disables all fallbacks.
+	SPNAliases map[string][]string
 
 	client       *krb5ssp.Client
 	dceStyle     bool
@@ -96,6 +102,23 @@ func (i *KRB5Initiator) EnableDCEStyle() {
 func (i *KRB5Initiator) SetClient(c *krb5ssp.Client) error {
 	i.client = c
 	return nil
+}
+
+// Client returns the underlying krb5ssp.Client, lazily initializing it from
+// the initiator's fields (User/Password/Hash/AESKey/Domain/DCIP/etc.) if
+// needed. This lets consumers that need to drive the Kerberos context through
+// a different interface (e.g. the LDAP GSSAPI SASL bind in go-smb/ldap)
+// share credentials and the TGS ticket cache with the DCERPC SPNEGO path
+// without duplicating the Initiator fields.
+//
+// The returned client is owned by the initiator; do not Destroy it directly.
+func (i *KRB5Initiator) Client() (*krb5ssp.Client, error) {
+	if i.client == nil {
+		if err := i.initKerberosClient(); err != nil {
+			return nil, err
+		}
+	}
+	return i.client, nil
 }
 
 func (i *KRB5Initiator) Logoff() {
@@ -149,7 +172,7 @@ func (i *KRB5Initiator) initKerberosClient() error {
 			i.DnsHost += ":53"
 		}
 	}
-	i.client, err = krb5ssp.InitKerberosClient(i.User, i.Domain, i.Password, i.Hash, i.AESKey, i.DCIP, i.SPN, i.DialTimeout, i.ProxyDialer, i.DnsHost, i.DnsTCP)
+	i.client, err = krb5ssp.InitKerberosClient(i.User, i.Domain, i.Password, i.Hash, i.AESKey, i.DCIP, i.SPN, i.DialTimeout, i.ProxyDialer, i.DnsHost, i.DnsTCP, i.SPNAliases)
 	return err
 }
 

@@ -466,7 +466,7 @@ func (sb *RPCCon) SamrEnumDomains(handle *SamrHandle) (domains []string, err err
 		return
 	}
 	for _, item := range resp.Buffer.Buffer {
-		log.Infof("Enumerated samr domain name: %s\n", item.Name.Value)
+		log.Debugf("Enumerated samr domain name: %s\n", item.Name.Value)
 		domains = append(domains, item.Name.Value)
 	}
 
@@ -1272,7 +1272,7 @@ func (sb *RPCCon) SamrEnumDomainUsers(domainHandle *SamrHandle, accountFlags uin
 			// We're done
 			if resp.Buffer != nil {
 				for _, item := range resp.Buffer.Buffer {
-					log.Infof("Enumerated samr domain user (%d): %s\n", item.RelativeId, item.Name.Value)
+					log.Debugf("Enumerated samr domain user (%d): %s\n", item.RelativeId, item.Name.Value)
 				}
 				users = append(users, resp.Buffer.Buffer...)
 			}
@@ -1354,7 +1354,7 @@ func (sb *RPCCon) SamrEnumerateGroupsInDomain(domainHandle *SamrHandle, maxLengt
 			// We're done
 			if resp.Buffer != nil {
 				for _, item := range resp.Buffer.Buffer {
-					log.Infof("Enumerated samr domain group (%d): %s\n", item.RelativeId, item.Name.Value)
+					log.Debugf("Enumerated samr domain group (%d): %s\n", item.RelativeId, item.Name.Value)
 				}
 				groups = append(groups, resp.Buffer.Buffer...)
 			}
@@ -1698,7 +1698,7 @@ func (sb *RPCCon) SamrEnumAliasesInDomain(domainHandle *SamrHandle, maxLength ui
 			// We're done
 			if resp.Buffer != nil {
 				for _, item := range resp.Buffer.Buffer {
-					log.Infof("Enumerated samr domain alias (%d): %s\n", item.RelativeId, item.Name.Value)
+					log.Debugf("Enumerated samr domain alias (%d): %s\n", item.RelativeId, item.Name.Value)
 				}
 				aliases = append(aliases, resp.Buffer.Buffer...)
 			}

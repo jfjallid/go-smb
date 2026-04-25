@@ -30,7 +30,7 @@ import (
 	"github.com/jfjallid/gokrb5/v8/credentials"
 )
 
-func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string, settings ...func(*client.Settings)) (c *client.Client, fallbackSPN string, err error) {
+func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string, spnAliases map[string][]string, settings ...func(*client.Settings)) (c *client.Client, fallbackSPN string, err error) {
 	cacheFile := os.Getenv("KRB5CCNAME")
 	if cacheFile != "" {
 		var cache *credentials.CCache
@@ -62,27 +62,26 @@ func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string,
 				log.Infof("Kerberos cache only contains credentials for the %s username, but not for %s as requested\n", cacheUser, username)
 				return
 			}
-			// For certain SPNs like cifs, a service ticket for "host" migth suffice
-			checkHostSPN := false
-			hostSPN := []string{"host"}
-			parts := strings.Split(spn, "/")
-			if strings.EqualFold(parts[0], "cifs") {
-				checkHostSPN = true
-				hostSPN = append(hostSPN, parts[1:]...)
-			}
-			// Attempt 1
-			c, err = client.NewFromCCache(cache, strings.Split(spn, "/"), cfg, settings...)
-			if err != nil && checkHostSPN {
-				log.Debugf("Requested SPN was %q but no cached ticket for that SPN was available. Let's also try the 'host' SPN", spn)
-				// Attempt 2
-				var err2 error
-				c, err2 = client.NewFromCCache(cache, hostSPN, cfg, settings...)
-				if err2 != nil {
-					log.Errorf("error looking for cached ticket for SPN %q: %s", strings.Join(hostSPN, "/"), err2)
-				} else {
-					err = nil
-					fallbackSPN = strings.Join(hostSPN, "/")
+			spnParts := strings.Split(spn, "/")
+			// Build ordered candidate list: primary SPN first, then configured aliases.
+			targets := [][]string{spnParts}
+			if len(spnParts) >= 2 {
+				aliases := spnAliases
+				if aliases == nil {
+					aliases = defaultSPNAliases
 				}
+				service := strings.ToLower(spnParts[0])
+				// Construct alternative SPNs to look for in the ccache
+				for _, altService := range aliases[service] {
+					altParts := append([]string{altService}, spnParts[1:]...)
+					targets = append(targets, altParts)
+				}
+			}
+			var matched []string
+			c, matched, err = client.NewFromCCacheWithFallbacks(cache, targets, cfg, settings...)
+			if matched != nil && !strings.EqualFold(matched[0], spnParts[0]) {
+				fallbackSPN = strings.Join(matched, "/")
+				log.Debugf("Requested SPN %q not cached; using %q instead", spn, fallbackSPN)
 			}
 			if c == nil {
 				if err != nil {

@@ -67,6 +67,19 @@ const (
 	APOptionMutualRequired = 2
 )
 
+// defaultSPNAliases mirrors the subset of AD's sPNMappings relevant to this
+// library: "host" is accepted as an alias for each of these service types,
+// so a cached ticket for host/<target> can satisfy a request for, e.g.,
+// cifs/<target> or ldap/<target>.
+var defaultSPNAliases = map[string][]string{
+	"cifs":  {"host"},
+	"ldap":  {"host"},
+	"www":   {"host"},
+	"http":  {"host"},
+	"rpcss": {"host"},
+	"dcom":  {"host"},
+}
+
 // This is the type that is marshallized into the mechToken in the negTokenInit request
 type KRB5Token struct {
 	Oid      asn1.ObjectIdentifier
@@ -185,7 +198,7 @@ func (t *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 	return
 }
 
-func InitKerberosClientExt(username, domain, password string, hash, aesKey []byte, spn string, timeout time.Duration, dialer proxy.Dialer, cfg *config.Config) (c *Client, err error) {
+func InitKerberosClientExt(username, domain, password string, hash, aesKey []byte, spn string, timeout time.Duration, dialer proxy.Dialer, cfg *config.Config, spnAliases map[string][]string) (c *Client, err error) {
 	if cfg == nil {
 		err = fmt.Errorf("Must specify a config when using InitKerberosClientExt")
 		return
@@ -202,7 +215,7 @@ func InitKerberosClientExt(username, domain, password string, hash, aesKey []byt
 
 	log.Debugf("Trying to find a cached ticket for user: %q, domain: %q, spn: %q\n", username, strings.ToUpper(domain), spn)
 	var fallbackSPN string
-	c.Client, fallbackSPN, err = getClientFromCachedTicket(cfg, username, strings.ToUpper(domain), spn, settings...)
+	c.Client, fallbackSPN, err = getClientFromCachedTicket(cfg, username, strings.ToUpper(domain), spn, spnAliases, settings...)
 	if err != nil {
 		log.Errorln(err)
 		// Try other methods
@@ -216,15 +229,15 @@ func InitKerberosClientExt(username, domain, password string, hash, aesKey []byt
 
 	if c.Client == nil {
 		if aesKey != nil {
-			c.Client = client.NewWithKey(username, strings.ToUpper(domain), aesKey, cfg, settings...)
+			c.Client, _ = client.NewWithKey(username, strings.ToUpper(domain), aesKey, cfg, settings...)
 			//c.Client = client.NewWithKey(username, strings.ToUpper(domain), aesKey, cfg, client.DisablePAFXFAST(true))
 			log.Infoln("Used pass the key to create new kerberos client")
 		} else if hash != nil {
-			c.Client = client.NewWithHash(username, strings.ToUpper(domain), hash, cfg, settings...)
+			c.Client, _ = client.NewWithHash(username, strings.ToUpper(domain), hash, cfg, settings...)
 			//c.Client = client.NewWithHash(username, strings.ToUpper(domain), hash, cfg, client.DisablePAFXFAST(true))
 			log.Infoln("Used pass the hash to create new kerberos client")
 		} else if password != "" {
-			c.Client = client.NewWithPassword(username, strings.ToUpper(domain), password, cfg, settings...)
+			c.Client, _ = client.NewWithPassword(username, strings.ToUpper(domain), password, cfg, settings...)
 			//c.Client = client.NewWithPassword(username, strings.ToUpper(domain), password, cfg, client.DisablePAFXFAST(true))
 			log.Infoln("Used password to create new kerberos client")
 		} else {
@@ -244,7 +257,7 @@ func InitKerberosClientExt(username, domain, password string, hash, aesKey []byt
 	return
 }
 
-func InitKerberosClient(username, domain, password string, hash, aesKey []byte, dcip, spn string, timeout time.Duration, dialer proxy.Dialer, dnsHost string, dnsTCP bool) (c *Client, err error) {
+func InitKerberosClient(username, domain, password string, hash, aesKey []byte, dcip, spn string, timeout time.Duration, dialer proxy.Dialer, dnsHost string, dnsTCP bool, spnAliases map[string][]string) (c *Client, err error) {
 	cfg := config.New()
 	cfg.LibDefaults.DNSLookupKDC = true
 	cfg.LibDefaults.DefaultRealm = strings.ToUpper(domain)
@@ -275,7 +288,7 @@ func InitKerberosClient(username, domain, password string, hash, aesKey []byte, 
 		}
 	}
 
-	return InitKerberosClientExt(username, domain, password, hash, aesKey, spn, timeout, dialer, cfg)
+	return InitKerberosClientExt(username, domain, password, hash, aesKey, spn, timeout, dialer, cfg, spnAliases)
 }
 
 // Context of the Authenticator checksum is decribed in RFC1964 Section 1.1.1
