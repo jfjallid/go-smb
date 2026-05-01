@@ -6,7 +6,7 @@ require golang.org/x/crypto v0.48.0
 
 require (
 	github.com/jfjallid/gofork v1.7.6
-	github.com/jfjallid/gokrb5/v8 v8.6.1
+	github.com/jfjallid/gokrb5/v8 v8.6.2
 	github.com/jfjallid/golog v0.3.5
 	github.com/jfjallid/ldap/v3 v3.100.0
 	github.com/jfjallid/mstypes v0.0.2
