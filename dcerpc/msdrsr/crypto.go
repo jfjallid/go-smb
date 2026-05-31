@@ -287,19 +287,23 @@ type SupplementalCredentials struct {
 
 // Kerberos encryption type constants (RFC 3961 / RFC 3962 / MS-KILE)
 const (
-	ETypeDesCbcCrc           uint32 = 1
-	ETypeDesCbcMd5           uint32 = 3
-	ETypeRc4Hmac             uint32 = 23
-	ETypeAes128CtsHmacSha196 uint32 = 17
-	ETypeAes256CtsHmacSha196 uint32 = 18
+	ETypeDesCbcCrc              uint32 = 1
+	ETypeDesCbcMd5              uint32 = 3
+	ETypeRc4Hmac                uint32 = 23
+	ETypeAes128CtsHmacSha196    uint32 = 17
+	ETypeAes256CtsHmacSha196    uint32 = 18
+	ETypeAes128CtsHmacSha256128 uint32 = 19
+	ETypeAes256CtsHmacSha384192 uint32 = 20
 )
 
 var etypeNames = map[uint32]string{
-	ETypeDesCbcCrc:           "des-cbc-crc",
-	ETypeDesCbcMd5:           "des-cbc-md5",
-	ETypeRc4Hmac:             "rc4-hmac",
-	ETypeAes128CtsHmacSha196: "aes128-cts-hmac-sha1-96",
-	ETypeAes256CtsHmacSha196: "aes256-cts-hmac-sha1-96",
+	ETypeDesCbcCrc:              "des-cbc-crc",
+	ETypeDesCbcMd5:              "des-cbc-md5",
+	ETypeRc4Hmac:                "rc4-hmac",
+	ETypeAes128CtsHmacSha196:    "aes128-cts-hmac-sha1-96",
+	ETypeAes256CtsHmacSha196:    "aes256-cts-hmac-sha1-96",
+	ETypeAes128CtsHmacSha256128: "aes128-cts-hmac-sha256-128",
+	ETypeAes256CtsHmacSha384192: "aes256-cts-hmac-sha384-192",
 }
 
 // KerberosKey holds a single Kerberos encryption key extracted from
