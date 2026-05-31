@@ -36,7 +36,7 @@ import (
 	"github.com/jfjallid/golog"
 )
 
-var log = golog.Get("github.com/jfjallid/go-smb/smb/crypto/ccm")
+var log = golog.Get("github.com/jfjallid/go-smb/smb/crypto/ccm").SetDisplayName("crypto_ccm")
 
 type ccm struct {
 	c         cipher.Block

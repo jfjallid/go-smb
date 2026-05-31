@@ -30,7 +30,7 @@ import (
 	"github.com/jfjallid/golog"
 )
 
-var log = golog.Get("github.com/jfjallid/go-smb/dcerpc/mssrvs")
+var log = golog.Get("github.com/jfjallid/go-smb/dcerpc/mssrvs").SetDisplayName("mssrvs")
 
 const (
 	MSRPCUuidSrvSvc                = "4B324FC8-1670-01D3-1278-5A47BF6EE188"

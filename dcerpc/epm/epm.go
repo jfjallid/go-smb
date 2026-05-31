@@ -33,7 +33,7 @@ import (
 )
 
 var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/epm")
+	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/epm").SetDisplayName("epm")
 	le  binary.ByteOrder = binary.LittleEndian
 )
 

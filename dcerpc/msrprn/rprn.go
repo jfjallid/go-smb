@@ -35,7 +35,7 @@ import (
 )
 
 var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/msrprn")
+	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/msrprn").SetDisplayName("msrprn")
 	le  binary.ByteOrder = binary.LittleEndian
 )
 

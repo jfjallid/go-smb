@@ -29,7 +29,7 @@ import (
 	"github.com/jfjallid/golog"
 )
 
-var log = golog.Get("github.com/jfjallid/go-smb/dcerpc/mswkst")
+var log = golog.Get("github.com/jfjallid/go-smb/dcerpc/mswkst").SetDisplayName("mswkst")
 
 const (
 	MSRPCUuidWksSvc                = "6BFFD098-A112-3610-9833-46C3F87E345A"

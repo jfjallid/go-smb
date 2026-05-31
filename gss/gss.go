@@ -7,7 +7,7 @@ import (
 	"github.com/jfjallid/golog"
 )
 
-var log = golog.Get("github.com/jfjallid/go-smb/gss")
+var log = golog.Get("github.com/jfjallid/go-smb/gss").SetDisplayName("gss")
 var SpnegoOid = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 5, 5, 2})
 var MsKerberosOid = asn1.ObjectIdentifier([]int{1, 2, 840, 48018, 1, 2, 2})
 var KerberosSSPMechTypeOid = asn1.ObjectIdentifier([]int{1, 2, 840, 113554, 1, 2, 2})
