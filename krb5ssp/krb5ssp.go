@@ -49,7 +49,7 @@ import (
 )
 
 var le = binary.LittleEndian
-var log = golog.Get("github.com/jfjallid/go-smb/krb5ssp")
+var log = golog.Get("github.com/jfjallid/go-smb/krb5ssp").SetDisplayName("krb5ssp")
 
 // Possible values for the KRB5Token struct's TokenId field
 const (
@@ -259,6 +259,14 @@ func InitKerberosClientExt(username, domain, password string, hash, aesKey []byt
 
 func InitKerberosClient(username, domain, password string, hash, aesKey []byte, dcip, spn string, timeout time.Duration, dialer proxy.Dialer, dnsHost string, dnsTCP bool, spnAliases map[string][]string) (c *Client, err error) {
 	cfg := config.New()
+	// Default to TCP for all KDC traffic. Against Active Directory the AS/TGS
+	// responses carry a PAC and almost always exceed the KDC's UDP datagram
+	// reply limit, so a UDP attempt just earns a KRB_ERR_RESPONSE_TOO_BIG and a
+	// mandatory TCP retry. Skipping the wasted UDP round-trip also avoids the
+	// confusing "response too big" failure mode. The gokrb5 client still
+	// iterates across multiple DCs on a TCP transport failure, so always-TCP is
+	// safe even when one DC has a filtered TCP/88.
+	cfg.LibDefaults.UDPPreferenceLimit = 1
 	cfg.LibDefaults.DNSLookupKDC = true
 	cfg.LibDefaults.DefaultRealm = strings.ToUpper(domain)
 	cfg.Realms = []config.Realm{
@@ -272,8 +280,8 @@ func InitKerberosClient(username, domain, password string, hash, aesKey []byte, 
 		cfg.Realms[0].KDC = []string{domain + ":88"}
 	}
 	if dialer != nil {
-		// Force TCP communication with KDC when using socks proxy
-		cfg.LibDefaults.UDPPreferenceLimit = 1
+		// KDC traffic already defaults to TCP above; a socks proxy just needs
+		// the DNS resolver pointed through it over TCP.
 		if dnsHost != "" {
 			cfg.SetDNSResolver(dialer.(proxy.ContextDialer), dnsHost, "tcp")
 		}
@@ -281,7 +289,6 @@ func InitKerberosClient(username, domain, password string, hash, aesKey []byte, 
 		protocol := "udp"
 		if dnsTCP {
 			protocol = "tcp"
-			cfg.LibDefaults.UDPPreferenceLimit = 1
 		}
 		if dnsHost != "" {
 			cfg.SetDNSResolver(&net.Dialer{Timeout: timeout}, dnsHost, protocol)
