@@ -1,0 +1,32 @@
+// MIT License
+//
+// Copyright (c) 2026 Jimmy Fjällid
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+
+package server
+
+import (
+	"github.com/jfjallid/go-smb/smb"
+)
+
+// handleCancel replies to an SMB2 CANCEL request with a STATUS_CANCELLED
+// error frame. Per MS-SMB2 §3.3.5.16 the server should respond gracefully
+// even when there's nothing to cancel — our dispatcher is synchronous so
+// every request has already completed by the time the cancel arrives, but
+// returning STATUS_NOT_SUPPORTED would be needlessly hostile.
+//
+// The reply is a header-only error PDU. MessageID is echoed; clients
+// correlate the cancel reply back to their pending request via MessageID,
+// not AsyncID (we don't issue interim async responses).
+func (c *Conn) handleCancel(ctx pduCtx, h *smb.Header) error {
+	return c.writeRawError(ctx, h, smb.StatusCancelled)
+}
