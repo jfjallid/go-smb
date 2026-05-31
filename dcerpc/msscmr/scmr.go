@@ -34,7 +34,7 @@ import (
 )
 
 var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/msscmr")
+	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/msscmr").SetDisplayName("msscmr")
 	le  binary.ByteOrder = binary.LittleEndian
 )
 
@@ -387,7 +387,8 @@ func (sb *RPCCon) ChangeServiceConfigExt(serviceName string, config *ServiceConf
 	serviceStartName = config.ServiceStartName
 	displayName = config.DisplayName
 
-	return sb.ChangeServiceConfig(serviceName, serviceType, startType, errorControl, binaryPathName, serviceStartName, "", displayName, &config.LoadOrderGroup, config.Dependencies, config.TagId)
+	//TODO Verify all string pointers passed here that they are correct
+	return sb.ChangeServiceConfig(serviceName, serviceType, startType, errorControl, &binaryPathName, &serviceStartName, "", &displayName, &config.LoadOrderGroup, config.Dependencies, config.TagId)
 }
 
 func (sb *RPCCon) openSCManager(desiredAccess uint32) (handle []byte, err error) {
@@ -954,7 +955,7 @@ func (sb *RPCCon) SetServicePreferredNode(serviceName string, info *ServicePrefe
 func (sb *RPCCon) ChangeServiceConfig(
 	serviceName string,
 	serviceType, startType, errorControl uint32,
-	binaryPathName, serviceStartName, password, displayName string, loadOrderGroup *string, dependencies string, tagId uint32) (err error) {
+	binaryPathName, serviceStartName *string, password string, displayName *string, loadOrderGroup *string, dependencies string, tagId uint32) (err error) {
 
 	log.Traceln("In ChangeServiceConfig")
 	multiSz := ""

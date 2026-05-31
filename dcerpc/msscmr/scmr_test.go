@@ -419,9 +419,9 @@ func TestChangeServiceConfigReq(t *testing.T) {
 		ServiceType:      ServiceNoChange,
 		StartType:        ServiceDisabled,
 		ErrorControl:     ServiceErrorIgnore,
-		BinaryPathName:   "C:\\Windows\\System32\\svchost.exe -k rdxgroup",
-		ServiceStartName: ".\\administrator",
-		DisplayName:      "Retail demo service2",
+		BinaryPathName:   strPtr("C:\\Windows\\System32\\svchost.exe -k rdxgroup"),
+		ServiceStartName: strPtr(".\\administrator"),
+		DisplayName:      strPtr("Retail demo service2"),
 	}
 
 	password := "secretpass"

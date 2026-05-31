@@ -276,17 +276,17 @@ type RChangeServiceConfigWReq struct {
 	ServiceType      uint32
 	StartType        uint32
 	ErrorControl     uint32
-	BinaryPathName   string  `ndr:"toplevel,fullpointer,conformant,varying"`
+	BinaryPathName   *string `ndr:"toplevel,fullpointer,conformant,varying"`
 	LoadOrderGroup   *string `ndr:"toplevel,fullpointer,conformant,varying"`
 	TagId            *uint32 `ndr:"toplevel,fullpointer"`
 	Dependencies     *[]byte `ndr:"toplevel,fullpointer,conformant"`
 	DependSize       uint32
-	ServiceStartName string `ndr:"toplevel,fullpointer,conformant,varying"`
+	ServiceStartName *string `ndr:"toplevel,fullpointer,conformant,varying"`
 	// RPC over SMB requires password encryption with session key
 	// So have to encrypt the password before calling the marshal function
 	Password    *[]byte `ndr:"toplevel,fullpointer,conformant"`
 	PwSize      uint32
-	DisplayName string `ndr:"toplevel,fullpointer,conformant,varying"`
+	DisplayName *string `ndr:"toplevel,fullpointer,conformant,varying"`
 }
 
 type RChangeServiceConfigWRes struct {
