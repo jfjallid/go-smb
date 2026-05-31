@@ -24,6 +24,7 @@ package msdtyp
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"slices"
@@ -471,6 +472,56 @@ func ConvertStrToSID(s string) (sid *SID, err error) {
 	sid.SubAuthorities = subAuths
 	sid.NumAuth = subCount
 	return
+}
+
+// GuidToString renders a GUID stored in the standard little-endian wire layout
+// (as used inside object ACEs: Data1 uint32 LE, Data2/Data3 uint16 LE, Data4 8
+// bytes as-is) to the canonical "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" form.
+func GuidToString(b [16]byte) string {
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		le.Uint32(b[0:4]),
+		le.Uint16(b[4:6]),
+		le.Uint16(b[6:8]),
+		be.Uint16(b[8:10]),
+		b[10:16],
+	)
+}
+
+// GuidFromString parses a canonical GUID string into the little-endian wire
+// layout expected inside object ACEs. Surrounding braces are tolerated.
+func GuidFromString(s string) (b [16]byte, err error) {
+	s = strings.TrimSuffix(strings.TrimPrefix(s, "{"), "}")
+	parts := strings.Split(s, "-")
+	if len(parts) != 5 {
+		err = fmt.Errorf("invalid GUID %q", s)
+		return
+	}
+	d1, err := strconv.ParseUint(parts[0], 16, 32)
+	if err != nil {
+		return b, fmt.Errorf("invalid GUID %q: %w", s, err)
+	}
+	d2, err := strconv.ParseUint(parts[1], 16, 16)
+	if err != nil {
+		return b, fmt.Errorf("invalid GUID %q: %w", s, err)
+	}
+	d3, err := strconv.ParseUint(parts[2], 16, 16)
+	if err != nil {
+		return b, fmt.Errorf("invalid GUID %q: %w", s, err)
+	}
+	g4, err := hex.DecodeString(parts[3])
+	if err != nil || len(g4) != 2 {
+		return b, fmt.Errorf("invalid GUID %q: bad group 4", s)
+	}
+	g5, err := hex.DecodeString(parts[4])
+	if err != nil || len(g5) != 6 {
+		return b, fmt.Errorf("invalid GUID %q: bad group 5", s)
+	}
+	le.PutUint32(b[0:4], uint32(d1))
+	le.PutUint16(b[4:6], uint16(d2))
+	le.PutUint16(b[6:8], uint16(d3))
+	copy(b[8:10], g4)
+	copy(b[10:16], g5)
+	return b, nil
 }
 
 func ConvertToFiletime(t time.Time) uint64 {

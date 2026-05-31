@@ -33,7 +33,7 @@ import (
 var (
 	le  = binary.LittleEndian
 	be  = binary.BigEndian
-	log = golog.Get("github.com/jfjallid/go-smb/msdtyp")
+	log = golog.Get("github.com/jfjallid/go-smb/msdtyp").SetDisplayName("msdtyp")
 )
 
 // MS-DTYP Section 2.4.6 Security_Descriptor Control Flag
@@ -126,6 +126,32 @@ var aceFlagsMap = map[byte]string{
 	FailedAccessAceFlag:     "FailedAccessAce",
 }
 
+// MS-DTYP Section 2.4.4.3 ACCESS_ALLOWED_OBJECT_ACE - Flags field bits that
+// indicate which of the optional ObjectType / InheritedObjectType GUIDs are
+// present in the ACE body.
+const (
+	AceObjectTypePresent          uint32 = 0x00000001
+	AceInheritedObjectTypePresent uint32 = 0x00000002
+)
+
+var objectAceTypes = map[byte]bool{
+	AccessAllowedObjectAceType:         true,
+	AccessDeniedObjectAceType:          true,
+	SystemAuditObjectAceType:           true,
+	SystemAlarmObjectAceType:           true,
+	AccessAllowedCallbackObjectAceType: true,
+	AccessDeniedCallbackObjectAceType:  true,
+	SystemAuditCallbackObjectAceType:   true,
+	SystemAlarmCallbackObjectAceType:   true,
+}
+
+// IsObjectAceType reports whether an ACE type carries the optional Flags +
+// ObjectType + InheritedObjectType GUID fields (the ACCESS_*_OBJECT_ACE family,
+// MS-DTYP 2.4.4.3-2.4.4.6) rather than the plain Mask|SID body.
+func IsObjectAceType(t byte) bool {
+	return objectAceTypes[t]
+}
+
 const (
 	AccessMaskGenericRead          = "GENERIC_READ"
 	AccessMaskGenericWrite         = "GENERIC_WRITE"
@@ -185,11 +211,17 @@ type ACEHeader struct {
 	Size  uint16 //Includes header size?
 }
 
-// MS-DTYP Section 2.4.4.2 ACCESS_ALLOWED_ACE
+// MS-DTYP Section 2.4.4.2 ACCESS_ALLOWED_ACE and 2.4.4.3 ACCESS_ALLOWED_OBJECT_ACE.
+// ObjectFlags/ObjectType/InheritedObjectType are only populated (and only
+// (un)marshalled) for the object-ACE family, see IsObjectAceType. They are zero
+// for basic ACEs, so existing callers reading Mask/Sid are unaffected.
 type ACE struct {
-	Header ACEHeader
-	Mask   uint32
-	Sid    SID //Must be multiple of 4
+	Header              ACEHeader
+	Mask                uint32
+	ObjectFlags         uint32   // object ACEs only; which GUIDs follow
+	ObjectType          [16]byte // present iff ObjectFlags&AceObjectTypePresent
+	InheritedObjectType [16]byte // present iff ObjectFlags&AceInheritedObjectTypePresent
+	Sid                 SID      //Must be multiple of 4
 }
 
 // MS-DTYP Section 2.4.2.3 RPC_SID
@@ -215,11 +247,13 @@ type SecurityDescriptor struct {
 }
 
 type AcePermissions struct {
-	AceType        string
-	AceFlags       byte
-	AceFlagStrings string
-	Permissions    []string
-	Sid            string
+	AceType             string
+	AceFlags            byte
+	AceFlagStrings      string
+	Permissions         []string
+	Sid                 string
+	ObjectType          string // GUID string; empty unless an object ACE with ObjectType present
+	InheritedObjectType string // GUID string; empty unless an object ACE with InheritedObjectType present
 }
 
 type PaclPermissions struct {
@@ -517,6 +551,29 @@ func (s *ACE) MarshalBinary() (ret []byte, err error) {
 		return
 	}
 
+	// Object ACEs carry a Flags field followed by 0-2 GUIDs before the SID.
+	if IsObjectAceType(s.Header.Type) {
+		err = binary.Write(w, le, s.ObjectFlags)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		if s.ObjectFlags&AceObjectTypePresent != 0 {
+			err = binary.Write(w, le, s.ObjectType)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+		}
+		if s.ObjectFlags&AceInheritedObjectTypePresent != 0 {
+			err = binary.Write(w, le, s.InheritedObjectType)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+		}
+	}
+
 	// Encode ACE SID
 	sidBuf, err := s.Sid.MarshalBinary()
 	if err != nil {
@@ -555,6 +612,29 @@ func readACE(r *bytes.Reader) (a *ACE, err error) {
 	if err != nil {
 		log.Errorln(err)
 		return
+	}
+
+	// Object ACEs carry a Flags field followed by 0-2 GUIDs before the SID.
+	if IsObjectAceType(a.Header.Type) {
+		err = binary.Read(r, le, &a.ObjectFlags)
+		if err != nil {
+			log.Errorln(err)
+			return
+		}
+		if a.ObjectFlags&AceObjectTypePresent != 0 {
+			err = binary.Read(r, le, &a.ObjectType)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+		}
+		if a.ObjectFlags&AceInheritedObjectTypePresent != 0 {
+			err = binary.Read(r, le, &a.InheritedObjectType)
+			if err != nil {
+				log.Errorln(err)
+				return
+			}
+		}
 	}
 
 	sid, err := ReadSID(r)
@@ -665,13 +745,22 @@ func (s *PACL) UnmarshalBinary(buf []byte) (err error) {
 func (a ACE) Permissions() AcePermissions {
 	perms := ParseAccessMask(a.Mask)
 	sidStr := a.Sid.ToString()
-	return AcePermissions{
+	p := AcePermissions{
 		Sid:            sidStr,
 		Permissions:    perms,
 		AceType:        AceTypeMap[a.Header.Type],
 		AceFlags:       a.Header.Flags,
 		AceFlagStrings: ParseAceFlags(a.Header.Flags),
 	}
+	if IsObjectAceType(a.Header.Type) {
+		if a.ObjectFlags&AceObjectTypePresent != 0 {
+			p.ObjectType = GuidToString(a.ObjectType)
+		}
+		if a.ObjectFlags&AceInheritedObjectTypePresent != 0 {
+			p.InheritedObjectType = GuidToString(a.InheritedObjectType)
+		}
+	}
+	return p
 }
 
 func (s *PACL) Permissions() PaclPermissions {
