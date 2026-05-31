@@ -23,7 +23,6 @@
 package smb
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -33,7 +32,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"hash"
 	"io"
 	"net"
 	"strings"
@@ -101,8 +99,8 @@ type Session struct {
 	// Used in SMB 3.1.1 instead of sessionKey for higher level applications
 	// such as to encrypt a password parameter
 	applicationKey []byte // SMB 3.X only
-	signer         hash.Hash
-	verifier       hash.Hash
+	signer         smbSigner
+	verifier       smbVerifier
 	encrypter      cipher.AEAD
 	decrypter      cipher.AEAD
 	conn           net.Conn
@@ -126,11 +124,20 @@ type Options struct {
 	RequireMessageSigning bool
 	DisableEncryption     bool
 	ForceSMB2             bool
-	Initiator             gss.Mechanism
-	DialTimeout           time.Duration
-	ProxyDialer           proxy.Dialer
-	RelayPort             int
-	ManualLogin           bool
+	// SMB2Only skips the SMB1 multi-protocol negotiate and sends an SMB2
+	// NEGOTIATE directly. Useful against servers with SMB1 disabled.
+	SMB2Only    bool
+	Initiator   gss.Mechanism
+	DialTimeout time.Duration
+	ProxyDialer proxy.Dialer
+	ManualLogin bool
+	// Ciphers, when non-nil, overrides the SMB 3.1.1 EncryptionCapabilities
+	// offer in the Negotiate request. The slice order is the client's
+	// preference — the server picks the first entry it recognizes. Leaving
+	// it nil keeps the default offer (AES-128-CCM, AES-128-GCM, AES-256-CCM,
+	// AES-256-GCM). Useful for tests that need to pin which cipher gets
+	// negotiated.
+	Ciphers []uint16
 }
 
 func validateOptions(opt Options) error {
@@ -185,58 +192,53 @@ func (s *Session) IsSigningRequired() bool {
 func (c *Connection) NegotiateProtocol() error {
 	var rr *requestResponse
 	var negRes NegotiateRes
+	var negResBuf []byte
+	var err error
 
-	negReq1, err := c.NewSMB1NegotiateReq()
-	if err != nil {
-		log.Errorln(err)
-		return err
-	}
-	log.Debugln("Sending SMB1 NegotiateProtocol request")
-	rr, err = c.send(&negReq1)
-	if err != nil {
-		log.Debugln(err)
-		return err
-	}
-
-	negResBuf, err := c.recv(rr)
-	if err != nil {
-		log.Debugln(err)
-		return err
-	}
-
-	if negResBuf[0] == 0xFF {
-		// Server does not support or want to use SMB2.
-		err = fmt.Errorf("Target %s is only accepting SMBv1, but SMBv1 support is not implemented", c.conn.RemoteAddr().String())
-		log.Errorln(err) // Skip print?
-		return err
-	}
-
-	negRes1 := NewNegotiateRes()
-	log.Traceln("Unmarshalling NegotiateProtocol response")
-	if err := encoder.Unmarshal(negResBuf, &negRes1); err != nil {
-		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
-		return err
-	}
-
-	if negRes1.DialectRevision <= DialectSmb2_ALL {
-		if negRes1.DialectRevision != DialectSmb2_ALL {
-			// NOTE this is likely breaking the SMB2 specification, but since
-			// servers such as impacket's smbserver.py responds incorrectly to
-			// a multi-protocol negotiation request we attempt to renegotiate
-			// the protocol dialect using SMB2.
-			err = fmt.Errorf("Server responded to the multi-protocol negotiation with an invalid DialectRevision of 0x%x, but expected 0x%x. Restarting protocol negotiation using SMB2.\n", negRes1.DialectRevision, DialectSmb2_ALL)
-			log.Errorln(err)
-		}
-		// Send new SMB2 NegotiateRequest message
+	if c.options.SMB2Only {
+		// Skip SMB1 multi-protocol negotiate and go straight to an SMB2
+		// NEGOTIATE request. The dialect list (including 2.0.2) is the
+		// authoritative offer.
 		negReq, err := c.NewNegotiateReq()
 		if err != nil {
 			log.Errorln(err)
 			return err
 		}
-		log.Debugln("Sending SMB2 NegotiateProtocol request")
-		// Reuse rr variable for second neg protocol req to keep reference
-		// for calculation of pre-auth integrity hash
-		rr, err = c.send(negReq)
+		c.offeredDialects = append([]uint16(nil), negReq.Dialects...)
+		log.Debugln("Sending SMB2-only NegotiateProtocol request")
+		rr, err = c.send(&negReq)
+		if err != nil {
+			log.Debugln(err)
+			return err
+		}
+		negResBuf, err = c.recv(rr)
+		if err != nil {
+			log.Debugln(err)
+			return err
+		}
+		if len(negResBuf) > 0 && negResBuf[0] == 0xFF {
+			err = fmt.Errorf("Target %s only accepts SMBv1, but SMBv1 is not implemented", c.conn.RemoteAddr().String())
+			log.Errorln(err)
+			return err
+		}
+		negRes = NewNegotiateRes()
+		log.Traceln("Unmarshalling SMB2-only NegotiateProtocol response")
+		if err := encoder.Unmarshal(negResBuf, &negRes); err != nil {
+			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
+			return err
+		}
+	} else {
+		negReq1, err := c.NewSMB1NegotiateReq()
+		if err != nil {
+			log.Errorln(err)
+			return err
+		}
+		log.Debugln("Sending SMB1 NegotiateProtocol request")
+		// SMB1 multi-proto advertises [SMB 2.002, SMB 2.100, SMB 2.???].
+		// Record the SMB2 equivalents so dialect validation accepts a
+		// direct 2.0.2 / 2.1 selection by the server.
+		c.offeredDialects = []uint16{DialectSmb_2_0_2, DialectSmb_2_1, DialectSmb2_ALL}
+		rr, err = c.send(&negReq1)
 		if err != nil {
 			log.Debugln(err)
 			return err
@@ -248,16 +250,63 @@ func (c *Connection) NegotiateProtocol() error {
 			return err
 		}
 
-		negRes = NewNegotiateRes()
-		log.Traceln("Unmarshalling second NegotiateProtocol response")
-		if err := encoder.Unmarshal(negResBuf, &negRes); err != nil {
+		if negResBuf[0] == 0xFF {
+			// Server does not support or want to use SMB2.
+			err = fmt.Errorf("Target %s is only accepting SMBv1, but SMBv1 support is not implemented", c.conn.RemoteAddr().String())
+			log.Errorln(err) // Skip print?
+			return err
+		}
+
+		negRes1 := NewNegotiateRes()
+		log.Traceln("Unmarshalling NegotiateProtocol response")
+		if err := encoder.Unmarshal(negResBuf, &negRes1); err != nil {
 			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
 			return err
 		}
-	} else {
-		err = fmt.Errorf("Server responded to the multi-protocol negotiation with an invalid DialectRevision of 0x%x\n", negRes1.DialectRevision)
-		log.Debugln(err)
-		return err
+
+		switch {
+		case negRes1.DialectRevision == DialectSmb_2_0_2:
+			// 2.0.2-only server: take this response as final, no SMB2
+			// follow-up negotiate.
+			negRes = negRes1
+		case negRes1.DialectRevision == DialectSmb2_ALL:
+			// Wildcard: send an SMB2 negotiate to pin the dialect.
+			negReq, err := c.NewNegotiateReq()
+			if err != nil {
+				log.Errorln(err)
+				return err
+			}
+			c.offeredDialects = append([]uint16(nil), negReq.Dialects...)
+			log.Debugln("Sending SMB2 NegotiateProtocol request")
+			// Reuse rr variable for the second neg protocol req to keep
+			// reference for calculation of the pre-auth integrity hash.
+			// Address-of so encoder.Marshal sees the pointer-receiver
+			// MarshalBinary and emits 8-byte-aligned NegotiateContextOffset.
+			rr, err = c.send(&negReq)
+			if err != nil {
+				log.Debugln(err)
+				return err
+			}
+			negResBuf, err = c.recv(rr)
+			if err != nil {
+				log.Debugln(err)
+				return err
+			}
+			negRes = NewNegotiateRes()
+			log.Traceln("Unmarshalling second NegotiateProtocol response")
+			if err := encoder.Unmarshal(negResBuf, &negRes); err != nil {
+				log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
+				return err
+			}
+		case negRes1.DialectRevision < DialectSmb2_ALL:
+			// Non-2.0.2 / non-wildcard (e.g. 2.1 from a server that does
+			// not honor wildcard). Treat as final.
+			negRes = negRes1
+		default:
+			err = fmt.Errorf("Server responded to the multi-protocol negotiation with an invalid DialectRevision of 0x%x\n", negRes1.DialectRevision)
+			log.Debugln(err)
+			return err
+		}
 	}
 
 	if negRes.Header.Status != StatusOk {
@@ -293,6 +342,23 @@ func (c *Connection) NegotiateProtocol() error {
 
 	c.securityMode = negRes.SecurityMode
 	c.dialect = negRes.DialectRevision
+
+	// Validate the server-selected dialect against the dialects we offered
+	// (MS-SMB2 §3.2.5.2). Reject anything else to avoid silent downgrade.
+	if len(c.offeredDialects) > 0 {
+		allowed := false
+		for _, d := range c.offeredDialects {
+			if d == c.dialect {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			err = fmt.Errorf("Server selected dialect 0x%x which the client did not offer", c.dialect)
+			log.Errorln(err)
+			return err
+		}
+	}
 
 	// Determine whether signing is required
 	mode := uint16(c.securityMode)
@@ -403,6 +469,7 @@ func (c *Connection) NegotiateProtocol() error {
 			switch c.signingId {
 			case HMAC_SHA256:
 			case AES_CMAC:
+			case AES_GMAC:
 			default:
 				err = fmt.Errorf("Unknown signing algorithm (%d)\n", c.signingId)
 				log.Errorln(err)
@@ -661,6 +728,9 @@ func (c *Connection) SessionSetup() error {
 		c.options.DisableEncryption = true
 		//c.sessionFlags = ssres2.Flags             //NOTE Replace all sessionFlags here?
 		c.sessionFlags &= ^SessionFlagEncryptData // Make sure encryption is disabled
+		if c.IsGuestSession() {
+			c.authUsername += " (GUEST)"
+		}
 	}
 
 	c.isAuthenticated = true
@@ -673,8 +743,8 @@ func (c *Connection) SessionSetup() error {
 		switch c.dialect {
 		case DialectSmb_2_0_2, DialectSmb_2_1:
 			if !c.isSigningDisabled {
-				c.Session.signer = hmac.New(sha256.New, sessionKey)
-				c.Session.verifier = hmac.New(sha256.New, sessionKey)
+				c.Session.signer = newHashSigner(hmac.New(sha256.New, sessionKey))
+				c.Session.verifier = newHashVerifier(hmac.New(sha256.New, sessionKey))
 			}
 		case DialectSmb_3_1_1:
 			switch c.preauthIntegrityHashId {
@@ -695,84 +765,99 @@ func (c *Connection) SessionSetup() error {
 
 			switch c.signingId {
 			case AES_CMAC:
-				c.Session.signer, err = cmac.New(signingKey)
-				if err != nil {
-					log.Errorln(err)
-					return err
+				cs, errS := cmac.New(signingKey)
+				if errS != nil {
+					log.Errorln(errS)
+					return errS
 				}
-				c.Session.verifier, err = cmac.New(signingKey)
-				if err != nil {
-					log.Errorln(err)
-					return err
+				cv, errV := cmac.New(signingKey)
+				if errV != nil {
+					log.Errorln(errV)
+					return errV
 				}
+				c.Session.signer = newHashSigner(cs)
+				c.Session.verifier = newHashVerifier(cv)
+			case HMAC_SHA256:
+				c.Session.signer = newHashSigner(hmac.New(sha256.New, signingKey))
+				c.Session.verifier = newHashVerifier(hmac.New(sha256.New, signingKey))
+			case AES_GMAC:
+				gcm, errG := newAESGMAC(signingKey)
+				if errG != nil {
+					log.Errorln(errG)
+					return errG
+				}
+				c.Session.signer = newGmacSigner(gcm)
+				c.Session.verifier = newGmacVerifier(gcm)
 			default:
 				err = fmt.Errorf("Unknown signing algorithm (%d) not implemented", c.signingId)
 				log.Errorln(err)
 				return err
 			}
 
-			// Determine size of L variable for the KDF
-			var l uint32
-			switch c.cipherId {
-			case AES128GCM:
-				l = 128
-			case AES128CCM:
-				l = 128
-			case AES256CCM:
-				l = 256
-			case AES256GCM:
-				l = 256
-			default:
-				err = fmt.Errorf("Cipher algorithm (%d) not implemented", c.cipherId)
-				log.Errorln(err)
-				return err
-			}
-
-			encryptionKey := kdf(sessionKey, []byte("SMBC2SCipherKey\x00"), c.Session.preauthIntegrityHashValue[:], l)
-			decryptionKey := kdf(sessionKey, []byte("SMBS2CCipherKey\x00"), c.Session.preauthIntegrityHashValue[:], l)
-
-			switch c.cipherId {
-			case AES128GCM, AES256GCM:
-				ciph, err := aes.NewCipher(encryptionKey)
-				if err != nil {
-					log.Errorln(err)
-					return err
-				}
-				c.Session.encrypter, err = cipher.NewGCMWithNonceSize(ciph, 12)
-				if err != nil {
+			if c.supportsEncryption {
+				// Determine size of L variable for the KDF
+				var l uint32
+				switch c.cipherId {
+				case AES128GCM:
+					l = 128
+				case AES128CCM:
+					l = 128
+				case AES256CCM:
+					l = 256
+				case AES256GCM:
+					l = 256
+				default:
+					err = fmt.Errorf("Cipher algorithm (%d) not implemented", c.cipherId)
 					log.Errorln(err)
 					return err
 				}
 
-				ciph, err = aes.NewCipher(decryptionKey)
-				if err != nil {
+				encryptionKey := kdf(sessionKey, []byte("SMBC2SCipherKey\x00"), c.Session.preauthIntegrityHashValue[:], l)
+				decryptionKey := kdf(sessionKey, []byte("SMBS2CCipherKey\x00"), c.Session.preauthIntegrityHashValue[:], l)
+
+				switch c.cipherId {
+				case AES128GCM, AES256GCM:
+					ciph, err := aes.NewCipher(encryptionKey)
+					if err != nil {
+						log.Errorln(err)
+						return err
+					}
+					c.Session.encrypter, err = cipher.NewGCMWithNonceSize(ciph, 12)
+					if err != nil {
+						log.Errorln(err)
+						return err
+					}
+
+					ciph, err = aes.NewCipher(decryptionKey)
+					if err != nil {
+						log.Errorln(err)
+						return err
+					}
+					c.Session.decrypter, err = cipher.NewGCMWithNonceSize(ciph, 12)
+					if err != nil {
+						log.Errorln(err)
+						return err
+					}
+					log.Debugln("Initialized encrypter and decrypter with GCM")
+				case AES128CCM, AES256CCM:
+					ciph, err := aes.NewCipher(encryptionKey)
+					if err != nil {
+						log.Errorln(err)
+						return err
+					}
+					c.Session.encrypter, err = ccm.NewCCMWithNonceAndTagSizes(ciph, 11, 16)
+					ciph, err = aes.NewCipher(decryptionKey)
+					if err != nil {
+						log.Errorln(err)
+						return err
+					}
+					c.Session.decrypter, err = ccm.NewCCMWithNonceAndTagSizes(ciph, 11, 16)
+					log.Debugln("Initialized encrypter and decrypter with CCM")
+				default:
+					err = fmt.Errorf("Cipher algorithm (%d) not implemented", c.cipherId)
 					log.Errorln(err)
 					return err
 				}
-				c.Session.decrypter, err = cipher.NewGCMWithNonceSize(ciph, 12)
-				if err != nil {
-					log.Errorln(err)
-					return err
-				}
-				log.Debugln("Initialized encrypter and decrypter with GCM")
-			case AES128CCM, AES256CCM:
-				ciph, err := aes.NewCipher(encryptionKey)
-				if err != nil {
-					log.Errorln(err)
-					return err
-				}
-				c.Session.encrypter, err = ccm.NewCCMWithNonceAndTagSizes(ciph, 11, 16)
-				ciph, err = aes.NewCipher(decryptionKey)
-				if err != nil {
-					log.Errorln(err)
-					return err
-				}
-				c.Session.decrypter, err = ccm.NewCCMWithNonceAndTagSizes(ciph, 11, 16)
-				log.Debugln("Initialized encrypter and decrypter with CCM")
-			default:
-				err = fmt.Errorf("Cipher algorithm (%d) not implemented", c.cipherId)
-				log.Errorln(err)
-				return err
 			}
 
 			// Handle ApplicationKey
@@ -839,10 +924,8 @@ func (s *Session) sign(buf []byte) ([]byte, error) {
 		return nil, err
 	}
 	copy(buf[:64], hdrBuf[:64])
-	h := s.signer
-	h.Reset()
-	h.Write(buf)
-	copy(buf[48:64], h.Sum(nil))
+	sig := s.signer.Sign(buf)
+	copy(buf[48:64], sig)
 
 	return buf, nil
 }
@@ -850,21 +933,11 @@ func (s *Session) sign(buf []byte) ([]byte, error) {
 func (s *Session) verify(buf []byte) (ok bool) {
 	signature := make([]byte, 16)
 	copy(signature, buf[48:64])
-	// Remove signature
+	// Zero the signature field for the MAC computation, then restore it
+	// regardless of outcome so callers see the original packet bytes.
 	copy(buf[48:64], make([]byte, 16))
-	h := s.verifier
-	h.Reset()
-	h.Write(buf)
-	// Restore signature
-	copy(buf[48:64], signature)
-	newSig := h.Sum(nil)
-	// Not sure this is entirely correct, but smb 2.1 uses sha256 which generates too long hashes
-	// Might be worth to investigate if signature is ever more than 16 bytes
-	if s.dialect <= DialectSmb_2_1 {
-		newSig = newSig[:16]
-	}
-
-	return bytes.Equal(signature, newSig)
+	defer copy(buf[48:64], signature)
+	return s.verifier.Verify(buf, signature)
 }
 
 func (s *Session) encrypt(buf []byte) ([]byte, error) {

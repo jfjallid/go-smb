@@ -36,7 +36,7 @@ import (
 	"github.com/jfjallid/go-smb/spnego"
 )
 
-var log = golog.Get("github.com/jfjallid/go-smb/smb")
+var log = golog.Get("github.com/jfjallid/go-smb/smb").SetDisplayName("smb")
 
 const ProtocolSmb = "\xFFSMB"
 const ProtocolSmb2 = "\xFESMB"
@@ -78,6 +78,7 @@ const (
 	StatusDirectoryNotEmpty          uint32 = 0xc0000101
 	StatusNotADirectory              uint32 = 0xc0000103
 	StatusCannotDelete               uint32 = 0xc0000121
+	StatusFileClosed                 uint32 = 0xc0000128
 	FsctlStatusPipeBroken            uint32 = 0xc000014b // The pipe operation has failed because the other end of the pipe has been closed
 	StatusUserSessionDeleted         uint32 = 0xc0000203
 	StatusPasswordMustChange         uint32 = 0xc0000224
@@ -112,6 +113,7 @@ var StatusMap = map[uint32]error{
 	StatusBadNetworkName:             fmt.Errorf("Bad network name"),
 	StatusDirectoryNotEmpty:          fmt.Errorf("Directory is not empty"),
 	StatusNotADirectory:              fmt.Errorf("Not a directory!"),
+	StatusFileClosed:                 fmt.Errorf("The handle is no longer valid"),
 	StatusUserSessionDeleted:         fmt.Errorf("User session deleted"),
 	StatusPasswordMustChange:         fmt.Errorf("User is required to change password at next logon"),
 	StatusAccountLockedOut:           fmt.Errorf("User account has been locked!"),
@@ -259,6 +261,17 @@ const (
 	SessionFlagIsGuest     uint16 = 0x0001
 	SessionFlagIsNull      uint16 = 0x0002
 	SessionFlagEncryptData uint16 = 0x0004
+)
+
+// MS-SMB2 Section 2.2.5 SessionSetup request flags
+const (
+	SMB2_SESSION_FLAG_BINDING byte = 0x01
+)
+
+// MS-SMB2 NTSTATUS values not already listed in the table above.
+const (
+	StatusRequestNotAccepted uint32 = 0xc00000d0
+	StatusCancelled          uint32 = 0xc0000120
 )
 
 // File, Pipe, Printer access masks
@@ -908,13 +921,8 @@ func (s *QueryInfoReq) MarshalBinary(meta *encoder.Metadata) (ret []byte, err er
 	return buf, nil
 }
 
-func (s *QueryInfoReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) (err error) {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of QueryInfoReq")
-}
-
-func (s *QueryInfoRes) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of QueryInfoRes")
-}
+// QueryInfoReq.UnmarshalBinary and QueryInfoRes.MarshalBinary live in
+// marshal_server.go (server-side direction).
 
 func (s *QueryInfoRes) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	log.Traceln("In UnmarshalBinary for QueryInfoRes")
@@ -989,6 +997,35 @@ type SharedFile struct {
 	LastWriteTime  uint64
 	ChangeTime     uint64
 	//FileId          uint64
+}
+
+// MS-SMB2 §2.2.28 Echo (Keepalive) Request — sent by clients to keep an
+// otherwise-idle connection alive and verify the server is reachable.
+type EchoReq struct {
+	Header
+	StructureSize uint16 // Must be 4
+	Reserved      uint16
+}
+
+// MS-SMB2 §2.2.29 Echo Response — same shape as the request.
+type EchoRes struct {
+	Header
+	StructureSize uint16 // Must be 4
+	Reserved      uint16
+}
+
+type FlushReq struct {
+	Header
+	StructureSize uint16 // Must be 24
+	Reserved1     uint16
+	Reserved2     uint32
+	FileId        []byte `smb:"fixed:16"`
+}
+
+type FlushRes struct {
+	Header
+	StructureSize uint16 // Must be 4
+	Reserved      uint16
 }
 
 type ReadReq struct {
@@ -1118,8 +1155,7 @@ func (s *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	buf = binary.LittleEndian.AppendUint16(buf, 0)
 	// Capabilities
 	buf = binary.LittleEndian.AppendUint32(buf, s.Capabilities)
-	buf = append(buf, make([]byte, 16)...)
-	//buf = append(buf, s.ClientGuid...)
+	buf = append(buf, s.ClientGuid...)
 	if len(s.ContextList) == 0 {
 		buf = binary.LittleEndian.AppendUint32(buf, 0)
 		buf = binary.LittleEndian.AppendUint16(buf, 0)
@@ -1164,6 +1200,8 @@ func (s *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 	offset += 2
 	s.DialectCount = binary.LittleEndian.Uint16(buf[offset : offset+2])
 	offset += 2
+	s.SecurityMode = binary.LittleEndian.Uint16(buf[offset : offset+2])
+	offset += 2
 	// 2 bytes reserved
 	offset += 2
 	s.Capabilities = binary.LittleEndian.Uint32(buf[offset : offset+4])
@@ -1200,11 +1238,15 @@ func (s *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 	return nil
 }
 
+// newHeader returns an SMB2 header with CreditCharge=0. Callers that target
+// SMB 2.1+ MUST set CreditCharge to a non-zero credits-consumed value before
+// sending (typically 1, or the result of calcCreditCharge for large
+// transfers). In SMB 2.0.2 the field MUST remain 0 (MS-SMB2 §2.2.1.2).
 func newHeader() Header {
 	return Header{
 		ProtocolID:    []byte(ProtocolSmb2),
 		StructureSize: 64,
-		CreditCharge:  1,
+		CreditCharge:  0,
 		Status:        0,
 		Command:       0,
 		Credits:       1,
@@ -1215,6 +1257,20 @@ func newHeader() Header {
 		TreeID:        0,
 		SessionID:     0,
 		Signature:     make([]byte, 16),
+	}
+}
+
+// applyCreditCharge sets header.CreditCharge per the negotiated dialect.
+// SMB 2.0.2 reserves the field (must be 0); all other dialects use it as the
+// number of credits the request consumes (default 1 unless the caller has
+// already set a larger value via calcCreditCharge).
+func (s *Session) applyCreditCharge(header *Header) {
+	if s.dialect == DialectSmb_2_0_2 {
+		header.CreditCharge = 0
+		return
+	}
+	if header.CreditCharge == 0 {
+		header.CreditCharge = 1
 	}
 }
 
@@ -1230,7 +1286,8 @@ func NewTransformHeader() TransformHeader {
 func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 	header := newHeader()
 	header.Command = CommandNegotiate
-	header.CreditCharge = 1
+	// CreditCharge stays at 0: dialect not yet known, and 2.0.2 requires 0.
+	// Servers running 2.1+ ignore the value on the NegotiateReq itself.
 
 	var dialects []uint16
 
@@ -1240,6 +1297,25 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 		dialects = []uint16{
 			DialectSmb_3_1_1,
 			DialectSmb_2_1,
+			DialectSmb_2_0_2,
+		}
+	}
+
+	// MS-SMB2 §2.2.3: the Capabilities field MUST be 0 unless the client
+	// implements SMB 3.x. Detect that by inspecting the offered dialect list.
+	offers3x := false
+	for _, d := range dialects {
+		if d >= DialectSmb_3_0 {
+			offers3x = true
+			break
+		}
+	}
+
+	var capabilities uint32
+	if offers3x {
+		capabilities = GlobalCapLargeMTU
+		if !s.options.DisableEncryption {
+			capabilities |= GlobalCapEncryption
 		}
 	}
 
@@ -1249,16 +1325,12 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 		DialectCount:  uint16(len(dialects)),
 		SecurityMode:  SecurityModeSigningEnabled,
 		Reserved:      0,
-		Capabilities:  GlobalCapLargeMTU,
+		Capabilities:  capabilities,
 		ClientGuid:    s.clientGuid,
 		Dialects:      dialects,
 	}
 	if s.isSigningRequired.Load() {
 		req.SecurityMode = SecurityModeSigningEnabled | SecurityModeSigningRequired
-	}
-
-	if !s.options.DisableEncryption {
-		req.Capabilities |= GlobalCapEncryption
 	}
 
 	if !s.options.ForceSMB2 {
@@ -1272,14 +1344,22 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			log.Errorln(err)
 			return req, err
 		}
+		ciphers := s.options.Ciphers
+		if ciphers == nil {
+			ciphers = []uint16{AES128CCM, AES128GCM, AES256CCM, AES256GCM}
+		}
 		cc := EncryptionContext{
-			CipherCount: 4,
-			Ciphers:     []uint16{AES128CCM, AES128GCM, AES256CCM, AES256GCM},
+			CipherCount: uint16(len(ciphers)),
+			Ciphers:     ciphers,
 		}
 		sc := SigningContext{
-			SigningAlgorithmCount: 1,
-			SigningAlgorithms:     []uint16{AES_CMAC},
+			// Order matters: highest-preference first. AES_GMAC is the
+			// fastest on modern hardware (Windows 11 / Server 2022+);
+			// AES_CMAC is the universal SMB 3.x default; HMAC_SHA256 is
+			// included for legacy interop.
+			SigningAlgorithms: []uint16{AES_GMAC, AES_CMAC, HMAC_SHA256},
 		}
+		sc.SigningAlgorithmCount = uint16(len(sc.SigningAlgorithms))
 
 		picBuf, err := encoder.Marshal(pic)
 		if err != nil {
@@ -1362,7 +1442,7 @@ func NewNegotiateRes() NegotiateRes {
 func (s *Connection) NewSessionSetup1Req(spnegoClient *spnego.Client) (req SessionSetup1Req, err error) {
 	header := newHeader()
 	header.Command = CommandSessionSetup
-	header.CreditCharge = 1
+	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
 
 	negTokenInitbytes, err := spnegoClient.InitSecContext(nil)
@@ -1390,8 +1470,12 @@ func (s *Connection) NewSessionSetup1Req(spnegoClient *spnego.Client) (req Sessi
 		SecurityBlob:         &init,
 	}
 
+	// MS-SMB2 §2.2.5: SMB2_NEGOTIATE_SIGNING_REQUIRED implies (and must be
+	// combined with) SMB2_NEGOTIATE_SIGNING_ENABLED. Sending 0x02 alone
+	// (REQUIRED but not ENABLED) is contradictory; strict servers (Windows)
+	// can TCP-RST the connection instead of replying with an SMB error.
 	if s.isSigningRequired.Load() {
-		req.SecurityMode = byte(SecurityModeSigningRequired)
+		req.SecurityMode = byte(SecurityModeSigningEnabled | SecurityModeSigningRequired)
 	} else {
 		req.SecurityMode = byte(SecurityModeSigningEnabled)
 	}
@@ -1424,7 +1508,7 @@ func NewSessionSetup1Res() (SessionSetup1Res, error) {
 func (s *Connection) NewSessionSetup2Req(sc []byte, msg *SessionSetup1Res) (SessionSetup2Req, error) {
 	header := newHeader()
 	header.Command = CommandSessionSetup
-	header.CreditCharge = 1
+	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
 
 	var resp gss.NegTokenResp
@@ -1447,8 +1531,9 @@ func (s *Connection) NewSessionSetup2Req(sc []byte, msg *SessionSetup1Res) (Sess
 		SecurityBlob:         &resp,
 	}
 
+	// See NewSessionSetup1Req for the rationale on combining ENABLED+REQUIRED.
 	if s.isSigningRequired.Load() {
-		req.SecurityMode = byte(SecurityModeSigningRequired)
+		req.SecurityMode = byte(SecurityModeSigningEnabled | SecurityModeSigningRequired)
 	} else {
 		req.SecurityMode = byte(SecurityModeSigningEnabled)
 	}
@@ -1468,6 +1553,7 @@ func NewSessionSetup2Res() (SessionSetup2Res, error) {
 func (s *Session) NewLogoffReq() LogoffReq {
 	header := newHeader()
 	header.Command = CommandLogoff
+	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
 	ret := LogoffReq{
 		Header:        header,
@@ -1489,6 +1575,7 @@ func NewLogoffRes() LogoffRes {
 func (s *Session) NewTreeConnectReq(name string) (TreeConnectReq, error) {
 	header := newHeader()
 	header.Command = CommandTreeConnect
+	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
 
 	path := fmt.Sprintf("\\\\%s\\%s", s.options.Host, name)
@@ -1509,7 +1596,7 @@ func NewTreeConnectRes() (TreeConnectRes, error) {
 func (s *Session) NewTreeDisconnectReq(treeId uint32) (TreeDisconnectReq, error) {
 	header := newHeader()
 	header.Command = CommandTreeDisconnect
-	header.CreditCharge = 1
+	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
 	header.TreeID = treeId
 
@@ -1535,7 +1622,7 @@ func (s *Session) NewCreateReq(share, name string,
 
 	header := newHeader()
 	header.Command = CommandCreate
-	header.CreditCharge = 1
+	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 	var buf []byte
@@ -1580,7 +1667,7 @@ func (s *Session) NewCreateReq(share, name string,
 func (s *Session) NewCloseReq(share string, fileId []byte) (CloseReq, error) {
 	header := newHeader()
 	header.Command = CommandClose
-	header.CreditCharge = 1
+	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1607,6 +1694,7 @@ func (s *Session) NewQueryDirectoryReq(share, pattern string, fileId []byte,
 	header := newHeader()
 	header.Command = CommandQueryDirectory
 	header.CreditCharge = calcCreditCharge(outputBufferLength)
+	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1658,6 +1746,7 @@ func (s *Session) NewReadReq(share string, fileid []byte,
 	header := newHeader()
 	header.Command = CommandRead
 	header.CreditCharge = calcCreditCharge(length)
+	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1694,6 +1783,7 @@ func (s *Session) NewWriteReq(share string, fileid []byte,
 	header := newHeader()
 	header.Command = CommandWrite
 	header.CreditCharge = calcCreditCharge(uint32(len(data)))
+	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1730,7 +1820,7 @@ func (f *File) NewIoCTLReq(operation uint32, data []byte) (*IoCtlReq, error) {
 	}
 	header := newHeader()
 	header.Command = CommandIOCtl
-	header.CreditCharge = 1
+	f.applyCreditCharge(&header)
 	header.Credits = 127
 	header.SessionID = f.sessionID
 	header.TreeID = f.shareid
@@ -1763,7 +1853,7 @@ func (s *Session) NewSetInfoReq(share string, fileId []byte) (SetInfoReq, error)
 
 	header := newHeader()
 	header.Command = CommandSetInfo
-	header.CreditCharge = 1
+	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 
@@ -1796,6 +1886,7 @@ func (s *Session) NewQueryInfoReq(
 	header := newHeader()
 	header.Command = CommandQueryInfo
 	header.CreditCharge = calcCreditCharge(outputBufferLength)
+	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
 	header.TreeID = s.trees[share]
 

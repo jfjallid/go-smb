@@ -104,13 +104,19 @@ func (s *Session) NewSMB1NegotiateReq() (req SMB1NegotiateReq, err error) {
 		TID:              0xffff,
 	}
 
-	// Dialects ordered in increasing preference
+	// Dialects ordered in increasing preference. "SMB 2.002" lets a
+	// 2.0.2-only server (no wildcard support) downgrade us directly to
+	// SMB 2.0.2 without an SMB2 follow-up.
 	dialects := []SMB1Dialect{
-		SMB1Dialect{
+		{
+			BufferFormat:  0x2,
+			DialectString: string("SMB 2.002\x00"),
+		},
+		{
 			BufferFormat:  0x2,
 			DialectString: string("SMB 2.100\x00"),
 		},
-		SMB1Dialect{
+		{
 			BufferFormat:  0x2,
 			DialectString: string("SMB 2.???\x00"),
 		},

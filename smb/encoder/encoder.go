@@ -44,7 +44,7 @@ import (
 	"github.com/jfjallid/golog"
 )
 
-var log = golog.Get("github.com/jfjallid/go-smb/smb/encoder")
+var log = golog.Get("github.com/jfjallid/go-smb/smb/encoder").SetDisplayName("encoder")
 
 type BinaryMarshallable interface {
 	MarshalBinary(*Metadata) ([]byte, error)
@@ -170,6 +170,32 @@ func getOffsetByFieldName(fieldName string, meta *Metadata) (uint64, error) {
 	return ret, nil
 }
 
+// isFieldEmpty reports whether the named field on meta.Parent has zero length.
+// It first consults meta.Lens (the marshaled-length cache), then falls back to
+// reflecting on the parent struct so that callers running before the target
+// field has been encoded — e.g. an offset:X tag where X comes later in the
+// struct — still get an accurate empty/non-empty answer.
+func isFieldEmpty(fieldName string, meta *Metadata) (bool, error) {
+	if meta == nil || meta.Parent == nil {
+		return false, errors.New("Cannot determine field emptiness. Missing required metadata")
+	}
+	if val, ok := meta.Lens[fieldName]; ok {
+		return val == 0, nil
+	}
+	parentvf := reflect.Indirect(reflect.ValueOf(meta.Parent))
+	field := parentvf.FieldByName(fieldName)
+	if !field.IsValid() {
+		return false, errors.New("Invalid field. Cannot determine emptiness for " + fieldName)
+	}
+	switch field.Kind() {
+	case reflect.Ptr, reflect.Interface:
+		return field.IsNil(), nil
+	case reflect.Slice, reflect.Array, reflect.Map, reflect.String:
+		return field.Len() == 0, nil
+	}
+	return false, nil
+}
+
 func getFieldLengthByName(fieldName string, meta *Metadata) (uint64, error) {
 	var ret uint64
 	if meta == nil || meta.Tags == nil || meta.Parent == nil || meta.Lens == nil {
@@ -247,6 +273,21 @@ func marshal(v interface{}, meta *Metadata) ([]byte, error) {
 	valuev := reflect.ValueOf(v)
 
 	bm, ok := v.(BinaryMarshallable)
+	if !ok && typev != nil && typev.Kind() != reflect.Ptr {
+		// MarshalBinary is conventionally defined on a pointer receiver
+		// (matching the rest of this package). A caller passing a struct
+		// value through interface{} would otherwise silently bypass it and
+		// fall through to the reflection-based path, producing a structurally
+		// different (often wire-invalid) buffer. Take the address transparently
+		// so the dispatch is independent of value-vs-pointer at the call site.
+		// See TestNegotiateReqContextOffsetAligned for the regression this
+		// guards against.
+		pv := reflect.New(typev)
+		pv.Elem().Set(valuev)
+		if pbm, pok := pv.Interface().(BinaryMarshallable); pok {
+			bm, ok = pbm, true
+		}
+	}
 	if ok {
 		// Custom marshallable interface found.
 		buf, err := bm.MarshalBinary(meta)
@@ -361,11 +402,19 @@ func marshal(v interface{}, meta *Metadata) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-			l, err := getOffsetByFieldName(fieldName, meta)
+			empty, err := isFieldEmpty(fieldName, meta)
 			if err != nil {
 				return nil, err
 			}
-			data = uint16(l)
+			if empty {
+				data = uint16(0)
+			} else {
+				l, err := getOffsetByFieldName(fieldName, meta)
+				if err != nil {
+					return nil, err
+				}
+				data = uint16(l)
+			}
 		}
 		if err := binary.Write(w, binary.LittleEndian, data); err != nil {
 			return nil, err
@@ -388,21 +437,17 @@ func marshal(v interface{}, meta *Metadata) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-			l, err := getOffsetByFieldName(fieldName, meta)
+			empty, err := isFieldEmpty(fieldName, meta)
 			if err != nil {
 				return nil, err
 			}
-			//If the buffer length is 0, no need to encode the offset
-			// Perhaps this should be handled in getOffsetByFieldName function?
-			emptyBuffer := false
-			if val, ok := meta.Lens[fieldName]; ok {
-				if val == 0 {
-					emptyBuffer = true
-				}
-			}
-			if emptyBuffer {
+			if empty {
 				data = uint32(0)
 			} else {
+				l, err := getOffsetByFieldName(fieldName, meta)
+				if err != nil {
+					return nil, err
+				}
 				data = uint32(l)
 			}
 		}
@@ -747,9 +792,6 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 		log.Errorln(err)
 		return nil, err
 	}
-
-	return nil, nil
-
 }
 
 func Unmarshal(buf []byte, v interface{}) error {

@@ -2,6 +2,9 @@ package smb
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 
 	"github.com/jfjallid/go-smb/smb/crypto/cmac"
@@ -29,15 +32,16 @@ func TestSign(t *testing.T) {
 	}
 
 	signingKey := kdf(sessionKey, []byte("SMB2AESCMAC\x00"), []byte("SmbSign\x00"), 128)
-	s.signer, err = cmac.New(signingKey)
+	cs, err := cmac.New(signingKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	s.verifier, err = cmac.New(signingKey)
+	cv, err := cmac.New(signingKey)
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.signer = newHashSigner(cs)
+	s.verifier = newHashVerifier(cv)
 
 	// Test sign function
 	signedPkt, err := s.sign(pkt)
@@ -53,6 +57,87 @@ func TestSign(t *testing.T) {
 	// Test verify function
 	if !s.verify(signedPkt) {
 		t.Error("Fail")
+	}
+}
+
+func TestSignHmacSha256RoundTrip(t *testing.T) {
+	s := Session{}
+	key := bytes.Repeat([]byte{0xa5}, 16)
+	s.signer = newHashSigner(hmac.New(sha256.New, key))
+	s.verifier = newHashVerifier(hmac.New(sha256.New, key))
+
+	pkt := make([]byte, 80)
+	pkt[0], pkt[1], pkt[2], pkt[3] = 0xfe, 'S', 'M', 'B'
+	binary.LittleEndian.PutUint16(pkt[4:6], 64) // StructureSize
+	binary.LittleEndian.PutUint16(pkt[12:14], CommandCreate)
+	binary.LittleEndian.PutUint64(pkt[24:32], 7)
+
+	signed, err := s.sign(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.verify(signed) {
+		t.Fatal("HMAC-SHA256 sign/verify round-trip failed")
+	}
+}
+
+func TestGmacNonce(t *testing.T) {
+	pkt := make([]byte, 64)
+	binary.LittleEndian.PutUint64(pkt[24:32], 0x123456789abcdef0)
+	binary.LittleEndian.PutUint16(pkt[12:14], CommandCreate)
+
+	// Client direction, non-cancel
+	got := gmacNonce(pkt, false)
+	want := []byte{0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00}
+	if !bytes.Equal(got, want) {
+		t.Errorf("client nonce mismatch:\n  got  %x\n  want %x", got, want)
+	}
+
+	// Server direction
+	got = gmacNonce(pkt, true)
+	want = []byte{0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, 0x01, 0x00, 0x00, 0x00}
+	if !bytes.Equal(got, want) {
+		t.Errorf("server nonce mismatch:\n  got  %x\n  want %x", got, want)
+	}
+
+	// CANCEL request, client direction (penultimate bit set)
+	binary.LittleEndian.PutUint16(pkt[12:14], CommandCancel)
+	got = gmacNonce(pkt, false)
+	want = []byte{0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, 0x02, 0x00, 0x00, 0x00}
+	if !bytes.Equal(got, want) {
+		t.Errorf("client+cancel nonce mismatch:\n  got  %x\n  want %x", got, want)
+	}
+}
+
+func TestGmacSignSelfVerify(t *testing.T) {
+	key := bytes.Repeat([]byte{0xcc}, 16)
+	gcm, err := newAESGMAC(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pkt := make([]byte, 100)
+	pkt[0], pkt[1], pkt[2], pkt[3] = 0xfe, 'S', 'M', 'B'
+	binary.LittleEndian.PutUint16(pkt[12:14], CommandCreate)
+	binary.LittleEndian.PutUint64(pkt[24:32], 42)
+
+	signer := &gmacSigner{gcm: gcm}
+	sig := signer.Sign(pkt)
+	if len(sig) != 16 {
+		t.Fatalf("expected 16-byte sig, got %d", len(sig))
+	}
+
+	// Re-verify with the same (client) direction nonce: must validate.
+	nonce := gmacNonce(pkt, false)
+	if _, err := gcm.Open(nil, nonce, sig, pkt); err != nil {
+		t.Fatalf("client self-verify failed: %v", err)
+	}
+
+	// Server-direction verifier on a client-signed tag MUST fail (different
+	// nonce, so GMAC tag won't match).
+	v := &gmacVerifier{gcm: gcm}
+	if v.Verify(pkt, sig) {
+		t.Error("server-direction verifier accepted a client-signed tag")
 	}
 }
 

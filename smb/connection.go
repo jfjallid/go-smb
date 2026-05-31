@@ -66,6 +66,7 @@ type Connection struct {
 	capabilities              uint32
 	cipherId                  uint16
 	signingId                 uint16 // For windows 11 and windows server 2022 and later
+	offeredDialects           []uint16
 	wdone                     chan struct{}
 	rdone                     chan struct{}
 	write                     chan []byte
@@ -226,16 +227,14 @@ func (c *Connection) runReceiver() {
 				// last packet and the signing flag is not set
 				if h.Status != StatusPending {
 					if (h.Flags & SMB2_FLAGS_SIGNED) != SMB2_FLAGS_SIGNED {
-						err = fmt.Errorf("Skip: Signing is required but PDU is not signed")
+						err = fmt.Errorf("Signing is required but PDU is not signed; closing connection")
 						log.Errorln(err)
-						// Perhaps crash here instead of continuing to wait for a proper package?
-						continue
+						break
 					} else {
 						if !c.verify(data) {
-							err = fmt.Errorf("Skip: Signing is required and invalid signature found")
+							err = fmt.Errorf("Signing is required and invalid signature found; closing connection")
 							log.Errorln(err)
-							// Perhaps crash here instead of continuing to wait for a proper package?
-							continue
+							break
 						}
 					}
 				}
@@ -374,14 +373,15 @@ func NewConnection(opt Options) (c *Connection, err error) {
 		}
 	}
 
-	// SMB Dialects other than 3.x requires clientGuid to be zero
-	if !opt.ForceSMB2 {
-		_, err = rand.Read(c.Session.clientGuid)
-		if err != nil {
-			log.Debugln(err)
-			return
-		}
-	} else {
+	// ClientGuid MUST be a generated GUID for SMB 2.1+ (MS-SMB2 §2.2.3). The
+	// SMB1 multi-protocol NegotiateReq does not carry a ClientGuid field, so
+	// randomizing unconditionally is safe for all paths.
+	if _, err = rand.Read(c.Session.clientGuid); err != nil {
+		log.Debugln(err)
+		return
+	}
+	if opt.ForceSMB2 {
+		// ForceSMB2 advertises only [2.1]; encryption requires 3.x.
 		c.Session.options.DisableEncryption = true
 	}
 
@@ -447,7 +447,17 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 	if !smb1 {
 		h.MessageID = messageID
 		creditCharge = h.CreditCharge
-		c.messageID += uint64(h.CreditCharge)
+		// MS-SMB2 §3.2.4.1.5: MessageIDs must monotonically increase across
+		// the connection. CreditCharge=0 is valid for SMB2 Negotiate (dialect
+		// not yet known so multi-credit can't apply), but it still consumes
+		// one sequence slot — otherwise the next request reuses this ID,
+		// which strict servers (Windows) treat as a protocol violation and
+		// answer with TCP RST.
+		bump := uint64(h.CreditCharge)
+		if bump == 0 {
+			bump = 1
+		}
+		c.messageID += bump
 	} else {
 		// Assumed to be the SMB1 Negotiate Request
 		creditCharge = 1
