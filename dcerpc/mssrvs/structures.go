@@ -45,9 +45,14 @@ type NetShare struct {
 }
 
 type ShareInfo1 struct {
-	Name    string `ndr:"pointer,conformant,varying"`
+	// Name and Comment are [unique]-style wchar_t* in MS-SRVS but are
+	// modelled here as embedded ref pointers (always present). The
+	// notnullptr tag tells the encoder to emit a non-null pointer to an
+	// empty referent rather than rejecting empty Go strings — Windows
+	// servers do return empty comments this way.
+	Name    string `ndr:"pointer,conformant,varying,notnullptr"`
 	Type    uint32
-	Comment string `ndr:"pointer,conformant,varying"`
+	Comment string `ndr:"pointer,conformant,varying,notnullptr"`
 }
 
 /*

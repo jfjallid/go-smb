@@ -639,7 +639,52 @@ func (s *BindReq) MarshalBinary() (ret []byte, err error) {
 }
 
 func (s *BindReq) UnmarshalBinary(buf []byte) (err error) {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of BindReq")
+	log.Traceln("In UnmarshalBinary for BindReq")
+	if err = s.Header.UnmarshalBinary(buf); err != nil {
+		return
+	}
+	if int(s.Header.FragLength) > len(buf) || s.Header.FragLength < 24 {
+		return fmt.Errorf("invalid BindReq FragLength %d (buf=%d)", s.Header.FragLength, len(buf))
+	}
+	r := bytes.NewReader(buf[16:s.Header.FragLength])
+	if err = binary.Read(r, le, &s.MaxSendFragSize); err != nil {
+		return
+	}
+	if err = binary.Read(r, le, &s.MaxRecvFragSize); err != nil {
+		return
+	}
+	if err = binary.Read(r, le, &s.Association); err != nil {
+		return
+	}
+	// ContextList: count(1) + 3 align + items
+	var count byte
+	if count, err = r.ReadByte(); err != nil {
+		return
+	}
+	if _, err = r.Seek(3, io.SeekCurrent); err != nil {
+		return
+	}
+	s.ContextList = ContextList{Count: count}
+	for i := 0; i < int(count); i++ {
+		var item *ContextItem
+		item, err = readContextItem(r, le)
+		if err != nil {
+			return
+		}
+		s.ContextList.Items = append(s.ContextList.Items, *item)
+	}
+	if s.Header.AuthLength > 0 {
+		authTotalLen := int(s.Header.AuthLength) + 8
+		if int(s.Header.FragLength) < authTotalLen {
+			return fmt.Errorf("BindReq too short for auth_verifier")
+		}
+		authStart := int(s.Header.FragLength) - authTotalLen
+		s.AuthVerifier = &AuthVerifier{}
+		if err = s.AuthVerifier.UnmarshalBinary(buf[authStart:s.Header.FragLength]); err != nil {
+			return
+		}
+	}
+	return
 }
 
 func readContextResItem(r *bytes.Reader, bo binary.ByteOrder) (res *ContextResItem, err error) {
@@ -707,7 +752,90 @@ func (s *ContextResList) UnmarshalBinary(buf []byte) (err error) {
 }
 
 func (s *BindRes) MarshalBinary() (ret []byte, err error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for BindRes")
+	log.Traceln("In MarshalBinary for BindRes")
+	w := bytes.NewBuffer(ret)
+	hBuf, err := s.Header.MarshalBinary()
+	if err != nil {
+		return
+	}
+	if _, err = w.Write(hBuf); err != nil {
+		return
+	}
+	if err = binary.Write(w, le, s.MaxSendFragSize); err != nil {
+		return
+	}
+	if err = binary.Write(w, le, s.MaxRecvFragSize); err != nil {
+		return
+	}
+	if err = binary.Write(w, le, s.Association); err != nil {
+		return
+	}
+	secAddrLen := uint16(len(s.SecAddr))
+	if s.SecAddrLen != 0 {
+		secAddrLen = s.SecAddrLen
+	}
+	if err = binary.Write(w, le, secAddrLen); err != nil {
+		return
+	}
+	if secAddrLen > 0 {
+		if _, err = w.Write(s.SecAddr); err != nil {
+			return
+		}
+	}
+	// 4-byte alignment after SecAddr (counted from end of SecAddrLen).
+	pad := (4 - ((int(secAddrLen) + 2) % 4)) % 4
+	if pad > 0 {
+		if _, err = w.Write(make([]byte, pad)); err != nil {
+			return
+		}
+	}
+	// ContextResList: count(1) + 3 align + items.
+	if err = w.WriteByte(byte(len(s.ResultList.Items))); err != nil {
+		return
+	}
+	if _, err = w.Write([]byte{0, 0, 0}); err != nil {
+		return
+	}
+	for i := range s.ResultList.Items {
+		item := &s.ResultList.Items[i]
+		if err = binary.Write(w, le, item.Result); err != nil {
+			return
+		}
+		if err = binary.Write(w, le, item.Reason); err != nil {
+			return
+		}
+		uuid := item.TransferSyntax.UUID
+		if uuid == nil {
+			uuid = make([]byte, 16)
+		}
+		if _, err = w.Write(uuid); err != nil {
+			return
+		}
+		if err = binary.Write(w, le, item.TransferSyntax.Version); err != nil {
+			return
+		}
+	}
+	if s.AuthVerifier != nil {
+		bodyLen := w.Len()
+		authPad := (4 - (bodyLen % 4)) % 4
+		if authPad > 0 {
+			if _, err = w.Write(make([]byte, authPad)); err != nil {
+				return
+			}
+		}
+		s.AuthVerifier.AuthPadLength = uint8(authPad)
+		var authBuf []byte
+		authBuf, err = s.AuthVerifier.MarshalBinary()
+		if err != nil {
+			return
+		}
+		if _, err = w.Write(authBuf); err != nil {
+			return
+		}
+	}
+	out := w.Bytes()
+	binary.LittleEndian.PutUint16(out[8:10], uint16(len(out)))
+	return out, nil
 }
 
 func (s *BindRes) UnmarshalBinary(buf []byte) (err error) {
@@ -830,11 +958,80 @@ func (s *RequestReq) MarshalBinary() (ret []byte, err error) {
 }
 
 func (s *RequestReq) UnmarshalBinary(buf []byte) (err error) {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of RequestReq")
+	log.Traceln("In UnmarshalBinary for RequestReq")
+	if err = s.Header.UnmarshalBinary(buf); err != nil {
+		return
+	}
+	if int(s.Header.FragLength) > len(buf) || s.Header.FragLength < 24 {
+		return fmt.Errorf("invalid RequestReq FragLength %d (buf=%d)", s.Header.FragLength, len(buf))
+	}
+	r := bytes.NewReader(buf[16:s.Header.FragLength])
+	if err = binary.Read(r, le, &s.AllocHint); err != nil {
+		return
+	}
+	if err = binary.Read(r, le, &s.ContextId); err != nil {
+		return
+	}
+	if err = binary.Read(r, le, &s.Opnum); err != nil {
+		return
+	}
+	stubStart := 24
+	if s.Header.Flags&PfcObjectUUID != 0 {
+		s.ObjectUUID = make([]byte, 16)
+		if _, err = r.Read(s.ObjectUUID); err != nil {
+			return
+		}
+		stubStart += 16
+	}
+	stubEnd := int(s.Header.FragLength)
+	if s.Header.AuthLength > 0 {
+		authTotalLen := int(s.Header.AuthLength) + 8
+		if stubEnd < authTotalLen {
+			return fmt.Errorf("RequestReq too short for auth_verifier")
+		}
+		stubEnd -= authTotalLen
+		// Strip auth_pad bytes from end of stub.
+		var verifier AuthVerifier
+		if err = verifier.UnmarshalBinary(buf[stubEnd : stubEnd+authTotalLen]); err != nil {
+			return
+		}
+		stubEnd -= int(verifier.AuthPadLength)
+	}
+	if stubEnd > stubStart {
+		s.Buffer = make([]byte, stubEnd-stubStart)
+		copy(s.Buffer, buf[stubStart:stubEnd])
+	}
+	return
 }
 
 func (s *RequestRes) MarshalBinary() (ret []byte, err error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for RequestRes")
+	log.Traceln("In MarshalBinary for RequestRes")
+	w := bytes.NewBuffer(ret)
+	hBuf, err := s.Header.MarshalBinary()
+	if err != nil {
+		return
+	}
+	if _, err = w.Write(hBuf); err != nil {
+		return
+	}
+	if err = binary.Write(w, le, s.AllocHint); err != nil {
+		return
+	}
+	if err = binary.Write(w, le, s.ContextId); err != nil {
+		return
+	}
+	if err = w.WriteByte(s.CancelCount); err != nil {
+		return
+	}
+	if err = w.WriteByte(s.Reserved); err != nil {
+		return
+	}
+	if _, err = w.Write(s.Buffer); err != nil {
+		return
+	}
+	out := w.Bytes()
+	binary.LittleEndian.PutUint16(out[8:10], uint16(len(out)))
+	return out, nil
 }
 
 func (s *RequestRes) UnmarshalBinary(buf []byte) (err error) {
