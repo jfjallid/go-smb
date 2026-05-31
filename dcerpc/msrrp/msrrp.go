@@ -32,7 +32,7 @@ import (
 	"github.com/jfjallid/mstypes"
 )
 
-var log = golog.Get("github.com/jfjallid/go-smb/dcerpc/msrrp")
+var log = golog.Get("github.com/jfjallid/go-smb/dcerpc/msrrp").SetDisplayName("msrrp")
 
 // fromUnicodeStrArray decodes a REG_MULTI_SZ payload (a sequence of UTF-16LE
 // strings each terminated by a null WCHAR, with the list itself terminated by
@@ -351,7 +351,14 @@ func (r *RPCCon) OpenBaseKey(baseName byte) (handle []byte, err error) {
 	}
 
 	if res.ReturnCode != ErrorSuccess {
-		err = ReturnCodeMap[res.ReturnCode]
+		status, found := ReturnCodeMap[res.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in OpenBaseKey response: 0x%x\n", res.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		return
 	}
 
 	handle = res.HKey[:]
@@ -386,8 +393,15 @@ func (r *RPCCon) CloseKeyHandle(hKey []byte) (err error) {
 	}
 
 	if res.Value() != ErrorSuccess {
-		err = ReturnCodeMap[res.Value()]
+		status, found := ReturnCodeMap[res.Value()]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in BaseRegCloseKey response: 0x%x\n", res.Value())
+			log.Errorln(err)
+			return
+		}
+		err = status
 		log.Errorln(err)
+		return
 	}
 
 	return
@@ -436,6 +450,18 @@ func (r *RPCCon) CreateKey(hKey []byte, name, class string, options, desiredAcce
 		log.Errorln(err)
 		return
 	}
+
+	if res.ReturnCode != ErrorSuccess {
+		status, found := ReturnCodeMap[res.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in BaseRegCreateKey response: 0x%x\n", res.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		return
+	}
+
 	hSubKey = res.HKey[:]
 	if res.Disposition != nil {
 		disposition = *res.Disposition
@@ -473,10 +499,16 @@ func (r *RPCCon) DeleteKey(hKey []byte, name string) (err error) {
 	if returnCode != ErrorSuccess {
 		if returnCode == ErrorFileNotFound {
 			err = fmt.Errorf("Registry Key does not exist")
-		} else {
-			err = ReturnCodeMap[returnCode]
-			log.Errorln(err)
+			return
 		}
+		status, found := ReturnCodeMap[returnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in BaseRegDeleteKey response: 0x%x\n", returnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		log.Errorln(err)
 		return
 	}
 	return
@@ -512,10 +544,16 @@ func (r *RPCCon) DeleteValue(hKey []byte, name string) (err error) {
 	if returnCode != ErrorSuccess {
 		if returnCode == ErrorFileNotFound {
 			err = fmt.Errorf("Registry value does not exist")
-		} else {
-			err = ReturnCodeMap[returnCode]
-			log.Errorln(err)
+			return
 		}
+		status, found := ReturnCodeMap[returnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in BaseRegDeleteValue response: 0x%x\n", returnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		log.Errorln(err)
 		return
 	}
 	return
@@ -556,7 +594,14 @@ func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 	}
 
 	if res.ReturnCode != ErrorSuccess {
-		err = ReturnCodeMap[res.ReturnCode]
+		status, found := ReturnCodeMap[res.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in BaseRegEnumKey response: 0x%x\n", res.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		return
 	}
 
 	info = &KeyInfo{
@@ -629,7 +674,13 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 		if res.ReturnCode == ErrorMoreData {
 			log.Debugf("EnumValue failed with ERROR_MORE_DATA. Here is the response: %+v\n", res)
 		}
-		err = ReturnCodeMap[res.ReturnCode]
+		status, found := ReturnCodeMap[res.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in BaseRegEnumValue response: 0x%x\n", res.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
 		log.Errorf("EnumValue failed with return code: %s\n", err.Error())
 		return
 	}
@@ -796,7 +847,14 @@ func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 	}
 
 	if res.ReturnCode != ErrorSuccess {
-		err = ReturnCodeMap[res.ReturnCode]
+		status, found := ReturnCodeMap[res.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in BaseRegQueryInfoKey response: 0x%x\n", res.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		return
 	}
 
 	info = &KeyInfo{
@@ -807,9 +865,6 @@ func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 		Values:          res.Values,
 		MaxValueNameLen: res.MaxValueNameLen,
 		MaxValueLen:     res.MaxValueLen,
-	}
-	if len(info.ClassName) > 0 {
-		info.ClassName = info.ClassName[:len(info.ClassName)-1] // Remove null byte
 	}
 
 	return
@@ -935,14 +990,22 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 	}
 
 	if res.ReturnCode != ErrorSuccess {
-		err = ReturnCodeMap[res.ReturnCode]
-		if err == ReturnCodeMap[ErrorFileNotFound] {
+		if res.ReturnCode == ErrorFileNotFound {
 			if name == "" {
 				err = fmt.Errorf("Default value has not been defined")
 			} else {
 				err = fmt.Errorf("Provided name of registry key value not found")
 			}
+			log.Debugln(err)
+			return
 		}
+		status, knownCode := ReturnCodeMap[res.ReturnCode]
+		if !knownCode {
+			err = fmt.Errorf("Received unknown return code in BaseRegQueryValue response: 0x%x\n", res.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
 		log.Debugln(err)
 		return
 	}
@@ -1053,7 +1116,14 @@ func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err err
 	}
 
 	if res.Value() != ErrorSuccess {
-		err = ReturnCodeMap[res.Value()]
+		status, found := ReturnCodeMap[res.Value()]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in BaseRegSaveKey response: 0x%x\n", res.Value())
+			log.Errorln(err)
+			return
+		}
+		err = status
+		return
 	}
 
 	return
@@ -1104,7 +1174,13 @@ func (r *RPCCon) GetKeySecurityExt(hKey []byte, securityInformation uint32) (sd 
 	}
 
 	if res.ReturnCode != ErrorSuccess {
-		err = ReturnCodeMap[res.ReturnCode]
+		status, found := ReturnCodeMap[res.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in BaseRegGetKeySecurity response: 0x%x\n", res.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
 		log.Errorln(err)
 		return
 	}
@@ -1176,7 +1252,15 @@ func (r *RPCCon) SetKeySecurity(hKey []byte, sd *msdtyp.SecurityDescriptor) (err
 	}
 
 	if res.Value() != ErrorSuccess {
-		err = ReturnCodeMap[res.Value()]
+		status, found := ReturnCodeMap[res.Value()]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in BaseRegSetKeySecurity response: 0x%x\n", res.Value())
+			log.Errorln(err)
+			return
+		}
+		err = status
+		log.Errorln(err)
+		return
 	}
 	log.Debugln("Successfully changed the SecurityDescriptor")
 	return
@@ -1234,7 +1318,6 @@ func (r *RPCCon) GetKeyValues(hKey []byte) (items []ValueInfo, err error) {
 			log.Errorln(err)
 			return nil, err
 		}
-		value.Name = value.Name[:len(value.Name)-1]
 		items = append(items, *value)
 	}
 	return
@@ -1255,7 +1338,7 @@ func (r *RPCCon) GetValueNames(hKey []byte) (names []string, err error) {
 			return nil, err
 		}
 		name := value.Name
-		names = append(names, name[:len(name)-1])
+		names = append(names, name)
 	}
 	return
 }
@@ -1346,7 +1429,13 @@ func (r *RPCCon) SetValue(hKey []byte, name string, value any, dataType uint32) 
 	}
 	returnCode := binary.LittleEndian.Uint32(buffer[:4])
 	if returnCode != ErrorSuccess {
-		err = ReturnCodeMap[returnCode]
+		status, found := ReturnCodeMap[returnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code in BaseRegSetValue response: 0x%x\n", returnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
 		log.Errorln(err)
 		return
 	}

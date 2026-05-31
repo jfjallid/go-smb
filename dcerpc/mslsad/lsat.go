@@ -190,8 +190,19 @@ func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res Sid
 		}
 	}
 	res.ReturnCode = resp.ReturnCode
-	if resp.ReturnCode == 0xc000018c {
-		log.Errorln("LsarLookupSids2 error STATUS_TRUSTED_DOMAIN_FAILURE")
+	// STATUS_SUCCESS and STATUS_SOME_NOT_MAPPED both indicate that the translations
+	// in res are valid (the latter signalling a partial mapping). Anything else is
+	// a real failure and must be surfaced as an error.
+	if resp.ReturnCode != StatusSuccess && resp.ReturnCode != StatusSomeNotMapped {
+		status, found := ResponseCodeMap[resp.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown LSAD return code for LsarLookupSids2 response: 0x%x\n", resp.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		log.Errorln(err)
+		return
 	}
 	return
 }
@@ -254,8 +265,16 @@ func (sb *RPCCon) LsarLookupNames3(level LsapLookupLevel, names []string) (res N
 		}
 	}
 	res.ReturnCode = resp.ReturnCode
-	if resp.ReturnCode == 0xc000018c {
-		log.Errorln("LsarLookupNames3 error STATUS_TRUSTED_DOMAIN_FAILURE")
+	if resp.ReturnCode != StatusSuccess && resp.ReturnCode != StatusSomeNotMapped {
+		status, found := ResponseCodeMap[resp.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown LSAD return code for LsarLookupNames3 response: 0x%x\n", resp.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		log.Errorln(err)
+		return
 	}
 	return
 }

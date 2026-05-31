@@ -38,7 +38,7 @@ import (
 )
 
 var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/mssamr")
+	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/mssamr").SetDisplayName("mssamr")
 	le  binary.ByteOrder = binary.LittleEndian
 )
 
@@ -1213,7 +1213,7 @@ func (sb *RPCCon) SamrCreateUserInDomain(domainHandle *SamrHandle, name string, 
 	}
 
 	if len(buffer) < 8 {
-		return nil, 0, fmt.Errorf("Server response to SamrCreateUserInDomain was too small. Expected at atleast 8 bytes")
+		return nil, 0, fmt.Errorf("server response to SamrCreateUserInDomain was too small. Expected at atleast 8 bytes")
 	}
 
 	var resp SamrCreateUserInDomainRes
@@ -1221,6 +1221,10 @@ func (sb *RPCCon) SamrCreateUserInDomain(domainHandle *SamrHandle, name string, 
 	if err != nil {
 		log.Errorln(err)
 		return
+	}
+	if resp.ReturnCode != 0 {
+		return nil, 0, fmt.Errorf("failed to create account with error: %d", resp.ReturnCode)
+
 	}
 
 	return &SamrHandle{Handle: resp.UserHandle, Type: SamrHandleTypeAccount, Name: fmt.Sprintf("User: %s", name)}, resp.RelativeId, nil
@@ -1473,6 +1477,18 @@ func (sb *RPCCon) SamrCreateUser2InDomain(domainHandle *SamrHandle, name string,
 	var resp SamrCreateUser2InDomainRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	if resp.ReturnCode > 0 {
+		status, found := ResponseCodeMap[resp.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown Samr return code for SamrCreateUser2InDomain response: 0x%x\n", resp.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
 		log.Errorln(err)
 		return
 	}

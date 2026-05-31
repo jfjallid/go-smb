@@ -34,7 +34,7 @@ import (
 )
 
 var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/mslsad")
+	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/mslsad").SetDisplayName("mslsad")
 	le  binary.ByteOrder = binary.LittleEndian
 )
 
@@ -69,27 +69,33 @@ const (
 )
 
 const (
-	StatusSuccess             uint32 = 0x0 // The operation completed successfully
-	StatusInvalidHandle       uint32 = 0xC0000008
-	StatusInvalidParameter    uint32 = 0xC000000D // One of the function parameters is not valid.
-	StatusAccessDenied        uint32 = 0xC0000022 // Access is denied
-	StatusObjectNameNotFound  uint32 = 0xC0000034
-	StatusObjectNameCollision uint32 = 0xC0000035
-	StatusNoSuchPrivilege     uint32 = 0xC0000060
-	StatusInvalidSID          uint32 = 0xC0000078
-	StatusNotSupported        uint32 = 0xC00000BB
+	StatusSuccess              uint32 = 0x0        // The operation completed successfully
+	StatusSomeNotMapped        uint32 = 0x00000107 // Some of the names being translated could not be mapped (partial success).
+	StatusInvalidHandle        uint32 = 0xC0000008
+	StatusInvalidParameter     uint32 = 0xC000000D // One of the function parameters is not valid.
+	StatusAccessDenied         uint32 = 0xC0000022 // Access is denied
+	StatusObjectNameNotFound   uint32 = 0xC0000034
+	StatusObjectNameCollision  uint32 = 0xC0000035
+	StatusNoSuchPrivilege      uint32 = 0xC0000060
+	StatusNoneMapped           uint32 = 0xC0000073 // None of the names being translated could be mapped.
+	StatusInvalidSID           uint32 = 0xC0000078
+	StatusNotSupported         uint32 = 0xC00000BB
+	StatusTrustedDomainFailure uint32 = 0xC000018C
 )
 
 var ResponseCodeMap = map[uint32]error{
-	StatusSuccess:             fmt.Errorf("The operation completed successfully"),
-	StatusAccessDenied:        fmt.Errorf("Access is denied"),
-	StatusInvalidParameter:    fmt.Errorf("One of the function parameters is not valid."),
-	StatusObjectNameCollision: fmt.Errorf("Name collision"),
-	StatusNoSuchPrivilege:     fmt.Errorf("No such privilege"),
-	StatusInvalidSID:          fmt.Errorf("The security identifier of the trusted domain is not valid"),
-	StatusInvalidHandle:       fmt.Errorf("PolicyHandle is not a valid handle."),
-	StatusObjectNameNotFound:  fmt.Errorf("No value has been set for this policy."),
-	StatusNotSupported:        fmt.Errorf("The operation is not supported for this object."),
+	StatusSuccess:              fmt.Errorf("The operation completed successfully"),
+	StatusSomeNotMapped:        fmt.Errorf("Some of the names could not be mapped"),
+	StatusAccessDenied:         fmt.Errorf("Access is denied"),
+	StatusInvalidParameter:     fmt.Errorf("One of the function parameters is not valid."),
+	StatusObjectNameCollision:  fmt.Errorf("Name collision"),
+	StatusNoSuchPrivilege:      fmt.Errorf("No such privilege"),
+	StatusNoneMapped:           fmt.Errorf("None of the names could be mapped"),
+	StatusInvalidSID:           fmt.Errorf("The security identifier of the trusted domain is not valid"),
+	StatusInvalidHandle:        fmt.Errorf("PolicyHandle is not a valid handle."),
+	StatusObjectNameNotFound:   fmt.Errorf("No value has been set for this policy."),
+	StatusNotSupported:         fmt.Errorf("The operation is not supported for this object."),
+	StatusTrustedDomainFailure: fmt.Errorf("Trusted domain failure"),
 }
 
 // MS-LSAD Section 2.2.1.1 ACCESS_MASK for all objects
@@ -222,7 +228,19 @@ func (sb *RPCCon) LsarQueryInformationPolicy(policyHandle []byte, informationCla
 		log.Errorln(err)
 		return
 	}
-	//TODO Any checks here? or maybe return a pointer instead?
+
+	if resp.ReturnCode > 0 {
+		status, found := ResponseCodeMap[resp.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown LSAD return code for LsarQueryInformationPolicy response: 0x%x\n", resp.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
+		log.Errorln(err)
+		return
+	}
+
 	if resp.PolicyInformation != nil {
 		res = *resp.PolicyInformation
 	}
@@ -642,6 +660,18 @@ func (sb *RPCCon) LsarOpenPolicy2(systemName string) (policyHandle []byte, err e
 	var resp LsarOpenPolicy2Res
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	if resp.ReturnCode > 0 {
+		status, found := ResponseCodeMap[resp.ReturnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown LSAD return code for LsarOpenPolicy2 response: 0x%x\n", resp.ReturnCode)
+			log.Errorln(err)
+			return
+		}
+		err = status
 		log.Errorln(err)
 		return
 	}
