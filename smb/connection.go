@@ -89,6 +89,19 @@ func (c *Connection) disableSession() {
 	atomic.StoreInt32(&c._useSession, 0)
 }
 
+// MarkAuthenticated promotes a manually-driven SessionSetup to authenticated
+// state on this Connection. Intended for relay flows that drive
+// SendSessionSetup{1,2}WithToken/Blob themselves: after a successful upstream
+// SessionSetup2 the connection holds the negotiated SessionID, but the
+// in-process flags (isAuthenticated, authUsername, useSession) are unset
+// because the relay drove the exchange directly. Calling this finishes the
+// promotion so subsequent TreeConnect / OpenFile calls work normally.
+func (c *Connection) MarkAuthenticated(authUsername string) {
+	c.authUsername = authUsername
+	c.isAuthenticated = true
+	c.enableSession()
+}
+
 // Update the Initiator used for authentication.
 // Calling this function when already logged in will kill the existing session.
 func (c *Connection) SetInitiator(initiator gss.Mechanism) error {
@@ -515,6 +528,73 @@ func (c *Connection) sendrecv(req interface{}) (buf []byte, err error) {
 		return
 	}
 	return c.recv(rr)
+}
+
+// SendRawPDU forwards an opaque SMB2 PDU (header + body) on this Connection
+// and blocks for the reply. The MessageID in the header is rewritten to this
+// Connection's next outbound id; signing / encryption are applied per the
+// connection's negotiated state. Intended for relay / passthrough use cases
+// (e.g. the SMB SOCKS proxy in relay/) where a PDU produced for one
+// connection must be forwarded over another. The caller owns translation of
+// any TreeID/FileID fields embedded in the body before/after this call.
+//
+// pdu must begin with the 4-byte SMB2 protocol id (0xfe S M B); a private
+// copy is made so the caller's buffer is left untouched.
+func (c *Connection) SendRawPDU(pdu []byte) ([]byte, error) {
+	if len(pdu) < 64 || string(pdu[0:4]) != ProtocolSmb2 {
+		return nil, fmt.Errorf("SendRawPDU: not an SMB2 PDU")
+	}
+	buf := make([]byte, len(pdu))
+	copy(buf, pdu)
+	rr, err := c.sendRawBytes(buf)
+	if err != nil {
+		return nil, err
+	}
+	return c.recv(rr)
+}
+
+// sendRawBytes is the bytes-only twin of send: it skips the encoder.Marshal
+// step (caller has already produced the wire bytes) and lets
+// makeRequestResponse stamp the MessageID / signature / encryption in place.
+func (c *Connection) sendRawBytes(buf []byte) (*requestResponse, error) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	if c.err != nil {
+		return nil, c.err
+	}
+	select {
+	case <-c.wdone:
+		return nil, nil
+	default:
+	}
+
+	rr, err := c.makeRequestResponse(buf)
+	if err != nil {
+		return nil, err
+	}
+
+	b := new(bytes.Buffer)
+	if err = binary.Write(b, binary.BigEndian, uint32(len(rr.pkt))); err != nil {
+		return nil, err
+	}
+
+	select {
+	case c.write <- append(b.Bytes(), rr.pkt...):
+		select {
+		case err = <-c.werr:
+			if err != nil {
+				c.outstandingRequests.pop(rr.msgId)
+				return nil, err
+			}
+		case <-c.wdone:
+			c.outstandingRequests.pop(rr.msgId)
+			return nil, nil
+		}
+	case <-c.wdone:
+		c.outstandingRequests.pop(rr.msgId)
+		return nil, nil
+	}
+	return rr, nil
 }
 
 func (c *Connection) send(req interface{}) (rr *requestResponse, err error) {

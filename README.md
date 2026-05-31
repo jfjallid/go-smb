@@ -36,11 +36,27 @@ A connection could also be established through an upstream SOCKS5 proxy, either
 by passing credentials through the options struct, or by relying on the upstream
 proxy to handle authentication such as Impacket's ntlmrelayx.py does.
 
-A third way is to use the experimental NTLM relay support by listening for
-incoming SMB connections, forwarding the NTLM authentication to the target
-system and then hijacking the authenticated connection. This won't work if
-SMB signing is required or if only SMB 3.x is supported as the current
-implementation is locked to SMB 2.1.
+A third way is to use the NTLM relay support in the `relay/` package: listen
+for incoming SMB or HTTP NTLM authentications, forward them to one or more
+upstream targets (SMB, HTTP/S, LDAP/S), pool the resulting authenticated
+sessions, and optionally expose the pool to local tools through a SOCKS5
+proxy.
+
+Two entry points are provided:
+
+- `relay.RelayServer` — long-running multi-target listener with a session
+  pool, post-auth actions, optional fake-server handoff, and an
+  interactive REPL when driven via the `cmd/ntlmrelay` binary. See
+  [`cmd/ntlmrelay/README.md`](cmd/ntlmrelay/README.md) for the user-facing
+  guide.
+- `relay.RelayClient` — one-shot listener that accepts a single inbound
+  auth and returns the authenticated `*smb.Connection`. This replaces the
+  removed `smb.NewRelayConnection` helper.
+
+The relay forces SMB 2.1 as the max dialect with signing and encryption
+disabled, so Windows targets that require SMB signing (the default on
+modern domain controllers) will refuse the relay. Treat the relay as a
+lab-only tool.
 
 For inspiration on how to use the various forms of establishing a connection and
 how to use the different methods of authentication I recommended inspecting the
@@ -59,6 +75,7 @@ different connection types.
     domain := "domain.local"
     hashBytes := []byte{} // Either specify a password or the NT Hash bytes for authentication
     relayConnection := false // if true, perform NTLM relaying
+    relayPort := 445 // local port the relay listener binds when relayConnection is true
 
 	options := smb.Options{
 		Host: targetHost,
@@ -86,8 +103,13 @@ different connection types.
     }
 
     if relayConnection {
-        options.RelayPort = relayPort
-	    session, err = smb.NewRelayConnection(options)
+        // Listen on relayPort, relay the first inbound NTLM authentication
+        // to the target, and hand back the authenticated connection.
+        session, _, err = relay.RelayClient(relay.ClientConfig{
+            ListenAddr:      fmt.Sprintf(":%d", relayPort),
+            Target:          fmt.Sprintf("%s:%d", targetHost, targetPort),
+            UpstreamOptions: options,
+        })
     } else {
 	    session, err = smb.NewConnection(options)
     }

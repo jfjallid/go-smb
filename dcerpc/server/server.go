@@ -115,7 +115,7 @@ func NewPipeHandler(pipeName string, services ...Service) *PipeHandler {
 // type and dispatches accordingly.
 func (h *PipeHandler) Transceive(ctx context.Context, in []byte) ([]byte, uint32, error) {
 	if len(in) < dcerpc.PDUHeaderCommonSize {
-		return nil, smb.StatusInvalidParameter, fmt.Errorf("dcerpc PDU too short (%d bytes)", len(in))
+		return nil, smb.StatusInvalidParameter, fmt.Errorf("PDU too short (%d bytes)", len(in))
 	}
 	var hdr dcerpc.Header
 	if err := hdr.UnmarshalBinary(in[:dcerpc.PDUHeaderCommonSize]); err != nil {
@@ -125,19 +125,19 @@ func (h *PipeHandler) Transceive(ctx context.Context, in []byte) ([]byte, uint32
 	case dcerpc.PacketTypeBind, dcerpc.PacketTypeAlterContext:
 		out, err := h.handleBind(in, &hdr)
 		if err != nil {
-			log.Errorf("dcerpc handleBind (call_id=%d): %v", hdr.CallId, err)
+			log.Errorf("handleBind (call_id=%d): %v", hdr.CallId, err)
 		}
 		return out, smb.StatusOk, err
 	case dcerpc.PacketTypeRequest:
 		out, err := h.handleRequest(ctx, in, &hdr)
 		if err != nil {
-			log.Errorf("dcerpc handleRequest (call_id=%d): %v", hdr.CallId, err)
+			log.Errorf("handleRequest (call_id=%d): %v", hdr.CallId, err)
 		}
 		return out, smb.StatusOk, err
 	default:
 		out, err := h.buildFault(&hdr, 0, NCAStatusUnsupportedType)
 		if err != nil {
-			log.Errorf("dcerpc buildFault (call_id=%d type=0x%x): %v", hdr.CallId, hdr.Type, err)
+			log.Errorf("buildFault (call_id=%d type=0x%x): %v", hdr.CallId, hdr.Type, err)
 		}
 		return out, smb.StatusOk, err
 	}
