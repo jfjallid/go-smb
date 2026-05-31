@@ -43,7 +43,7 @@ import (
 
 var le = binary.LittleEndian
 
-var log = golog.Get("github.com/jfjallid/go-smb/ntlmssp")
+var log = golog.Get("github.com/jfjallid/go-smb/ntlmssp").SetDisplayName("ntlmssp")
 
 var version = []byte{
 	0: WINDOWS_MAJOR_VERSION_10,
@@ -96,6 +96,7 @@ func (c *Client) Negotiate() ([]byte, error) {
 			FlgNeg128 |
 			FlgNegTargetInfo |
 			FlgNegExtendedSessionSecurity |
+			FlgNegAlwaysSign |
 			FlgNegNtLm |
 			FlgNegSeal |
 			FlgNegSign |
