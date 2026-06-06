@@ -47,19 +47,21 @@ const (
 
 // MS-SCMR Operations OP Codes
 const (
-	SvcCtlRCloseServiceHandle    uint16 = 0
-	SvcCtlRControlService        uint16 = 1
-	SvcCtlRDeleteService         uint16 = 2
-	SvcCtlRQueryServiceStatus    uint16 = 6
-	SvcCtlRChangeServiceConfigW  uint16 = 11
-	SvcCtlRCreateServiceW        uint16 = 12
-	SvcCtlREnumServicesStatusW   uint16 = 14
-	SvcCtlROpenSCManagerW        uint16 = 15
-	SvcCtlROpenServiceW          uint16 = 16
-	SvcCtlRQueryServiceConfigW   uint16 = 17
-	SvcCtlRStartServiceW         uint16 = 19
-	SvcCtlRChangeServiceConfig2W uint16 = 37
-	SvcCtlRQueryServiceConfig2W  uint16 = 39
+	SvcCtlRCloseServiceHandle         uint16 = 0
+	SvcCtlRControlService             uint16 = 1
+	SvcCtlRDeleteService              uint16 = 2
+	SvcCtlRQueryServiceObjectSecurity uint16 = 4
+	SvcCtlRSetServiceObjectSecurity   uint16 = 5
+	SvcCtlRQueryServiceStatus         uint16 = 6
+	SvcCtlRChangeServiceConfigW       uint16 = 11
+	SvcCtlRCreateServiceW             uint16 = 12
+	SvcCtlREnumServicesStatusW        uint16 = 14
+	SvcCtlROpenSCManagerW             uint16 = 15
+	SvcCtlROpenServiceW               uint16 = 16
+	SvcCtlRQueryServiceConfigW        uint16 = 17
+	SvcCtlRStartServiceW              uint16 = 19
+	SvcCtlRChangeServiceConfig2W      uint16 = 37
+	SvcCtlRQueryServiceConfig2W       uint16 = 39
 )
 
 // MS-SCMR (svcctl) Section 2.2.15 ServiceType merged with Section 2.2.47 dwServiceType
@@ -158,6 +160,31 @@ const (
 	SCManagerConnect          uint32 = 0x00000001 //Required to connect to the SCM.
 	SCManagerQueryLockStatus  uint32 = 0x00000010 //Required to query the lock status of the SCM database.
 	SCManagerModifyBootConfig uint32 = 0x0020     //Required to call the RNotifyBootConfigStatus method.
+)
+
+const (
+	// From MS-DTYP
+	ServiceDelete uint32 = 0x00010000 //Required to delete a service
+)
+
+// MS-DTYP Section 2.4.3 ACCESS_MASK standard access rights. The service access
+// rights above are object-specific; these are the standard rights required to
+// open a service handle for reading or writing its security descriptor.
+const (
+	ReadControl          uint32 = 0x00020000 // Required to read OWNER, GROUP, and DACL from the security descriptor.
+	WriteDac             uint32 = 0x00040000 // Required to modify the DACL.
+	WriteOwner           uint32 = 0x00080000 // Required to modify the OWNER and GROUP.
+	AccessSystemSecurity uint32 = 0x01000000 // Required to read or modify the SACL (needs SeSecurityPrivilege).
+)
+
+// MS-DTYP Section 2.4.7 SECURITY_INFORMATION. Selects which parts of a security
+// descriptor to query or set via RQueryServiceObjectSecurity (Opnum 4) and
+// RSetServiceObjectSecurity (Opnum 5).
+const (
+	OwnerSecurityInformation uint32 = 0x00000001
+	GroupSecurityInformation uint32 = 0x00000002
+	DaclSecurityInformation  uint32 = 0x00000004
+	SaclSecurityInformation  uint32 = 0x00000008
 )
 
 // MS-SCMR Section 2.2.47 dwCurrentState
@@ -475,7 +502,8 @@ func (sb *RPCCon) openService(scHandle []byte, serviceName string, desiredAccess
 
 func (sb *RPCCon) GetServiceStatus(serviceName string) (status uint32, err error) {
 	log.Traceln("In GetServiceStatus")
-	handle, err := sb.openSCManager(ServiceQueryStatus)
+	// Opening a named service only needs SC_MANAGER_CONNECT on the SCM
+	handle, err := sb.openSCManager(SCManagerConnect)
 	if err != nil {
 		return
 	}
@@ -523,7 +551,8 @@ func (sb *RPCCon) GetServiceStatus(serviceName string) (status uint32, err error
 
 func (sb *RPCCon) StartService(serviceName string, args []string) (err error) {
 	log.Traceln("In StartService")
-	handle, err := sb.openSCManager(ServiceStart)
+	// Opening a named service only needs SC_MANAGER_CONNECT on the SCM
+	handle, err := sb.openSCManager(SCManagerConnect)
 	if err != nil {
 		return
 	}
@@ -622,7 +651,8 @@ func (sb *RPCCon) ControlService(serviceName string, control uint32) (err error)
 
 func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, err error) {
 	log.Traceln("In GetServiceConfig")
-	handle, err := sb.openSCManager(ServiceQueryConfig)
+	// Opening a named service only needs SC_MANAGER_CONNECT on the SCM
+	handle, err := sb.openSCManager(SCManagerConnect)
 	if err != nil {
 		return
 	}
@@ -701,7 +731,8 @@ func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, er
 
 func (sb *RPCCon) queryServiceConfig2(serviceName string, infoLevel uint32) (result []byte, err error) {
 	log.Traceln("In queryServiceConfig2")
-	handle, err := sb.openSCManager(ServiceQueryConfig)
+	// Opening a named service only needs SC_MANAGER_CONNECT on the SCM
+	handle, err := sb.openSCManager(SCManagerConnect)
 	if err != nil {
 		return
 	}
@@ -969,7 +1000,8 @@ func (sb *RPCCon) ChangeServiceConfig(
 	multiSz += "\x00\x00"
 	multiSzBuf := msdtyp.ToUnicode(multiSz)
 
-	handle, err := sb.openSCManager(SCManagerEnumerateService)
+	// Opening a named service only needs SC_MANAGER_CONNECT on the SCM
+	handle, err := sb.openSCManager(SCManagerConnect)
 	if err != nil {
 		return
 	}
@@ -1052,12 +1084,15 @@ func (sb *RPCCon) ChangeServiceConfig(
 
 func (sb *RPCCon) ChangeServiceConfig2(serviceName string, info *ConfigInfoW) (err error) {
 	log.Traceln("In ChangeServiceConfig2")
-	handle, err := sb.openSCManager(SCManagerConnect | SCManagerCreateService)
+	// Opening the SCM needs only SC_MANAGER_CONNECT. The service handle needs
+	// SERVICE_CHANGE_CONFIG, plus SERVICE_START when the change configures an
+	// SC_ACTION_RESTART failure action (see ConfigInfoW.RequiredServiceAccess).
+	handle, err := sb.openSCManager(SCManagerConnect)
 	if err != nil {
 		return
 	}
 	defer sb.CloseServiceHandle(handle)
-	serviceHandle, err := sb.openService(handle, serviceName, ServiceAllAccess)
+	serviceHandle, err := sb.openService(handle, serviceName, info.RequiredServiceAccess())
 	if err != nil {
 		return
 	}
@@ -1215,7 +1250,7 @@ func (sb *RPCCon) DeleteService(serviceName string) (err error) {
 		return
 	}
 	defer sb.CloseServiceHandle(scHandle)
-	handle, err := sb.openService(scHandle, serviceName, ServiceAllAccess)
+	handle, err := sb.openService(scHandle, serviceName, ServiceDelete)
 	if err != nil {
 		return
 	}
@@ -1274,6 +1309,272 @@ func (sb *RPCCon) DeleteService(serviceName string) (err error) {
 	}
 
 	return
+}
+
+// queryObjectSecurity issues RQueryServiceObjectSecurity (Opnum 4) against an
+// already-open SC_RPC_HANDLE — either a service handle from openService or the
+// SCM database handle from openSCManager — and returns the raw self-relative
+// SECURITY_DESCRIPTOR bytes for the requested SECURITY_INFORMATION. It issues
+// the call twice: once with a zero buffer to learn the required size, then again
+// with the size reported by the server.
+func (sb *RPCCon) queryObjectSecurity(handle []byte, securityInformation uint32) (result []byte, err error) {
+	log.Traceln("In queryObjectSecurity")
+
+	var objHandle [20]byte
+	copy(objHandle[:], handle)
+
+	innerReq := RQueryServiceObjectSecurityReq{
+		ServiceHandle:       objHandle,
+		SecurityInformation: securityInformation,
+		BufSize:             0,
+	}
+	innerBuf, err := innerReq.Marshal()
+	if err != nil {
+		return
+	}
+
+	// Make request to figure out buffer size
+	buffer, err := sb.MakeRequest(SvcCtlRQueryServiceObjectSecurity, innerBuf)
+	if err != nil {
+		return
+	}
+
+	res := RQueryServiceObjectSecurityRes{}
+	err = res.Unmarshal(buffer)
+	if err != nil {
+		return
+	}
+
+	if res.ErrorCode != ErrorInsufficientBuffer {
+		status, found := ServiceResponseCodeMap[res.ErrorCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RQueryServiceObjectSecurity: 0x%x\n", res.ErrorCode)
+			log.Errorln(err)
+			return
+		}
+		return nil, status
+	}
+
+	// Repeat request with allocated buffer size
+	innerReq.BufSize = res.BytesNeeded
+	innerBuf2, err := innerReq.Marshal()
+	if err != nil {
+		return
+	}
+
+	buffer, err = sb.MakeRequest(SvcCtlRQueryServiceObjectSecurity, innerBuf2)
+	if err != nil {
+		return
+	}
+
+	res = RQueryServiceObjectSecurityRes{}
+	err = res.Unmarshal(buffer)
+	if err != nil {
+		return
+	}
+
+	if res.ErrorCode != ErrorSuccess {
+		status, found := ServiceResponseCodeMap[res.ErrorCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RQueryServiceObjectSecurity: 0x%x\n", res.ErrorCode)
+			log.Errorln(err)
+			return
+		}
+		return nil, status
+	}
+
+	result = res.SecurityDescriptor
+	return
+}
+
+// queryServiceObjectSecurity reads the requested portions of a service's
+// security descriptor and returns the raw self-relative SECURITY_DESCRIPTOR
+// bytes. The service handle is opened with the least privilege required to read
+// the requested SECURITY_INFORMATION: READ_CONTROL for OWNER/GROUP/DACL plus
+// ACCESS_SYSTEM_SECURITY only when the SACL is requested.
+func (sb *RPCCon) queryServiceObjectSecurity(serviceName string, securityInformation uint32) (result []byte, err error) {
+	log.Traceln("In queryServiceObjectSecurity")
+
+	var desiredAccess uint32 = ReadControl
+	if securityInformation&SaclSecurityInformation != 0 {
+		desiredAccess |= AccessSystemSecurity
+	}
+
+	handle, err := sb.openSCManager(SCManagerConnect)
+	if err != nil {
+		return
+	}
+	defer sb.CloseServiceHandle(handle)
+	serviceHandle, err := sb.openService(handle, serviceName, desiredAccess)
+	if err != nil {
+		return
+	}
+	defer sb.CloseServiceHandle(serviceHandle)
+
+	return sb.queryObjectSecurity(serviceHandle, securityInformation)
+}
+
+// querySCManagerObjectSecurity reads the requested portions of the SCM
+// database's own security descriptor and returns the raw self-relative
+// SECURITY_DESCRIPTOR bytes. Unlike queryServiceObjectSecurity it queries the
+// SCM handle directly without opening a service, and so the SCM handle itself is
+// opened with the least privilege required to read the requested
+// SECURITY_INFORMATION: READ_CONTROL for OWNER/GROUP/DACL plus
+// ACCESS_SYSTEM_SECURITY only when the SACL is requested.
+func (sb *RPCCon) querySCManagerObjectSecurity(securityInformation uint32) (result []byte, err error) {
+	log.Traceln("In querySCManagerObjectSecurity")
+
+	var desiredAccess uint32 = ReadControl
+	if securityInformation&SaclSecurityInformation != 0 {
+		desiredAccess |= AccessSystemSecurity
+	}
+
+	handle, err := sb.openSCManager(desiredAccess)
+	if err != nil {
+		return
+	}
+	defer sb.CloseServiceHandle(handle)
+
+	return sb.queryObjectSecurity(handle, securityInformation)
+}
+
+// GetServiceSecurityBytes reads the requested SECURITY_INFORMATION of a service
+// and returns the raw self-relative SECURITY_DESCRIPTOR bytes. For a parsed
+// result, use GetServiceSecurity.
+func (sb *RPCCon) GetServiceSecurityBytes(serviceName string, securityInformation uint32) ([]byte, error) {
+	return sb.queryServiceObjectSecurity(serviceName, securityInformation)
+}
+
+// GetServiceSecurity reads the requested SECURITY_INFORMATION of a service and
+// returns the parsed security descriptor.
+func (sb *RPCCon) GetServiceSecurity(serviceName string, securityInformation uint32) (*msdtyp.SecurityDescriptor, error) {
+	log.Traceln("In GetServiceSecurity")
+	buf, err := sb.queryServiceObjectSecurity(serviceName, securityInformation)
+	if err != nil {
+		return nil, err
+	}
+	sd := &msdtyp.SecurityDescriptor{}
+	if err = sd.UnmarshalBinary(buf); err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+	return sd, nil
+}
+
+// GetSCManagerSecurityBytes reads the requested SECURITY_INFORMATION of the SCM
+// database itself and returns the raw self-relative SECURITY_DESCRIPTOR bytes.
+// For a parsed result, use GetSCManagerSecurity.
+func (sb *RPCCon) GetSCManagerSecurityBytes(securityInformation uint32) ([]byte, error) {
+	return sb.querySCManagerObjectSecurity(securityInformation)
+}
+
+// GetSCManagerSecurity reads the requested SECURITY_INFORMATION of the SCM
+// database itself and returns the parsed security descriptor.
+func (sb *RPCCon) GetSCManagerSecurity(securityInformation uint32) (*msdtyp.SecurityDescriptor, error) {
+	log.Traceln("In GetSCManagerSecurity")
+	buf, err := sb.querySCManagerObjectSecurity(securityInformation)
+	if err != nil {
+		return nil, err
+	}
+	sd := &msdtyp.SecurityDescriptor{}
+	if err = sd.UnmarshalBinary(buf); err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+	return sd, nil
+}
+
+// setServiceObjectSecurity writes the requested portions of a service's
+// security descriptor from the raw self-relative SECURITY_DESCRIPTOR bytes. The
+// service handle is opened with the least privilege required to set the
+// requested SECURITY_INFORMATION: WRITE_DAC for the DACL, WRITE_OWNER for the
+// OWNER/GROUP, and ACCESS_SYSTEM_SECURITY for the SACL.
+func (sb *RPCCon) setServiceObjectSecurity(serviceName string, securityInformation uint32, sd []byte) (err error) {
+	log.Traceln("In setServiceObjectSecurity")
+
+	var desiredAccess uint32
+	if securityInformation&DaclSecurityInformation != 0 {
+		desiredAccess |= WriteDac
+	}
+	if securityInformation&(OwnerSecurityInformation|GroupSecurityInformation) != 0 {
+		desiredAccess |= WriteOwner
+	}
+	if securityInformation&SaclSecurityInformation != 0 {
+		desiredAccess |= AccessSystemSecurity
+	}
+	if desiredAccess == 0 {
+		err = fmt.Errorf("Invalid SecurityInformation: no OWNER, GROUP, DACL, or SACL bit set")
+		log.Errorln(err)
+		return
+	}
+
+	handle, err := sb.openSCManager(SCManagerConnect)
+	if err != nil {
+		return
+	}
+	defer sb.CloseServiceHandle(handle)
+	serviceHandle, err := sb.openService(handle, serviceName, desiredAccess)
+	if err != nil {
+		return
+	}
+	defer sb.CloseServiceHandle(serviceHandle)
+
+	var svcHandle [20]byte
+	copy(svcHandle[:], serviceHandle)
+
+	innerReq := RSetServiceObjectSecurityReq{
+		ServiceHandle:       svcHandle,
+		SecurityInformation: securityInformation,
+		SecurityDescriptor:  sd,
+		BufSize:             uint32(len(sd)),
+	}
+	innerBuf, err := innerReq.Marshal()
+	if err != nil {
+		return
+	}
+
+	buffer, err := sb.MakeRequest(SvcCtlRSetServiceObjectSecurity, innerBuf)
+	if err != nil {
+		return
+	}
+
+	if len(buffer) < 4 {
+		err = fmt.Errorf("Invalid response to RSetServiceObjectSecurity")
+		log.Errorln(err)
+		return
+	}
+
+	returnCode := le.Uint32(buffer[:4])
+	if returnCode != ErrorSuccess {
+		status, found := ServiceResponseCodeMap[returnCode]
+		if !found {
+			err = fmt.Errorf("Received unknown return code for RSetServiceObjectSecurity: 0x%x\n", returnCode)
+			log.Errorln(err)
+			return err
+		}
+		return status
+	}
+
+	return
+}
+
+// SetServiceSecurityBytes writes the requested SECURITY_INFORMATION of a service
+// from the raw self-relative SECURITY_DESCRIPTOR bytes. For a typed input, use
+// SetServiceSecurity.
+func (sb *RPCCon) SetServiceSecurityBytes(serviceName string, securityInformation uint32, sd []byte) error {
+	return sb.setServiceObjectSecurity(serviceName, securityInformation, sd)
+}
+
+// SetServiceSecurity writes the requested SECURITY_INFORMATION of a service from
+// the provided security descriptor.
+func (sb *RPCCon) SetServiceSecurity(serviceName string, securityInformation uint32, sd *msdtyp.SecurityDescriptor) error {
+	log.Traceln("In SetServiceSecurity")
+	buf, err := sd.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return err
+	}
+	return sb.setServiceObjectSecurity(serviceName, securityInformation, buf)
 }
 
 func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result []EnumServiceStatusW, err error) {

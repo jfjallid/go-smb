@@ -24,6 +24,7 @@ package mssrvs
 
 import (
 	"fmt"
+	"unicode/utf16"
 
 	"github.com/jfjallid/go-smb/dcerpc"
 	"github.com/jfjallid/go-smb/msdtyp"
@@ -43,7 +44,10 @@ const (
 const (
 	SrvSvcOpNetrSessionEnum      uint16 = 12
 	SrvSvcOpNetShareEnumAll      uint16 = 15
+	SrvSvcOpNetrShareGetInfo     uint16 = 16
+	SrvSvcOpNetrShareSetInfo     uint16 = 17
 	SrvSvcOpNetServerGetInfo     uint16 = 21
+	SrvSvcOpNetrServerDiskEnum   uint16 = 23
 	SrvSvcOpNetrpGetFileSecurity uint16 = 39
 )
 
@@ -237,9 +241,61 @@ func (sb *RPCCon) NetServerGetInfo(host string, level int) (res *ServerInfoUnion
 	return
 }
 
-func (sb *RPCCon) NetShareEnumAll(host string) (res []NetShare, err error) {
-	log.Traceln("In NetShareEnumAll")
-	netReq := NewNetShareEnumAllRequest(host)
+// parseShareType decodes a SHARE_INFO *_type bitfield into a human-readable
+// type string, the dominant Stype* constant, and whether the share is hidden
+// (StypeSpecial). Shared by all NetShareEnumAll levels.
+func parseShareType(t uint32) (typeStr string, typeId uint32, hidden bool) {
+	if (t & StypeClusterDFS) == StypeClusterDFS {
+		typeStr = ShareTypeMap[StypeClusterDFS]
+		typeId = StypeClusterDFS
+	} else if (t & StypeClusterSOFS) == StypeClusterSOFS {
+		typeStr = ShareTypeMap[StypeClusterSOFS]
+		typeId = StypeClusterSOFS
+	} else if (t & StypeClusterFS) == StypeClusterFS {
+		typeStr = ShareTypeMap[StypeClusterFS]
+		typeId = StypeClusterFS
+	} else if (t & StypeIPC) == StypeIPC {
+		typeStr = ShareTypeMap[StypeIPC]
+		typeId = StypeIPC
+	} else if (t & StypeDevice) == StypeDevice {
+		typeStr = ShareTypeMap[StypeDevice]
+		typeId = StypeDevice
+	} else if (t & StypePrintq) == StypePrintq {
+		typeStr = ShareTypeMap[StypePrintq]
+		typeId = StypePrintq
+	} else {
+		typeStr = ShareTypeMap[StypeDisktree]
+		typeId = StypeDisktree
+	}
+
+	if (t & StypeSpecial) == StypeSpecial {
+		typeStr += "_" + ShareTypeMap[StypeSpecial]
+		hidden = true
+	} else if (t & StypeTemporary) == StypeTemporary {
+		typeStr += "_" + ShareTypeMap[StypeTemporary]
+	}
+	return
+}
+
+// NetShareEnumAll enumerates the shares on host at info level 1 (name, type,
+// comment). For the richer levels see NetShareEnumAllExt.
+func (sb *RPCCon) NetShareEnumAll(host string) ([]NetShare, error) {
+	return sb.NetShareEnumAllExt(host, 1)
+}
+
+// NetShareEnumAllExt enumerates the shares on host at the given info level.
+// Supported levels are 1, 501 and 502. The higher levels populate the extra
+// NetShare fields: Flags (level 501) and Permissions, MaxUses, CurrentUses,
+// Path and SecurityDescriptor (level 502).
+func (sb *RPCCon) NetShareEnumAllExt(host string, level int) (res []NetShare, err error) {
+	log.Traceln("In NetShareEnumAllExt")
+	switch level {
+	case 1, 501, 502:
+	default:
+		return nil, fmt.Errorf("unsupported share enum level %d", level)
+	}
+
+	netReq := NewNetShareEnumAllRequestExt(host, uint32(level))
 	netBuf, err := netReq.Marshal()
 	if err != nil {
 		log.Errorln(err)
@@ -270,67 +326,84 @@ func (sb *RPCCon) NetShareEnumAll(host string) (res []NetShare, err error) {
 		return nil, responseCode
 	}
 
-	ctr1 := response.InfoStruct.Level1
-	if ctr1 == nil {
-		return nil, nil
-	}
-	res = make([]NetShare, response.TotalEntries)
-
-	for i := 0; i < int(response.TotalEntries); i++ {
-		res[i].Name = ctr1.Buffer[i].Name
-		res[i].Comment = ctr1.Buffer[i].Comment
-
-		// Parse the TYPE
-		t := ""
-		if (ctr1.Buffer[i].Type & StypeClusterDFS) == StypeClusterDFS {
-			t += ShareTypeMap[StypeClusterDFS]
-			res[i].TypeId = StypeClusterDFS
-		} else if (ctr1.Buffer[i].Type & StypeClusterSOFS) == StypeClusterSOFS {
-			t += ShareTypeMap[StypeClusterSOFS]
-			res[i].TypeId = StypeClusterSOFS
-		} else if (ctr1.Buffer[i].Type & StypeClusterFS) == StypeClusterFS {
-			t += ShareTypeMap[StypeClusterFS]
-			res[i].TypeId = StypeClusterFS
-		} else if (ctr1.Buffer[i].Type & StypeIPC) == StypeIPC {
-			t += ShareTypeMap[StypeIPC]
-			res[i].TypeId = StypeIPC
-		} else if (ctr1.Buffer[i].Type & StypeDevice) == StypeDevice {
-			t += ShareTypeMap[StypeDevice]
-			res[i].TypeId = StypeDevice
-		} else if (ctr1.Buffer[i].Type & StypePrintq) == StypePrintq {
-			t += ShareTypeMap[StypePrintq]
-			res[i].TypeId = StypePrintq
-		} else {
-			t += ShareTypeMap[StypeDisktree]
-			res[i].TypeId = StypeDisktree
+	switch response.InfoStruct.Level {
+	case 1:
+		ctr := response.InfoStruct.Level1
+		if ctr == nil {
+			return nil, nil
 		}
-
-		if (ctr1.Buffer[i].Type & StypeSpecial) == StypeSpecial {
-			t += "_" + ShareTypeMap[StypeSpecial]
-			res[i].Hidden = true
-		} else if (ctr1.Buffer[i].Type & StypeTemporary) == StypeTemporary {
-			t += "_" + ShareTypeMap[StypeTemporary]
+		res = make([]NetShare, len(ctr.Buffer))
+		for i := range ctr.Buffer {
+			res[i].Name = ctr.Buffer[i].Name
+			res[i].Comment = ctr.Buffer[i].Comment
+			res[i].Type, res[i].TypeId, res[i].Hidden = parseShareType(ctr.Buffer[i].Type)
 		}
-		res[i].Type = t
+	case 501:
+		ctr := response.InfoStruct.Level501
+		if ctr == nil {
+			return nil, nil
+		}
+		res = make([]NetShare, len(ctr.Buffer))
+		for i := range ctr.Buffer {
+			res[i].Name = ctr.Buffer[i].Name
+			res[i].Comment = ctr.Buffer[i].Comment
+			res[i].Type, res[i].TypeId, res[i].Hidden = parseShareType(ctr.Buffer[i].Type)
+			res[i].Flags = ctr.Buffer[i].Flags
+		}
+	case 502:
+		ctr := response.InfoStruct.Level502
+		if ctr == nil {
+			return nil, nil
+		}
+		res = make([]NetShare, len(ctr.Buffer))
+		for i := range ctr.Buffer {
+			res[i].Name = ctr.Buffer[i].Name
+			res[i].Comment = ctr.Buffer[i].Comment
+			res[i].Type, res[i].TypeId, res[i].Hidden = parseShareType(ctr.Buffer[i].Type)
+			res[i].Permissions = ctr.Buffer[i].Permissions
+			res[i].MaxUses = ctr.Buffer[i].MaxUses
+			res[i].CurrentUses = ctr.Buffer[i].CurrentUses
+			res[i].Path = ctr.Buffer[i].Path
+			if len(ctr.Buffer[i].SecurityDescriptor) > 0 {
+				var sd msdtyp.SecurityDescriptor
+				if perr := sd.UnmarshalBinary(ctr.Buffer[i].SecurityDescriptor); perr != nil {
+					log.Errorf("failed to parse security descriptor for share %s: %v\n", ctr.Buffer[i].Name, perr)
+				} else {
+					res[i].SecurityDescriptor = &sd
+				}
+			}
+		}
+	default:
+		return nil, fmt.Errorf("server returned unexpected share enum level %d", response.InfoStruct.Level)
 	}
 
 	return res, nil
 }
 
-func NewNetShareEnumAllRequest(serverName string) *NetShareEnumAllRequest {
+// NewNetShareEnumAllRequestExt builds a NetShareEnumAllRequest for the given
+// info level (1, 501 or 502). The matching container is left empty for the
+// request; the server fills it in the response.
+func NewNetShareEnumAllRequestExt(serverName string, level uint32) *NetShareEnumAllRequest {
 	resumeHandle := uint32(0)
-	nr := NetShareEnumAllRequest{
-		ServerName: &serverName,
-		InfoStruct: ShareEnumStruct{
-			Level: 1,
-			Level1: &ShareInfoContainer1{
-				EntriesRead: 0,
-			},
-		},
+	nr := &NetShareEnumAllRequest{
+		ServerName:   &serverName,
+		InfoStruct:   ShareEnumStruct{Level: level},
 		MaxBuffer:    0xffffffff,
 		ResumeHandle: &resumeHandle,
 	}
-	return &nr
+	switch level {
+	case 1:
+		nr.InfoStruct.Level1 = &ShareInfoContainer1{}
+	case 501:
+		nr.InfoStruct.Level501 = &ShareInfoContainer501{}
+	case 502:
+		nr.InfoStruct.Level502 = &ShareInfoContainer502{}
+	}
+	return nr
+}
+
+func NewNetShareEnumAllRequest(serverName string) *NetShareEnumAllRequest {
+	return NewNetShareEnumAllRequestExt(serverName, 1)
 }
 
 func (sb *RPCCon) NetGetFileSecurity(share, path string) (sd *msdtyp.SecurityDescriptor, err error) {
@@ -382,5 +455,318 @@ func (sb *RPCCon) NetGetFileSecurity(share, path string) (sd *msdtyp.SecurityDes
 		sd = &secInfo
 	}
 
+	return
+}
+
+func NewNetShareGetInfoRequest(serverName, netName string, level uint32) *NetShareGetInfoRequest {
+	return &NetShareGetInfoRequest{
+		ServerName: &serverName,
+		NetName:    netName,
+		Level:      level,
+	}
+}
+
+// NetShareGetInfo retrieves information about a single share at info level 2.
+// For other levels see NetShareGetInfoExt.
+func (sb *RPCCon) NetShareGetInfo(host, share string) (*NetShare, error) {
+	return sb.NetShareGetInfoExt(host, share, 2)
+}
+
+// NetShareGetInfoExt retrieves information about a single named share at the
+// given info level. Supported levels are 0, 1, 2, 501 and 502. The returned
+// NetShare carries whichever fields the level populates (see NetShare).
+func (sb *RPCCon) NetShareGetInfoExt(host, share string, level int) (res *NetShare, err error) {
+	log.Traceln("In NetShareGetInfoExt")
+	switch level {
+	case 0, 1, 2, 501, 502:
+	default:
+		return nil, fmt.Errorf("unsupported share info level %d", level)
+	}
+
+	netReq := NewNetShareGetInfoRequest(host, share, uint32(level))
+	netBuf, err := netReq.Marshal()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	buffer, err := sb.MakeRequest(SrvSvcOpNetrShareGetInfo, netBuf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	var response NetShareGetInfoResponse
+	err = response.Unmarshal(buffer)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	if response.WindowsError != ErrorSuccess {
+		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
+		if !found {
+			err = fmt.Errorf("NetShareGetInfo returned unknown error code: 0x%x\n", response.WindowsError)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("NetShareGetInfo return error: %v\n", responseCode)
+		return nil, responseCode
+	}
+
+	res = &NetShare{}
+	switch response.Info.Level {
+	case 0:
+		info := response.Info.Level0
+		if info == nil {
+			return nil, nil
+		}
+		res.Name = info.Name
+	case 1:
+		info := response.Info.Level1
+		if info == nil {
+			return nil, nil
+		}
+		res.Name = info.Name
+		res.Comment = info.Comment
+		res.Type, res.TypeId, res.Hidden = parseShareType(info.Type)
+	case 2:
+		info := response.Info.Level2
+		if info == nil {
+			return nil, nil
+		}
+		res.Name = info.Name
+		res.Comment = info.Comment
+		res.Type, res.TypeId, res.Hidden = parseShareType(info.Type)
+		res.Permissions = info.Permissions
+		res.MaxUses = info.MaxUses
+		res.CurrentUses = info.CurrentUses
+		res.Path = info.Path
+	case 501:
+		info := response.Info.Level501
+		if info == nil {
+			return nil, nil
+		}
+		res.Name = info.Name
+		res.Comment = info.Comment
+		res.Type, res.TypeId, res.Hidden = parseShareType(info.Type)
+		res.Flags = info.Flags
+	case 502:
+		info := response.Info.Level502
+		if info == nil {
+			return nil, nil
+		}
+		res.Name = info.Name
+		res.Comment = info.Comment
+		res.Type, res.TypeId, res.Hidden = parseShareType(info.Type)
+		res.Permissions = info.Permissions
+		res.MaxUses = info.MaxUses
+		res.CurrentUses = info.CurrentUses
+		res.Path = info.Path
+		if len(info.SecurityDescriptor) > 0 {
+			var sd msdtyp.SecurityDescriptor
+			if perr := sd.UnmarshalBinary(info.SecurityDescriptor); perr != nil {
+				log.Errorf("failed to parse security descriptor for share %s: %v\n", info.Name, perr)
+			} else {
+				res.SecurityDescriptor = &sd
+			}
+		}
+	default:
+		return nil, fmt.Errorf("server returned unexpected share info level %d", response.Info.Level)
+	}
+
+	return res, nil
+}
+
+// netShareSetInfo sends a NetrShareSetInfo request for the given share with the
+// supplied info union at the given level. It returns the ParmErr value reported
+// by the server (the index of the offending member when WindowsError ==
+// SRVSErrorInvalidParameter) together with any error.
+func (sb *RPCCon) netShareSetInfo(host, share string, level uint32, info ShareInfoUnion) (parmErr uint32, err error) {
+	log.Traceln("In netShareSetInfo")
+	info.Level = level
+	netReq := &NetShareSetInfoRequest{
+		ServerName: &host,
+		NetName:    share,
+		Level:      level,
+		ShareInfo:  info,
+	}
+	netBuf, err := netReq.Marshal()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	buffer, err := sb.MakeRequest(SrvSvcOpNetrShareSetInfo, netBuf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	var response NetShareSetInfoResponse
+	err = response.Unmarshal(buffer)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	if response.ParmErr != nil {
+		parmErr = *response.ParmErr
+	}
+
+	if response.WindowsError != ErrorSuccess {
+		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
+		if !found {
+			err = fmt.Errorf("NetShareSetInfo returned unknown error code: 0x%x\n", response.WindowsError)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("NetShareSetInfo return error: %v (parmErr=%d)\n", responseCode, parmErr)
+		err = responseCode
+		return
+	}
+
+	return
+}
+
+// NetShareSetInfo updates a share using a caller-supplied SHARE_INFO union.
+// Supported levels are 1, 2, 502, 1004, 1005 and 1501 (the levels MS-SRVS
+// allows for NetrShareSetInfo that this package models); the union member
+// matching the level must be populated. For the common single-field updates the
+// dedicated setters (NetShareSetInfoComment / NetShareSetInfoFlags /
+// NetShareSetInfoSecurityDescriptor) are more convenient. It returns the server
+// ParmErr index.
+func (sb *RPCCon) NetShareSetInfo(host, share string, level int, info *ShareInfoUnion) (uint32, error) {
+	if info == nil {
+		return 0, fmt.Errorf("NetShareSetInfo requires a non-nil info union")
+	}
+	var populated bool
+	switch level {
+	case 1:
+		populated = info.Level1 != nil
+	case 2:
+		populated = info.Level2 != nil
+	case 502:
+		populated = info.Level502 != nil
+	case 1004:
+		populated = info.Level1004 != nil
+	case 1005:
+		populated = info.Level1005 != nil
+	case 1501:
+		populated = info.Level1501 != nil
+	default:
+		return 0, fmt.Errorf("unsupported share set-info level %d", level)
+	}
+	if !populated {
+		return 0, fmt.Errorf("NetShareSetInfo level %d requires the matching info union member to be set", level)
+	}
+	return sb.netShareSetInfo(host, share, uint32(level), *info)
+}
+
+// NetShareSetInfoComment sets a share's comment/remark (SHARE_INFO_1004).
+func (sb *RPCCon) NetShareSetInfoComment(host, share, comment string) error {
+	_, err := sb.netShareSetInfo(host, share, 1004, ShareInfoUnion{
+		Level1004: &ShareInfo1004{Comment: comment},
+	})
+	return err
+}
+
+// NetShareSetInfoFlags sets a share's flags (SHARE_INFO_1005), e.g. CSC caching
+// or access-based-enumeration flags.
+func (sb *RPCCon) NetShareSetInfoFlags(host, share string, flags uint32) error {
+	_, err := sb.netShareSetInfo(host, share, 1005, ShareInfoUnion{
+		Level1005: &ShareInfo1005{Flags: flags},
+	})
+	return err
+}
+
+// NetShareSetInfoSecurityDescriptor sets a share's security descriptor
+// (SHARE_INFO_1501).
+func (sb *RPCCon) NetShareSetInfoSecurityDescriptor(host, share string, sd *msdtyp.SecurityDescriptor) error {
+	if sd == nil {
+		return fmt.Errorf("NetShareSetInfoSecurityDescriptor requires a non-nil security descriptor")
+	}
+	sdBytes, err := sd.MarshalBinary()
+	if err != nil {
+		log.Errorln(err)
+		return err
+	}
+	_, err = sb.netShareSetInfo(host, share, 1501, ShareInfoUnion{
+		Level1501: &ShareInfo1501{
+			Reserved:           uint32(len(sdBytes)),
+			SecurityDescriptor: sdBytes,
+		},
+	})
+	return err
+}
+
+// NetServerDiskEnum enumerates the disk drives configured on host. Only level 0
+// is defined by MS-SRVS. It returns the drive names (e.g. "A:", "C:", "D:").
+func (sb *RPCCon) NetServerDiskEnum(host string) (res []string, err error) {
+	log.Traceln("In NetServerDiskEnum")
+	resumeHandle := uint32(0)
+	netReq := &NetServerDiskEnumRequest{
+		ServerName:   &host,
+		Level:        0,
+		PrefMaxLen:   0xffffffff,
+		ResumeHandle: &resumeHandle,
+	}
+	netBuf, err := netReq.Marshal()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	buffer, err := sb.MakeRequest(SrvSvcOpNetrServerDiskEnum, netBuf)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	var response NetServerDiskEnumResponse
+	err = response.Unmarshal(buffer)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	if response.WindowsError != ErrorSuccess {
+		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
+		if !found {
+			err = fmt.Errorf("NetServerDiskEnum returned unknown error code: 0x%x\n", response.WindowsError)
+			log.Errorln(err)
+			return
+		}
+		log.Debugf("NetServerDiskEnum return error: %v\n", responseCode)
+		return nil, responseCode
+	}
+
+	for _, di := range response.DiskInfo.Buffer {
+		name := diskInfoToString(di.Disk)
+		if name == "" {
+			// Windows appends a trailing empty DISK_INFO entry; skip it.
+			continue
+		}
+		res = append(res, name)
+	}
+
+	return res, nil
+}
+
+// diskInfoToString decodes a fixed 3-WCHAR DISK_INFO.Disk field into a Go
+// string, stopping at the first NUL.
+func diskInfoToString(d [3]uint16) string {
+	n := 0
+	for n < len(d) && d[n] != 0 {
+		n++
+	}
+	return string(utf16.Decode(d[:n]))
+}
+
+// stringToDiskInfo encodes a drive name into a fixed 3-WCHAR DISK_INFO.Disk
+// field, truncating anything past 3 UTF-16 code units. Used for symmetry/tests.
+func stringToDiskInfo(s string) (d [3]uint16) {
+	u := utf16.Encode([]rune(s))
+	copy(d[:], u)
 	return
 }

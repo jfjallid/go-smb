@@ -22,6 +22,7 @@
 package mssrvs
 
 import (
+	"bytes"
 	"encoding/hex"
 	"testing"
 )
@@ -147,6 +148,165 @@ func TestNetShareEnumAllRes(t *testing.T) {
 
 	if res.WindowsError != 0 {
 		t.Fatalf("expected res.WindowsError==0, got %v", res.WindowsError)
+	}
+}
+
+func TestNetShareEnumAllReqExt(t *testing.T) {
+	for _, level := range []uint32{1, 501, 502} {
+		req := NewNetShareEnumAllRequestExt("WIN2K19", level)
+		buf, err := req.Marshal()
+		if err != nil {
+			t.Fatalf("level %d marshal: %v", level, err)
+		}
+
+		var req2 NetShareEnumAllRequest
+		if err := req2.Unmarshal(buf); err != nil {
+			t.Fatalf("level %d unmarshal: %v", level, err)
+		}
+		if req2.InfoStruct.Level != level {
+			t.Fatalf("expected Level==%d, got %d", level, req2.InfoStruct.Level)
+		}
+		switch level {
+		case 1:
+			if req2.InfoStruct.Level1 == nil {
+				t.Fatalf("level 1: expected non-nil Level1 container")
+			}
+		case 501:
+			if req2.InfoStruct.Level501 == nil {
+				t.Fatalf("level 501: expected non-nil Level501 container")
+			}
+		case 502:
+			if req2.InfoStruct.Level502 == nil {
+				t.Fatalf("level 502: expected non-nil Level502 container")
+			}
+		}
+	}
+}
+
+func TestNetShareEnumAll501Res(t *testing.T) {
+	resume := uint32(0)
+	res := NetShareEnumAllResponse{
+		InfoStruct: ShareEnumStruct{
+			Level: 501,
+			Level501: &ShareInfoContainer501{
+				EntriesRead: 2,
+				Buffer: []ShareInfo501{
+					{Name: "ADMIN$", Type: StypeDisktree | StypeSpecial, Comment: "Remote Admin", Flags: 0x10},
+					{Name: "share", Type: StypeDisktree, Comment: "", Flags: 0},
+				},
+			},
+		},
+		TotalEntries: 2,
+		ResumeHandle: &resume,
+		WindowsError: 0,
+	}
+
+	buf, err := res.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got NetShareEnumAllResponse
+	if err := got.Unmarshal(buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if got.InfoStruct.Level != 501 {
+		t.Fatalf("expected Level==501, got %d", got.InfoStruct.Level)
+	}
+	ctr := got.InfoStruct.Level501
+	if ctr == nil {
+		t.Fatal("expected non-nil Level501 container")
+	}
+	if ctr.EntriesRead != 2 || len(ctr.Buffer) != 2 {
+		t.Fatalf("expected 2 entries, got EntriesRead=%d len=%d", ctr.EntriesRead, len(ctr.Buffer))
+	}
+	if ctr.Buffer[0].Name != "ADMIN$" || ctr.Buffer[0].Comment != "Remote Admin" || ctr.Buffer[0].Flags != 0x10 {
+		t.Fatalf("entry 0 mismatch: %+v", ctr.Buffer[0])
+	}
+	if ctr.Buffer[0].Type != StypeDisktree|StypeSpecial {
+		t.Fatalf("entry 0 Type mismatch: %x", ctr.Buffer[0].Type)
+	}
+	if ctr.Buffer[1].Name != "share" || ctr.Buffer[1].Comment != "" || ctr.Buffer[1].Flags != 0 {
+		t.Fatalf("entry 1 mismatch: %+v", ctr.Buffer[1])
+	}
+}
+
+func TestNetShareEnumAll502Res(t *testing.T) {
+	// Minimal valid empty self-relative security descriptor (revision 1,
+	// SE_SELF_RELATIVE, all offsets zero).
+	sd := []byte{
+		0x01, 0x00, 0x00, 0x80, // Revision, Sbz1, Control(0x8000)
+		0x00, 0x00, 0x00, 0x00, // OffsetOwner
+		0x00, 0x00, 0x00, 0x00, // OffsetGroup
+		0x00, 0x00, 0x00, 0x00, // OffsetSacl
+		0x00, 0x00, 0x00, 0x00, // OffsetDacl
+	}
+	resume := uint32(0)
+	res := NetShareEnumAllResponse{
+		InfoStruct: ShareEnumStruct{
+			Level: 502,
+			Level502: &ShareInfoContainer502{
+				EntriesRead: 2,
+				Buffer: []ShareInfo502{
+					{
+						Name: "C$", Type: StypeDisktree | StypeSpecial, Comment: "Default share",
+						Permissions: 0, MaxUses: 0xffffffff, CurrentUses: 1,
+						Path: "C:\\", Passwd: "",
+						Reserved: uint32(len(sd)), SecurityDescriptor: sd,
+					},
+					{
+						// Null SD path (Reserved==0, SecurityDescriptor nil) exercises
+						// the fullpointer NULL encode/decode branch.
+						Name: "data", Type: StypeDisktree, Comment: "",
+						Permissions: 0, MaxUses: 10, CurrentUses: 0,
+						Path: "D:\\data", Passwd: "",
+						Reserved: 0, SecurityDescriptor: nil,
+					},
+				},
+			},
+		},
+		TotalEntries: 2,
+		ResumeHandle: &resume,
+		WindowsError: 0,
+	}
+
+	buf, err := res.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got NetShareEnumAllResponse
+	if err := got.Unmarshal(buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if got.InfoStruct.Level != 502 {
+		t.Fatalf("expected Level==502, got %d", got.InfoStruct.Level)
+	}
+	ctr := got.InfoStruct.Level502
+	if ctr == nil {
+		t.Fatal("expected non-nil Level502 container")
+	}
+	if ctr.EntriesRead != 2 || len(ctr.Buffer) != 2 {
+		t.Fatalf("expected 2 entries, got EntriesRead=%d len=%d", ctr.EntriesRead, len(ctr.Buffer))
+	}
+
+	e0 := ctr.Buffer[0]
+	if e0.Name != "C$" || e0.Comment != "Default share" || e0.Path != "C:\\" {
+		t.Fatalf("entry 0 strings mismatch: %+v", e0)
+	}
+	if e0.MaxUses != 0xffffffff || e0.CurrentUses != 1 {
+		t.Fatalf("entry 0 uses mismatch: %+v", e0)
+	}
+	if e0.Reserved != uint32(len(sd)) || !bytes.Equal(e0.SecurityDescriptor, sd) {
+		t.Fatalf("entry 0 SD mismatch: reserved=%d sd=%x", e0.Reserved, e0.SecurityDescriptor)
+	}
+
+	e1 := ctr.Buffer[1]
+	if e1.Name != "data" || e1.Path != "D:\\data" {
+		t.Fatalf("entry 1 strings mismatch: %+v", e1)
+	}
+	if e1.Reserved != 0 || len(e1.SecurityDescriptor) != 0 {
+		t.Fatalf("entry 1 expected nil SD, got reserved=%d sd=%x", e1.Reserved, e1.SecurityDescriptor)
 	}
 }
 
@@ -317,5 +477,220 @@ func TestNetSessionEnumRes(t *testing.T) {
 
 	if ctr10.Buffer[0].IdleTime != 0 {
 		t.Fatalf("expected ctr10.Buffer[0].IdleTime==0, got %v", ctr10.Buffer[0].IdleTime)
+	}
+}
+
+// minimal valid empty self-relative security descriptor used by several tests.
+var emptySD = []byte{
+	0x01, 0x00, 0x00, 0x80, // Revision, Sbz1, Control(0x8000)
+	0x00, 0x00, 0x00, 0x00, // OffsetOwner
+	0x00, 0x00, 0x00, 0x00, // OffsetGroup
+	0x00, 0x00, 0x00, 0x00, // OffsetSacl
+	0x00, 0x00, 0x00, 0x00, // OffsetDacl
+}
+
+func TestNetShareGetInfoReq(t *testing.T) {
+	req := NewNetShareGetInfoRequest("WIN2K19", "C$", 502)
+	buf, err := req.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got NetShareGetInfoRequest
+	if err := got.Unmarshal(buf); err != nil {
+		t.Fatal(err)
+	}
+	if got.ServerName == nil || *got.ServerName != "WIN2K19" {
+		t.Fatalf("expected ServerName==WIN2K19, got %v", got.ServerName)
+	}
+	if got.NetName != "C$" {
+		t.Fatalf("expected NetName==C$, got %q", got.NetName)
+	}
+	if got.Level != 502 {
+		t.Fatalf("expected Level==502, got %d", got.Level)
+	}
+}
+
+func TestNetShareGetInfoRes(t *testing.T) {
+	cases := []struct {
+		name string
+		info ShareInfoUnion
+	}{
+		{"level0", ShareInfoUnion{Level: 0, Level0: &ShareInfo0{Name: "C$"}}},
+		{"level1", ShareInfoUnion{Level: 1, Level1: &ShareInfo1{
+			Name: "C$", Type: StypeDisktree | StypeSpecial, Comment: "Default share"}}},
+		{"level2", ShareInfoUnion{Level: 2, Level2: &ShareInfo2{
+			Name: "C$", Type: StypeDisktree | StypeSpecial, Comment: "Default share",
+			MaxUses: 0xffffffff, CurrentUses: 1, Path: "C:\\", Passwd: ""}}},
+		{"level501", ShareInfoUnion{Level: 501, Level501: &ShareInfo501{
+			Name: "C$", Type: StypeDisktree | StypeSpecial, Comment: "Default share", Flags: 0x10}}},
+		{"level502", ShareInfoUnion{Level: 502, Level502: &ShareInfo502{
+			Name: "C$", Type: StypeDisktree | StypeSpecial, Comment: "Default share",
+			MaxUses: 0xffffffff, CurrentUses: 1, Path: "C:\\",
+			Reserved: uint32(len(emptySD)), SecurityDescriptor: emptySD}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := NetShareGetInfoResponse{Info: tc.info, WindowsError: 0}
+			buf, err := res.Marshal()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got NetShareGetInfoResponse
+			if err := got.Unmarshal(buf); err != nil {
+				t.Fatal(err)
+			}
+			if got.Info.Level != tc.info.Level {
+				t.Fatalf("expected Level==%d, got %d", tc.info.Level, got.Info.Level)
+			}
+			switch tc.info.Level {
+			case 0:
+				if got.Info.Level0 == nil || got.Info.Level0.Name != "C$" {
+					t.Fatalf("level0 mismatch: %+v", got.Info.Level0)
+				}
+			case 1:
+				g := got.Info.Level1
+				if g == nil || g.Name != "C$" || g.Comment != "Default share" ||
+					g.Type != StypeDisktree|StypeSpecial {
+					t.Fatalf("level1 mismatch: %+v", g)
+				}
+			case 2:
+				g := got.Info.Level2
+				if g == nil || g.Name != "C$" || g.Path != "C:\\" ||
+					g.MaxUses != 0xffffffff || g.CurrentUses != 1 {
+					t.Fatalf("level2 mismatch: %+v", g)
+				}
+			case 501:
+				g := got.Info.Level501
+				if g == nil || g.Name != "C$" || g.Flags != 0x10 {
+					t.Fatalf("level501 mismatch: %+v", g)
+				}
+			case 502:
+				g := got.Info.Level502
+				if g == nil || g.Name != "C$" || g.Path != "C:\\" ||
+					!bytes.Equal(g.SecurityDescriptor, emptySD) {
+					t.Fatalf("level502 mismatch: %+v", g)
+				}
+			}
+		})
+	}
+}
+
+func TestNetShareSetInfoReq(t *testing.T) {
+	cases := []struct {
+		name  string
+		level uint32
+		info  ShareInfoUnion
+		check func(t *testing.T, got *NetShareSetInfoRequest)
+	}{
+		{
+			name:  "comment1004",
+			level: 1004,
+			info:  ShareInfoUnion{Level1004: &ShareInfo1004{Comment: "new comment"}},
+			check: func(t *testing.T, got *NetShareSetInfoRequest) {
+				if got.ShareInfo.Level1004 == nil || got.ShareInfo.Level1004.Comment != "new comment" {
+					t.Fatalf("1004 mismatch: %+v", got.ShareInfo.Level1004)
+				}
+			},
+		},
+		{
+			name:  "flags1005",
+			level: 1005,
+			info:  ShareInfoUnion{Level1005: &ShareInfo1005{Flags: 0x30}},
+			check: func(t *testing.T, got *NetShareSetInfoRequest) {
+				if got.ShareInfo.Level1005 == nil || got.ShareInfo.Level1005.Flags != 0x30 {
+					t.Fatalf("1005 mismatch: %+v", got.ShareInfo.Level1005)
+				}
+			},
+		},
+		{
+			name:  "sd1501",
+			level: 1501,
+			info:  ShareInfoUnion{Level1501: &ShareInfo1501{Reserved: uint32(len(emptySD)), SecurityDescriptor: emptySD}},
+			check: func(t *testing.T, got *NetShareSetInfoRequest) {
+				g := got.ShareInfo.Level1501
+				if g == nil || g.Reserved != uint32(len(emptySD)) || !bytes.Equal(g.SecurityDescriptor, emptySD) {
+					t.Fatalf("1501 mismatch: %+v", g)
+				}
+			},
+		},
+		{
+			name:  "full502",
+			level: 502,
+			info: ShareInfoUnion{Level502: &ShareInfo502{
+				Name: "share", Type: StypeDisktree, Comment: "c", MaxUses: 5, Path: "D:\\data"}},
+			check: func(t *testing.T, got *NetShareSetInfoRequest) {
+				g := got.ShareInfo.Level502
+				if g == nil || g.Name != "share" || g.Path != "D:\\data" || g.MaxUses != 5 {
+					t.Fatalf("502 mismatch: %+v", g)
+				}
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := tc.info
+			info.Level = tc.level
+			server := "WIN2K19"
+			parm := uint32(0)
+			req := NetShareSetInfoRequest{
+				ServerName: &server,
+				NetName:    "share",
+				Level:      tc.level,
+				ShareInfo:  info,
+				ParmErr:    &parm,
+			}
+			buf, err := req.Marshal()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got NetShareSetInfoRequest
+			if err := got.Unmarshal(buf); err != nil {
+				t.Fatal(err)
+			}
+			if got.Level != tc.level {
+				t.Fatalf("expected request Level==%d, got %d", tc.level, got.Level)
+			}
+			if got.ShareInfo.Level != tc.level {
+				t.Fatalf("expected union Level==%d, got %d", tc.level, got.ShareInfo.Level)
+			}
+			tc.check(t, &got)
+		})
+	}
+}
+
+func TestNetServerDiskEnumRes(t *testing.T) {
+	drives := []string{"A:", "C:", "D:"}
+	buffer := make([]DiskInfo, len(drives))
+	for i, d := range drives {
+		buffer[i] = DiskInfo{Disk: stringToDiskInfo(d)}
+	}
+	resume := uint32(0)
+	res := NetServerDiskEnumResponse{
+		DiskInfo: DiskEnumContainer{
+			EntriesRead: uint32(len(buffer)),
+			Buffer:      buffer,
+		},
+		TotalEntries: uint32(len(buffer)),
+		ResumeHandle: &resume,
+		WindowsError: 0,
+	}
+	buf, err := res.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got NetServerDiskEnumResponse
+	if err := got.Unmarshal(buf); err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalEntries != 3 {
+		t.Fatalf("expected TotalEntries==3, got %d", got.TotalEntries)
+	}
+	if len(got.DiskInfo.Buffer) != 3 {
+		t.Fatalf("expected 3 disk entries, got %d", len(got.DiskInfo.Buffer))
+	}
+	for i, d := range drives {
+		if name := diskInfoToString(got.DiskInfo.Buffer[i].Disk); name != d {
+			t.Fatalf("entry %d: expected %q, got %q", i, d, name)
+		}
 	}
 }

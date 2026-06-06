@@ -28,6 +28,7 @@ import (
 	"fmt"
 
 	"github.com/jfjallid/go-smb/dcerpc"
+	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/ndr"
 )
 
@@ -35,13 +36,24 @@ type RPCCon struct {
 	*dcerpc.ServiceBind
 }
 
-// Returned to clients calling the NetShareEnumAll request
+// Returned to clients calling the NetShareEnumAll request. The fields below
+// Hidden are only populated by the higher enum levels (see NetShareEnumAllExt):
+// Flags by level 501, and Permissions/MaxUses/CurrentUses/Path/SecurityDescriptor
+// by level 502. They keep their zero values (and SecurityDescriptor is nil) for
+// levels that do not carry them.
 type NetShare struct {
 	Name    string
 	Comment string
 	Type    string
 	TypeId  uint32
 	Hidden  bool
+	// Higher-level fields:
+	Flags              uint32                     // level 501
+	Permissions        uint32                     // level 502
+	MaxUses            uint32                     // level 502
+	CurrentUses        uint32                     // level 502
+	Path               string                     // level 502
+	SecurityDescriptor *msdtyp.SecurityDescriptor // level 502 (nil if absent)
 }
 
 type ShareInfo1 struct {
@@ -66,11 +78,131 @@ type ShareInfoContainer1 struct {
 	Buffer      []ShareInfo1 `ndr:"fullpointer,conformant"`
 }
 
+// SHARE_INFO_501 — MS-SRVS 2.2.4.23. Same shape as ShareInfo1 plus
+// shi501_flags (CSC caching / access-based-enumeration flags), which is the
+// one useful field SHARE_INFO_502_I does not carry.
+type ShareInfo501 struct {
+	Name    string `ndr:"pointer,conformant,varying,notnullptr"`
+	Type    uint32
+	Comment string `ndr:"pointer,conformant,varying,notnullptr"`
+	Flags   uint32
+}
+
+// SHARE_INFO_502_I — MS-SRVS 2.2.4.26. The richest enum level: adds the
+// on-disk path, permissions, connection counts and the share's security
+// descriptor.
+//
+// Passwd and shi502_security_descriptor are NULL-able [unique] pointers
+// (Windows always returns a NULL password, and a NULL security descriptor when
+// shi502_reserved is 0), so they are tagged fullpointer — plain `pointer`
+// would refuse to encode a zero value. NDR has no size_is tag; the conformant
+// SD byte array carries its own max_count on the wire (cf. AdtSecurityDescriptor).
+type ShareInfo502 struct {
+	Name               string `ndr:"pointer,conformant,varying,notnullptr"`
+	Type               uint32
+	Comment            string `ndr:"pointer,conformant,varying,notnullptr"`
+	Permissions        uint32
+	MaxUses            uint32
+	CurrentUses        uint32
+	Path               string `ndr:"pointer,conformant,varying,notnullptr"`
+	Passwd             string `ndr:"fullpointer,conformant,varying"`
+	Reserved           uint32
+	SecurityDescriptor []byte `ndr:"fullpointer,conformant"`
+}
+
+type ShareInfoContainer501 struct {
+	EntriesRead uint32
+	Buffer      []ShareInfo501 `ndr:"fullpointer,conformant"`
+}
+
+type ShareInfoContainer502 struct {
+	EntriesRead uint32
+	Buffer      []ShareInfo502 `ndr:"fullpointer,conformant"`
+}
+
+// SHARE_INFO_0 — MS-SRVS 2.2.4.22. Just the share name.
+type ShareInfo0 struct {
+	Name string `ndr:"pointer,conformant,varying,notnullptr"`
+}
+
+// SHARE_INFO_2 — MS-SRVS 2.2.4.24. Like ShareInfo502 minus the security
+// descriptor, plus the (always-NULL on the wire) password. Passwd is a
+// NULL-able [unique] pointer so it is tagged fullpointer.
+type ShareInfo2 struct {
+	Name        string `ndr:"pointer,conformant,varying,notnullptr"`
+	Type        uint32
+	Comment     string `ndr:"pointer,conformant,varying,notnullptr"`
+	Permissions uint32
+	MaxUses     uint32
+	CurrentUses uint32
+	Path        string `ndr:"pointer,conformant,varying,notnullptr"`
+	Passwd      string `ndr:"fullpointer,conformant,varying"`
+}
+
+// SHARE_INFO_1004 — MS-SRVS 2.2.4.29. A single settable field: the comment.
+type ShareInfo1004 struct {
+	Comment string `ndr:"pointer,conformant,varying,notnullptr"`
+}
+
+// SHARE_INFO_1005 — MS-SRVS 2.2.4.30. A single settable field: the share flags.
+type ShareInfo1005 struct {
+	Flags uint32
+}
+
+// SHARE_INFO_1501_I — MS-SRVS 2.2.4.34. A settable security descriptor.
+// SecurityDescriptor is [size_is(Reserved)] so set Reserved == len(bytes) when
+// building a request.
+type ShareInfo1501 struct {
+	Reserved           uint32
+	SecurityDescriptor []byte `ndr:"pointer,conformant"`
+}
+
+// ShareInfoUnion represents SHARE_INFO (MS-SRVS 2.2.3.6), the switch_is(Level)
+// union used by NetrShareGetInfo (response) and NetrShareSetInfo (request).
+// Encapsulated: the discriminant is carried once by the union itself. For
+// NetrShareSetInfo the matching standalone [in] Level parameter supplies the
+// second on-the-wire occurrence (cf. ServerInfoUnion).
+type ShareInfoUnion struct {
+	Level     uint32         `ndr:"unionTag,encapsulated"`
+	Level0    *ShareInfo0    `ndr:"unionField,pointer"`
+	Level1    *ShareInfo1    `ndr:"unionField,pointer"`
+	Level2    *ShareInfo2    `ndr:"unionField,pointer"`
+	Level501  *ShareInfo501  `ndr:"unionField,pointer"`
+	Level502  *ShareInfo502  `ndr:"unionField,pointer"`
+	Level1004 *ShareInfo1004 `ndr:"unionField,pointer"`
+	Level1005 *ShareInfo1005 `ndr:"unionField,pointer"`
+	Level1501 *ShareInfo1501 `ndr:"unionField,pointer"`
+}
+
+func (u ShareInfoUnion) SwitchFunc(tag interface{}) string {
+	switch tag.(uint32) {
+	case 0:
+		return "Level0"
+	case 1:
+		return "Level1"
+	case 2:
+		return "Level2"
+	case 501:
+		return "Level501"
+	case 502:
+		return "Level502"
+	case 1004:
+		return "Level1004"
+	case 1005:
+		return "Level1005"
+	case 1501:
+		return "Level1501"
+	}
+	return ""
+}
+
 // ShareEnumStruct represents SHARE_ENUM_STRUCT (MS-SRVS 2.2.4.38)
 // Non-encapsulated union: Level is written twice on the wire
 type ShareEnumStruct struct {
-	Level  uint32               `ndr:"unionTag"`
-	Level1 *ShareInfoContainer1 `ndr:"unionField,pointer"`
+	Level    uint32                 `ndr:"unionTag"`
+	Level1   *ShareInfoContainer1   `ndr:"unionField,pointer"`
+	Level501 *ShareInfoContainer501 `ndr:"unionField,pointer"`
+	Level502 *ShareInfoContainer502 `ndr:"unionField,pointer"`
 }
 
 func (u ShareEnumStruct) SwitchFunc(tag interface{}) string {
@@ -78,6 +210,10 @@ func (u ShareEnumStruct) SwitchFunc(tag interface{}) string {
 	switch t {
 	case 1:
 		return "Level1"
+	case 501:
+		return "Level501"
+	case 502:
+		return "Level502"
 	}
 	return ""
 }
@@ -93,6 +229,47 @@ type NetShareEnumAllResponse struct {
 	InfoStruct   ShareEnumStruct `ndr:"toplevel"`
 	TotalEntries uint32
 	ResumeHandle *uint32 `ndr:"toplevel,fullpointer"`
+	WindowsError uint32
+}
+
+// NET_API_STATUS
+// NetrShareGetInfo (
+// [in,string,unique] SRVSVC_HANDLE ServerName,
+// [in,string] WCHAR * NetName,
+// [in] DWORD Level,
+// [out, switch_is(Level)] LPSHARE_INFO InfoStruct
+// );
+// MS-SRVS Opnum 16
+type NetShareGetInfoRequest struct {
+	ServerName *string `ndr:"toplevel,fullpointer,conformant,varying"`
+	NetName    string  `ndr:"toplevel,conformant,varying"`
+	Level      uint32
+}
+
+type NetShareGetInfoResponse struct {
+	Info         ShareInfoUnion `ndr:"toplevel"`
+	WindowsError uint32
+}
+
+// NET_API_STATUS
+// NetrShareSetInfo (
+// [in,string,unique] SRVSVC_HANDLE ServerName,
+// [in,string] WCHAR * NetName,
+// [in] DWORD Level,
+// [in, switch_is(Level)] LPSHARE_INFO ShareInfo,
+// [in,out,unique] DWORD * ParmErr
+// );
+// MS-SRVS Opnum 17
+type NetShareSetInfoRequest struct {
+	ServerName *string `ndr:"toplevel,fullpointer,conformant,varying"`
+	NetName    string  `ndr:"toplevel,conformant,varying"`
+	Level      uint32
+	ShareInfo  ShareInfoUnion `ndr:"toplevel"`
+	ParmErr    *uint32        `ndr:"toplevel,fullpointer"`
+}
+
+type NetShareSetInfoResponse struct {
+	ParmErr      *uint32 `ndr:"toplevel,fullpointer"`
 	WindowsError uint32
 }
 
@@ -250,6 +427,44 @@ type NetServerGetInfoRequest struct {
 
 type NetServerGetInfoResponse struct {
 	Info         ServerInfoUnion `ndr:"toplevel"`
+	WindowsError uint32
+}
+
+// DISK_INFO — MS-SRVS 2.2.4.1. Disk is a fixed 3-WCHAR field holding a
+// null-terminated drive name (e.g. "C:"). Use diskInfoToString to decode it.
+type DiskInfo struct {
+	Disk [3]uint16
+}
+
+// DISK_ENUM_CONTAINER — MS-SRVS 2.2.4.79. Buffer is a [size_is,length_is]
+// unique pointer to a conformant+varying array of DISK_INFO.
+type DiskEnumContainer struct {
+	EntriesRead uint32
+	Buffer      []DiskInfo `ndr:"fullpointer,conformant,varying"`
+}
+
+// NET_API_STATUS
+// NetrServerDiskEnum (
+// [in,string,unique] SRVSVC_HANDLE ServerName,
+// [in] DWORD Level,
+// [in,out] DISK_ENUM_CONTAINER * DiskInfoStruct,
+// [in] DWORD PreferedMaximumLength,
+// [out] DWORD * TotalEntries,
+// [in,out,unique] DWORD * ResumeHandle
+// );
+// MS-SRVS Opnum 23
+type NetServerDiskEnumRequest struct {
+	ServerName   *string `ndr:"toplevel,fullpointer,conformant,varying"`
+	Level        uint32
+	DiskInfo     DiskEnumContainer `ndr:"toplevel"`
+	PrefMaxLen   uint32
+	ResumeHandle *uint32 `ndr:"toplevel,fullpointer"`
+}
+
+type NetServerDiskEnumResponse struct {
+	DiskInfo     DiskEnumContainer `ndr:"toplevel"`
+	TotalEntries uint32
+	ResumeHandle *uint32 `ndr:"toplevel,fullpointer"`
 	WindowsError uint32
 }
 
@@ -439,6 +654,126 @@ func (s *NetShareEnumAllResponse) Unmarshal(b []byte) error {
 	err := dec.Decode(s)
 	if err != nil {
 		return fmt.Errorf("error unmarshaling NetShareEnumAllResponse: %v", err)
+	}
+	return nil
+}
+
+func (s *NetShareGetInfoRequest) Marshal() (b []byte, err error) {
+	log.Traceln("In Marshal for NetShareGetInfoRequest")
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err = enc.Encode(s)
+	if err != nil {
+		err = fmt.Errorf("error marshaling NetShareGetInfoRequest: %v", err)
+	}
+	return
+}
+
+func (s *NetShareGetInfoRequest) Unmarshal(b []byte) error {
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	err := dec.Decode(s)
+	if err != nil {
+		return fmt.Errorf("error unmarshaling NetShareGetInfoRequest: %v", err)
+	}
+	return nil
+}
+
+func (s *NetShareGetInfoResponse) Marshal() (b []byte, err error) {
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err = enc.Encode(s)
+	if err != nil {
+		err = fmt.Errorf("error marshaling NetShareGetInfoResponse: %v", err)
+	}
+	return
+}
+
+func (s *NetShareGetInfoResponse) Unmarshal(b []byte) error {
+	log.Traceln("In Unmarshal for NetShareGetInfoResponse")
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	err := dec.Decode(s)
+	if err != nil {
+		return fmt.Errorf("error unmarshaling NetShareGetInfoResponse: %v", err)
+	}
+	return nil
+}
+
+func (s *NetShareSetInfoRequest) Marshal() (b []byte, err error) {
+	log.Traceln("In Marshal for NetShareSetInfoRequest")
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err = enc.Encode(s)
+	if err != nil {
+		err = fmt.Errorf("error marshaling NetShareSetInfoRequest: %v", err)
+	}
+	return
+}
+
+func (s *NetShareSetInfoRequest) Unmarshal(b []byte) error {
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	err := dec.Decode(s)
+	if err != nil {
+		return fmt.Errorf("error unmarshaling NetShareSetInfoRequest: %v", err)
+	}
+	return nil
+}
+
+func (s *NetShareSetInfoResponse) Marshal() (b []byte, err error) {
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err = enc.Encode(s)
+	if err != nil {
+		err = fmt.Errorf("error marshaling NetShareSetInfoResponse: %v", err)
+	}
+	return
+}
+
+func (s *NetShareSetInfoResponse) Unmarshal(b []byte) error {
+	log.Traceln("In Unmarshal for NetShareSetInfoResponse")
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	err := dec.Decode(s)
+	if err != nil {
+		return fmt.Errorf("error unmarshaling NetShareSetInfoResponse: %v", err)
+	}
+	return nil
+}
+
+func (s *NetServerDiskEnumRequest) Marshal() (b []byte, err error) {
+	log.Traceln("In Marshal for NetServerDiskEnumRequest")
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err = enc.Encode(s)
+	if err != nil {
+		err = fmt.Errorf("error marshaling NetServerDiskEnumRequest: %v", err)
+	}
+	return
+}
+
+func (s *NetServerDiskEnumRequest) Unmarshal(b []byte) error {
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	err := dec.Decode(s)
+	if err != nil {
+		return fmt.Errorf("error unmarshaling NetServerDiskEnumRequest: %v", err)
+	}
+	return nil
+}
+
+func (s *NetServerDiskEnumResponse) Marshal() (b []byte, err error) {
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err = enc.Encode(s)
+	if err != nil {
+		err = fmt.Errorf("error marshaling NetServerDiskEnumResponse: %v", err)
+	}
+	return
+}
+
+func (s *NetServerDiskEnumResponse) Unmarshal(b []byte) error {
+	log.Traceln("In Unmarshal for NetServerDiskEnumResponse")
+	dec := ndr.NewDecoder(bytes.NewReader(b), false)
+	err := dec.Decode(s)
+	if err != nil {
+		return fmt.Errorf("error unmarshaling NetServerDiskEnumResponse: %v", err)
 	}
 	return nil
 }

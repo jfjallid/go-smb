@@ -948,3 +948,85 @@ func TestChangeServiceConfig2DescriptionNil(t *testing.T) {
 		t.Fatalf("nil description mismatch\ngot:    %x\nexpect: %x", data, expected)
 	}
 }
+
+func TestQueryServiceObjectSecurityReq(t *testing.T) {
+	var handle [20]byte
+	handleBytes, err := hex.DecodeString("0000000062f36ea19f6ff849afa3d99d0f320b4f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy(handle[:], handleBytes)
+
+	req := RQueryServiceObjectSecurityReq{
+		ServiceHandle:       handle,
+		SecurityInformation: DaclSecurityInformation,
+		BufSize:             0,
+	}
+	buf, err := req.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// handle(20) + SecurityInformation(0x04) + BufSize(0)
+	expected, err := hex.DecodeString("0000000062f36ea19f6ff849afa3d99d0f320b4f0400000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(buf, expected) {
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, expected)
+	}
+}
+
+func TestQueryServiceObjectSecurityRes(t *testing.T) {
+	sd := []byte{0x01, 0x00, 0x04, 0x80, 0x14, 0x00, 0x00, 0x00}
+	// max_count(8) + SD(8, already 4-aligned) + BytesNeeded(8) + ErrorCode(0)
+	resPkt, err := hex.DecodeString("08000000" + "0100048014000000" + "08000000" + "00000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res := RQueryServiceObjectSecurityRes{}
+	if err = res.Unmarshal(resPkt); err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(res.SecurityDescriptor, sd) {
+		t.Fatalf("SecurityDescriptor mismatch\n got:  %x\n want: %x", res.SecurityDescriptor, sd)
+	}
+	if res.BytesNeeded != 8 {
+		t.Fatalf("expected BytesNeeded==8, got %d", res.BytesNeeded)
+	}
+	if res.ErrorCode != ErrorSuccess {
+		t.Fatalf("expected ErrorCode==0, got %d", res.ErrorCode)
+	}
+}
+
+func TestSetServiceObjectSecurityReq(t *testing.T) {
+	var handle [20]byte
+	handleBytes, err := hex.DecodeString("0000000062f36ea19f6ff849afa3d99d0f320b4f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy(handle[:], handleBytes)
+
+	sd := []byte{0x01, 0x00, 0x04, 0x80, 0x14, 0x00, 0x00, 0x00}
+	req := RSetServiceObjectSecurityReq{
+		ServiceHandle:       handle,
+		SecurityInformation: DaclSecurityInformation,
+		SecurityDescriptor:  sd,
+		BufSize:             uint32(len(sd)),
+	}
+	buf, err := req.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// handle(20) + SecurityInformation(0x04) + max_count(8, inline) + SD(8) + BufSize(8)
+	expected, err := hex.DecodeString("0000000062f36ea19f6ff849afa3d99d0f320b4f" + "04000000" + "08000000" + "0100048014000000" + "08000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(buf, expected) {
+		t.Fatalf("bytes mismatch\n got:  %x\n want: %x", buf, expected)
+	}
+}

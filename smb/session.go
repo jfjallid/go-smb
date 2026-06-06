@@ -1236,80 +1236,106 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 }
 
 func (f *File) QueryInfoSecurity(bufferSize uint32) (fs *FileSecurityInformation, err error) {
-	if f.fd == nil {
-		return nil, fmt.Errorf("Can't operate on a closed file")
-	}
-	req, err := f.NewQueryInfoReq(
-		f.share,
-		f.fd,
-		OInfoSecurity,
-		0,
+	sd, err := f.QueryInfoSecurityRaw(
 		OwnerSecurityInformation|GroupSecurityInformation|DACLSecurityInformation,
-		0,
 		bufferSize,
-		nil,
 	)
 	if err != nil {
-		err = fmt.Errorf("new request: %w", err)
-		log.Debugln(err)
-		return
-	}
-
-	buf, err := f.sendrecv(req)
-	if err != nil {
-		err = fmt.Errorf("sendrecv: %w", err)
-		log.Debugln(err)
-		return
-	}
-
-	var res QueryInfoRes
-	log.Tracef("Unmarshalling QueryInfo response [%s]\n", f.share)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
-		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return nil, err
+	}
+
+	fs = &FileSecurityInformation{}
+	// OwnerSid/GroupSid are nil when the server returns a descriptor without an
+	// owner or group; ToString would dereference a nil *SID and panic.
+	if sd.OwnerSid != nil {
+		fs.OwnerSID = sd.OwnerSid.ToString()
+	}
+	if sd.GroupSid != nil {
+		fs.GroupSID = sd.GroupSid.ToString()
+	}
+	if sd.Dacl != nil {
+		for _, acl := range sd.Dacl.ACLS {
+			if acl.Header.Type != AccessAllowedAceType {
+				continue
+			}
+			fs.Access = append(fs.Access, FileSecurityInformationACL{
+				Permissions: ParseAccessMask(acl.Mask),
+				SID:         acl.Sid.ToString(),
+			})
+		}
+	}
+
+	return
+}
+
+// QueryInfoSecurityRaw queries the security descriptor of an open file and
+// returns it parsed, preserving every ACE and its raw access mask. Unlike
+// QueryInfoSecurity (which reduces the DACL to friendly allow-ACE permission
+// names and so loses the object-specific bits such as FILE_WRITE_DATA), this
+// gives callers the full descriptor to evaluate themselves. additionalInformation
+// selects the components to request, e.g.
+// OwnerSecurityInformation|GroupSecurityInformation|DACLSecurityInformation.
+// A bufferSize of 0 selects a default and retries once on a buffer overflow.
+func (f *File) QueryInfoSecurityRaw(additionalInformation, bufferSize uint32) (*msdtyp.SecurityDescriptor, error) {
+	if f.fd == nil {
+		return nil, fmt.Errorf("can't operate on a closed file")
+	}
+	if bufferSize == 0 {
+		bufferSize = 8192
+	}
+
+	query := func(size uint32) (*QueryInfoRes, error) {
+		req, err := f.NewQueryInfoReq(f.share, f.fd, OInfoSecurity, 0, additionalInformation, 0, size, nil)
+		if err != nil {
+			return nil, fmt.Errorf("new request: %w", err)
+		}
+		buf, err := f.sendrecv(req)
+		if err != nil {
+			return nil, fmt.Errorf("sendrecv: %w", err)
+		}
+		res := &QueryInfoRes{}
+		if err := encoder.Unmarshal(buf, res); err != nil {
+			log.Debugf("error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
+			return nil, err
+		}
+		return res, nil
+	}
+
+	res, err := query(bufferSize)
+	if err != nil {
+		return nil, err
+	}
+	// A large DACL overflows a small buffer; retry once with a bigger one.
+	if res.Header.Status == StatusBufferOverflow || res.Header.Status == StatusInfoLengthMismatch {
+		if res, err = query(65536); err != nil {
+			return nil, err
+		}
 	}
 
 	if res.Header.Status == StatusNoSuchFile {
 		return nil, fmt.Errorf("file not found")
 	}
-
 	if res.Header.Status != StatusOk {
 		status, found := StatusMap[res.Header.Status]
 		if !found {
-			err = fmt.Errorf("Received unknown SMB Header status for QueryInfo response: 0x%x\n", res.Header.Status)
-			log.Errorln(err)
-			return
+			return nil, fmt.Errorf("received unknown SMB Header status for QueryInfo response: 0x%x", res.Header.Status)
 		}
 		log.Debugf("Failed QueryInfo with NT Status Error: %v\n", status)
-		err = fmt.Errorf("status not ok: %w", status)
-		return
+		return nil, fmt.Errorf("status not ok: %w", status)
 	}
 	if res.OutputBufferLength == 0 {
 		return nil, fmt.Errorf("server response didn't contain any info")
 	}
 
-	start, stop := uint32(0), res.OutputBufferLength
+	end := res.OutputBufferLength
+	if int(end) > len(res.Buffer) {
+		end = uint32(len(res.Buffer))
+	}
 	sd := &msdtyp.SecurityDescriptor{}
-	err = sd.UnmarshalBinary(res.Buffer[start:stop])
-	if err != nil {
+	if err := sd.UnmarshalBinary(res.Buffer[:end]); err != nil {
 		return nil, fmt.Errorf("failed parsing security descriptor: %w", err)
 	}
-
-	fs = &FileSecurityInformation{
-		OwnerSID: sd.OwnerSid.ToString(),
-		GroupSID: sd.GroupSid.ToString(),
-	}
-	for _, acl := range sd.Dacl.ACLS {
-		if acl.Header.Type != AccessAllowedAceType {
-			continue
-		}
-		fs.Access = append(fs.Access, FileSecurityInformationACL{
-			Permissions: ParseAccessMask(acl.Mask),
-			SID:         acl.Sid.ToString(),
-		})
-	}
-
-	return
+	return sd, nil
 }
 
 // Assumes a tree connect is already performed
@@ -1524,6 +1550,16 @@ func (s *Connection) OpenFileExt(tree string, filepath string, opts *CreateReqOp
 func (s *Connection) OpenFile(tree string, filepath string) (file *File, err error) {
 	return s.OpenFileExt(tree, filepath, NewCreateReqOpts())
 
+}
+
+// OpenFileReadAttributes opens a file or directory requesting only READ_CONTROL
+// (plus FILE_READ_ATTRIBUTES and SYNCHRONIZE) — enough to read its security
+// descriptor via QueryInfoSecurity / QueryInfoSecurityRaw even when the caller
+// has no data-read access. Remember to call CloseFile on the returned handle.
+func (s *Connection) OpenFileReadAttributes(tree string, filepath string) (file *File, err error) {
+	opts := NewCreateReqOpts()
+	opts.DesiredAccess = FAccMaskReadControl | FAccMaskFileReadAttributes | FAccMaskSynchronize
+	return s.OpenFileExt(tree, filepath, opts)
 }
 
 // connectToTree connects to share if not already connected.

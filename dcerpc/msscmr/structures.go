@@ -184,6 +184,29 @@ func (u ConfigInfoW) SwitchFunc(tag interface{}) string {
 	return ""
 }
 
+// RequiredServiceAccess returns the minimum service-object access rights the
+// handle must be granted for RChangeServiceConfig2W to accept this info level.
+//
+// Every config2 change requires SERVICE_CHANGE_CONFIG. In practice the SCM
+// also requires SERVICE_START for a SERVICE_CONFIG_FAILURE_ACTIONS change that
+// contains an SC_ACTION_RESTART action (the SCM will (re)start the service on
+// failure, so it checks that the caller holds start rights) — without it the
+// call returns ERROR_ACCESS_DENIED. Reboot/run-command/none actions need only
+// SERVICE_CHANGE_CONFIG, so SERVICE_START is requested only when it is
+// actually needed.
+func (info *ConfigInfoW) RequiredServiceAccess() uint32 {
+	access := ServiceChangeConfig
+	if info.InfoLevel == ServiceConfigFailure_actions && info.FailureActions != nil {
+		for _, a := range info.FailureActions.Actions {
+			if a.Type == ScActionRestart {
+				access |= ServiceStart
+				break
+			}
+		}
+	}
+	return access
+}
+
 // MS-SCMR Section 2.2.35 SERVICE_DESCRIPTIONW
 type ServiceDescriptionW struct {
 	Description *string `ndr:"fullpointer,conformant,varying"`
@@ -249,11 +272,6 @@ type serviceRequiredPrivilegesInfoWOW64 struct {
 	RequiredPrivilegesOffset uint32
 }
 
-type scActionBuf struct {
-	Type  uint32
-	Delay uint32
-}
-
 type RChangeServiceConfig2WReq struct {
 	ServiceHandle [20]byte
 	Info          ConfigInfoW
@@ -306,6 +324,30 @@ type RControlServiceRes struct {
 
 type RDeleteServiceReq struct {
 	ServiceHandle [20]byte
+}
+
+// MS-SCMR Section 3.1.4.4 RQueryServiceObjectSecurity (Opnum 4)
+type RQueryServiceObjectSecurityReq struct {
+	ServiceHandle       [20]byte
+	SecurityInformation uint32
+	BufSize             uint32
+}
+
+type RQueryServiceObjectSecurityRes struct {
+	SecurityDescriptor []byte `ndr:"conformant"`
+	BytesNeeded        uint32
+	ErrorCode          uint32
+}
+
+// MS-SCMR Section 3.1.4.5 RSetServiceObjectSecurity (Opnum 5)
+// lpSecurityDescriptor is a [ref] LPBYTE (no unique attribute), so its
+// conformant max_count is emitted inline at the field position rather than
+// hoisted to the front of the struct; the "toplevel" tag suppresses hoisting.
+type RSetServiceObjectSecurityReq struct {
+	ServiceHandle       [20]byte
+	SecurityInformation uint32
+	SecurityDescriptor  []byte `ndr:"toplevel,conformant"`
+	BufSize             uint32
 }
 
 type LPWStr struct {
@@ -562,6 +604,38 @@ func (s *RDeleteServiceReq) Marshal() ([]byte, error) {
 	b, err := enc.Encode(s)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling RDeleteServiceReq: %v", err)
+	}
+	return b, nil
+}
+
+func (s *RQueryServiceObjectSecurityReq) Marshal() ([]byte, error) {
+	log.Traceln("In Marshal for RQueryServiceObjectSecurityReq")
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling RQueryServiceObjectSecurityReq: %v", err)
+	}
+	return b, nil
+}
+
+func (s *RQueryServiceObjectSecurityRes) Unmarshal(buf []byte) error {
+	log.Traceln("In Unmarshal for RQueryServiceObjectSecurityRes")
+	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
+	err := dec.Decode(s)
+	if err != nil {
+		return fmt.Errorf("error unmarshaling RQueryServiceObjectSecurityRes: %v", err)
+	}
+	return nil
+}
+
+func (s *RSetServiceObjectSecurityReq) Marshal() ([]byte, error) {
+	log.Traceln("In Marshal for RSetServiceObjectSecurityReq")
+	enc := ndr.NewEncoder(bytes.NewBuffer([]byte{}), false)
+	enc.SetEndianness(binary.LittleEndian)
+	b, err := enc.Encode(s)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling RSetServiceObjectSecurityReq: %v", err)
 	}
 	return b, nil
 }
