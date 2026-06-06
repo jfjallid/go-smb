@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/jfjallid/go-smb/gss"
-	"github.com/jfjallid/gokrb5/v8/types"
+	"github.com/jfjallid/gokrb5/v9/types"
 )
 
 // TestWrapDCERoundTrip verifies that WrapDCE and UnwrapDCE are inverse operations

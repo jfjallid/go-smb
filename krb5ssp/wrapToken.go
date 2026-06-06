@@ -24,8 +24,8 @@ package krb5ssp
 import (
 	"fmt"
 
-	"github.com/jfjallid/gokrb5/v8/crypto"
-	"github.com/jfjallid/gokrb5/v8/types"
+	"github.com/jfjallid/gokrb5/v9/crypto"
+	"github.com/jfjallid/gokrb5/v9/types"
 )
 
 // RFC 4121 Section 4.2.6.2 Wrap Token with confidentiality, DCE-style.
