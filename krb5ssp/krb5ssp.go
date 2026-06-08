@@ -42,6 +42,7 @@ import (
 	"github.com/jfjallid/gokrb5/v9/iana/etypeID"
 	"github.com/jfjallid/gokrb5/v9/iana/keyusage"
 	"github.com/jfjallid/gokrb5/v9/iana/msgtype"
+	"github.com/jfjallid/gokrb5/v9/keytab"
 	"github.com/jfjallid/gokrb5/v9/messages"
 	"github.com/jfjallid/gokrb5/v9/types"
 	"github.com/jfjallid/golog"
@@ -257,7 +258,10 @@ func InitKerberosClientExt(username, domain, password string, hash, aesKey []byt
 	return
 }
 
-func InitKerberosClient(username, domain, password string, hash, aesKey []byte, dcip, spn string, timeout time.Duration, dialer proxy.Dialer, dnsHost string, dnsTCP bool, spnAliases map[string][]string) (c *Client, err error) {
+// newKrbConfig builds the krb5 config shared by the password/hash/key and the
+// keytab client constructors: always-TCP KDC traffic, the realm's KDC address
+// (an explicit dcip or the domain itself), and an optional custom DNS resolver.
+func newKrbConfig(domain, dcip, dnsHost string, dnsTCP bool, timeout time.Duration, dialer proxy.Dialer) *config.Config {
 	cfg := config.New()
 	// Default to TCP for all KDC traffic. Against Active Directory the AS/TGS
 	// responses carry a PAC and almost always exceed the KDC's UDP datagram
@@ -294,8 +298,57 @@ func InitKerberosClient(username, domain, password string, hash, aesKey []byte, 
 			cfg.SetDNSResolver(&net.Dialer{Timeout: timeout}, dnsHost, protocol)
 		}
 	}
+	return cfg
+}
 
+func InitKerberosClient(username, domain, password string, hash, aesKey []byte, dcip, spn string, timeout time.Duration, dialer proxy.Dialer, dnsHost string, dnsTCP bool, spnAliases map[string][]string) (c *Client, err error) {
+	cfg := newKrbConfig(domain, dcip, dnsHost, dnsTCP, timeout, dialer)
 	return InitKerberosClientExt(username, domain, password, hash, aesKey, spn, timeout, dialer, cfg, spnAliases)
+}
+
+// InitKerberosClientWithKeytab builds a Kerberos client whose long-term key
+// comes from a keytab. username and domain may be empty: the credential
+// identity is left to gokrb5's NewWithKeytab, which derives the principal (and
+// realm) from the keytab's first entry. The realm alone is recovered here when
+// the caller gave none — not to identify the credential, but because the krb5
+// config's realm->KDC mapping must be built before the client exists, so an
+// explicit --dc-ip is associated with the right realm instead of falling back
+// to DNS SRV discovery. Unlike the password/hash/key path this skips the ccache
+// lookup — supplying a keytab is an explicit request to authenticate from it.
+func InitKerberosClientWithKeytab(username, domain string, kt *keytab.Keytab, dcip, spn string, timeout time.Duration, dialer proxy.Dialer, dnsHost string, dnsTCP bool, spnAliases map[string][]string) (c *Client, err error) {
+	if kt == nil {
+		return nil, fmt.Errorf("Must provide a keytab to InitKerberosClientWithKeytab")
+	}
+	// Recover only the realm (for the config's KDC routing above); the username
+	// is passed through untouched for gokrb5 to derive from the keytab.
+	if domain == "" {
+		if _, ktRealm, perr := kt.Principal(); perr == nil {
+			domain = ktRealm
+		}
+	}
+	cfg := newKrbConfig(domain, dcip, dnsHost, dnsTCP, timeout, dialer)
+
+	settings := []func(*client.Settings){client.DisablePAFXFAST(true)}
+	if dialer != nil {
+		settings = append(settings, client.SetProxyDialer(dialer))
+	}
+	if timeout > 0 {
+		settings = append(settings, client.SetDialTimout(timeout))
+	}
+
+	c = &Client{}
+	c.Client, err = client.NewWithKeytab(username, strings.ToUpper(domain), kt, cfg, settings...)
+	if err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+	err = c.Client.Login()
+	if err != nil {
+		log.Errorln(err)
+		return nil, err
+	}
+	log.Infoln("Used keytab to create new kerberos client")
+	return c, nil
 }
 
 // Context of the Authenticator checksum is decribed in RFC1964 Section 1.1.1

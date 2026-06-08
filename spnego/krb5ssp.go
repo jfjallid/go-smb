@@ -33,6 +33,7 @@ import (
 
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/krb5ssp"
+	"github.com/jfjallid/gokrb5/v9/keytab"
 	"github.com/jfjallid/golog"
 )
 
@@ -70,6 +71,11 @@ type KRB5Initiator struct {
 	DnsTCP      bool
 	Host        string
 	SPN         string
+	// Keytab, when set, authenticates from the keys it holds instead of a
+	// password/hash/AES key. A missing User/Domain is left for gokrb5 to derive
+	// from the keytab's first entry and is written back from the resolved
+	// credentials after login (like the ccache path).
+	Keytab *keytab.Keytab
 	// SPNAliases lets the caller specify acceptable fallback service types
 	// when the requested SPN is not found in the ccache. Keys are requested
 	// service types (e.g. "ldap"); values are ordered alternatives (e.g.
@@ -157,7 +163,12 @@ func (i *KRB5Initiator) initKerberosClient() error {
 		log.Errorln(err)
 		return err
 	}
-	if i.Domain == "" {
+	// With a keytab the realm is self-describing: gokrb5 derives it (and the
+	// principal) from the keytab during client creation, and both are written
+	// back from the resolved credentials after login (see InitSecContext, same
+	// as the ccache path). So skip the host-FQDN domain guess that only the
+	// password/hash/key path needs.
+	if i.Domain == "" && i.Keytab == nil {
 		parts := strings.SplitN(i.Host, ".", 2)
 		if len(parts) < 2 {
 			err = fmt.Errorf("Must specify a host FQDN to initialize a Kerberos client")
@@ -171,6 +182,10 @@ func (i *KRB5Initiator) initKerberosClient() error {
 			log.Infoln("Kerberos Initiator DnsHost does not contain a port number, assuming port 53")
 			i.DnsHost += ":53"
 		}
+	}
+	if i.Keytab != nil {
+		i.client, err = krb5ssp.InitKerberosClientWithKeytab(i.User, i.Domain, i.Keytab, i.DCIP, i.SPN, i.DialTimeout, i.ProxyDialer, i.DnsHost, i.DnsTCP, i.SPNAliases)
+		return err
 	}
 	i.client, err = krb5ssp.InitKerberosClient(i.User, i.Domain, i.Password, i.Hash, i.AESKey, i.DCIP, i.SPN, i.DialTimeout, i.ProxyDialer, i.DnsHost, i.DnsTCP, i.SPNAliases)
 	return err
