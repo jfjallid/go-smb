@@ -91,7 +91,7 @@ func (s *SMB1NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error)
 }
 
 func (s *SMB1NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary for SMB1NegotiateReq")
+	return fmt.Errorf("not implemented: UnmarshalBinary for SMB1NegotiateReq")
 }
 
 func (s *Session) NewSMB1NegotiateReq() (req SMB1NegotiateReq, err error) {

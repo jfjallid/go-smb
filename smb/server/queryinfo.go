@@ -43,22 +43,21 @@ import (
 // to fulfil the request themselves; if they return STATUS_NOT_SUPPORTED the
 // server falls back to a default response built from the handle's Stat().
 func (c *Conn) handleQueryInfo(ctx pduCtx, raw []byte, h *smb.Header) error {
-	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	sess := c.session(h.SessionID)
 	if sess == nil || !sess.Authenticated {
-		logger.Debugf("QueryInfo from %s: session %d not authenticated -> StatusUserSessionDeleted", c.RemoteAddr, h.SessionID)
+		logger.Debugf("QueryInfo: session %d not authenticated -> StatusUserSessionDeleted", h.SessionID)
 		return c.writeRawError(ctx, h, smb.StatusUserSessionDeleted)
 	}
 	tree := sess.tree(h.TreeID)
 	if tree == nil {
-		logger.Debugf("QueryInfo from %s: unknown TreeID %d -> StatusNetworkNameDeleted", c.RemoteAddr, h.TreeID)
+		logger.Debugf("QueryInfo: unknown TreeID %d -> StatusNetworkNameDeleted", h.TreeID)
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 	var req smb.QueryInfoReq
 	if err := encoder.Unmarshal(raw, &req); err != nil {
-		logger.Errorf("QueryInfo from %s: decode QueryInfoReq: %v", c.RemoteAddr, err)
+		logger.Errorf("QueryInfo: decode QueryInfoReq: %v", err)
 		return formatErr("decode QueryInfoReq", err)
 	}
 	hndl := tree.lookupHandle(volatileFromFileID(req.FileId))
@@ -85,7 +84,7 @@ func (c *Conn) handleQueryInfo(ctx pduCtx, raw []byte, h *smb.Header) error {
 }
 
 func (c *Conn) queryFileInfo(ctx pduCtx, h *smb.Header, tree *Tree, hndl Handle, req *smb.QueryInfoReq) error {
-	logger := c.Server.Config.logger()
+	logger := c.logger()
 	// Defer to VFS first; it may return a serialized buffer or struct.
 	out, status, err := tree.Share.VFS.QueryFileInfo(context.Background(), hndl, req.FileInfoClass)
 	if err != nil {
@@ -119,7 +118,7 @@ func (c *Conn) queryFileInfo(ctx pduCtx, h *smb.Header, tree *Tree, hndl Handle,
 }
 
 func (c *Conn) queryFsInfo(ctx pduCtx, h *smb.Header, tree *Tree, req *smb.QueryInfoReq) error {
-	logger := c.Server.Config.logger()
+	logger := c.logger()
 	out, status, err := tree.Share.VFS.QueryFSInfo(context.Background(), req.FileInfoClass)
 	if err != nil {
 		logger.Errorf("VFS.QueryFSInfo class=0x%02x: %v", req.FileInfoClass, err)
@@ -146,7 +145,7 @@ func (c *Conn) queryFsInfo(ctx pduCtx, h *smb.Header, tree *Tree, req *smb.Query
 }
 
 func (c *Conn) querySecurityInfo(ctx pduCtx, h *smb.Header, tree *Tree, hndl Handle, req *smb.QueryInfoReq) error {
-	logger := c.Server.Config.logger()
+	logger := c.logger()
 	buf, status, err := tree.Share.VFS.QuerySecurity(context.Background(), hndl, req.AdditionalInformation)
 	if err != nil {
 		logger.Errorf("VFS.QuerySecurity addInfo=0x%08x: %v", req.AdditionalInformation, err)

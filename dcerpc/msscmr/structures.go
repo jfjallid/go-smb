@@ -424,7 +424,7 @@ func (s *ROpenSCManagerWReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling ROpenSCManagerWReq: %v", err)
+		return nil, fmt.Errorf("error marshaling ROpenSCManagerWReq: %w", err)
 	}
 	return b, nil
 }
@@ -434,7 +434,7 @@ func (s *ROpenSCManagerWRes) Unmarshal(buf []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling ROpenSCManagerWRes: %v", err)
+		return fmt.Errorf("error unmarshaling ROpenSCManagerWRes: %w", err)
 	}
 	return nil
 }
@@ -445,7 +445,7 @@ func (s *ROpenServiceWReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling ROpenServiceWReq: %v", err)
+		return nil, fmt.Errorf("error marshaling ROpenServiceWReq: %w", err)
 	}
 	return b, nil
 }
@@ -455,7 +455,7 @@ func (s *ROpenServiceWRes) Unmarshal(buf []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling ROpenServiceWRes: %v", err)
+		return fmt.Errorf("error unmarshaling ROpenServiceWRes: %w", err)
 	}
 	return nil
 }
@@ -466,7 +466,7 @@ func (s *RCloseServiceHandleReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RCloseServiceHandleReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RCloseServiceHandleReq: %w", err)
 	}
 	return b, nil
 }
@@ -476,7 +476,7 @@ func (s *RCloseServiceHandleRes) Unmarshal(buf []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling RCloseServiceHandleRes: %v", err)
+		return fmt.Errorf("error unmarshaling RCloseServiceHandleRes: %w", err)
 	}
 	return nil
 }
@@ -487,7 +487,7 @@ func (s *RQueryServiceStatusReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RQueryServiceStatusReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RQueryServiceStatusReq: %w", err)
 	}
 	return b, nil
 }
@@ -497,7 +497,7 @@ func (s *RQueryServiceStatusRes) Unmarshal(buf []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling RQueryServiceStatusRes: %v", err)
+		return fmt.Errorf("error unmarshaling RQueryServiceStatusRes: %w", err)
 	}
 	return nil
 }
@@ -508,7 +508,7 @@ func (s *RQueryServiceConfigWReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RQueryServiceConfigWReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RQueryServiceConfigWReq: %w", err)
 	}
 	return b, nil
 }
@@ -518,7 +518,7 @@ func (s *RQueryServiceConfigWRes) Unmarshal(buf []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling RQueryServiceConfigWRes: %v", err)
+		return fmt.Errorf("error unmarshaling RQueryServiceConfigWRes: %w", err)
 	}
 	return nil
 }
@@ -529,7 +529,7 @@ func (s *RChangeServiceConfig2WReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RChangeServiceConfig2WReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RChangeServiceConfig2WReq: %w", err)
 	}
 	return b, nil
 }
@@ -540,7 +540,7 @@ func (s *RQueryServiceConfig2WReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RQueryServiceConfig2WReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RQueryServiceConfig2WReq: %w", err)
 	}
 	return b, nil
 }
@@ -550,7 +550,7 @@ func (s *RQueryServiceConfig2WRes) Unmarshal(buf []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling RQueryServiceConfig2WRes: %v", err)
+		return fmt.Errorf("error unmarshaling RQueryServiceConfig2WRes: %w", err)
 	}
 	return nil
 }
@@ -561,7 +561,7 @@ func (s *RChangeServiceConfigWReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RChangeServiceConfigWReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RChangeServiceConfigWReq: %w", err)
 	}
 	return b, nil
 }
@@ -571,7 +571,7 @@ func (s *RChangeServiceConfigWRes) Unmarshal(buf []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling RChangeServiceConfigWRes: %v", err)
+		return fmt.Errorf("error unmarshaling RChangeServiceConfigWRes: %w", err)
 	}
 	return nil
 }
@@ -582,7 +582,7 @@ func (s *RControlServiceReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RControlServiceReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RControlServiceReq: %w", err)
 	}
 	return b, nil
 }
@@ -592,7 +592,7 @@ func (s *RControlServiceRes) Unmarshal(buf []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling RControlServiceRes: %v", err)
+		return fmt.Errorf("error unmarshaling RControlServiceRes: %w", err)
 	}
 	return nil
 }
@@ -603,7 +603,7 @@ func (s *RDeleteServiceReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RDeleteServiceReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RDeleteServiceReq: %w", err)
 	}
 	return b, nil
 }
@@ -614,7 +614,7 @@ func (s *RQueryServiceObjectSecurityReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RQueryServiceObjectSecurityReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RQueryServiceObjectSecurityReq: %w", err)
 	}
 	return b, nil
 }
@@ -624,7 +624,7 @@ func (s *RQueryServiceObjectSecurityRes) Unmarshal(buf []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling RQueryServiceObjectSecurityRes: %v", err)
+		return fmt.Errorf("error unmarshaling RQueryServiceObjectSecurityRes: %w", err)
 	}
 	return nil
 }
@@ -635,7 +635,7 @@ func (s *RSetServiceObjectSecurityReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RSetServiceObjectSecurityReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RSetServiceObjectSecurityReq: %w", err)
 	}
 	return b, nil
 }
@@ -646,7 +646,7 @@ func (s *RStartServiceWReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RStartServiceWReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RStartServiceWReq: %w", err)
 	}
 	return b, nil
 }
@@ -657,7 +657,7 @@ func (s *RCreateServiceWReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RCreateServiceWReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RCreateServiceWReq: %w", err)
 	}
 	return b, nil
 }
@@ -667,7 +667,7 @@ func (s *RCreateServiceWRes) Unmarshal(buf []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling RCreateServiceWRes: %v", err)
+		return fmt.Errorf("error unmarshaling RCreateServiceWRes: %w", err)
 	}
 	return nil
 }
@@ -687,7 +687,7 @@ func (s *REnumServicesStatusWReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling REnumServicesStatusWReq: %v", err)
+		return nil, fmt.Errorf("error marshaling REnumServicesStatusWReq: %w", err)
 	}
 	return b, nil
 }
@@ -713,7 +713,7 @@ func (s *REnumServicesStatusWRes) Unmarshal(buf []byte) (err error) {
 	var envelope rEnumServicesStatusWEnvelope
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err = dec.Decode(&envelope); err != nil {
-		return fmt.Errorf("error unmarshaling REnumServicesStatusWRes: %v", err)
+		return fmt.Errorf("error unmarshaling REnumServicesStatusWRes: %w", err)
 	}
 
 	s.BytesNeeded = envelope.BytesNeeded
@@ -736,59 +736,48 @@ func (s *REnumServicesStatusWRes) Unmarshal(buf []byte) (err error) {
 
 		err = binary.Read(r, le, &offsetServiceName)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		err = binary.Read(r, le, &offsetDisplayName)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		err = binary.Read(r, le, &service.ServiceStatus.ServiceType)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		err = binary.Read(r, le, &service.ServiceStatus.CurrentState)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		err = binary.Read(r, le, &service.ServiceStatus.ControlsAccepted)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		err = binary.Read(r, le, &service.ServiceStatus.Win32ExitCode)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		err = binary.Read(r, le, &service.ServiceStatus.ServiceSpecificExitCode)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		err = binary.Read(r, le, &service.ServiceStatus.CheckPoint)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		err = binary.Read(r, le, &service.ServiceStatus.WaitHint)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
 		service.DisplayName, err = readNullTerminatedUTF16(lpBuffer, offsetDisplayName)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
 		service.ServiceName, err = readNullTerminatedUTF16(lpBuffer, offsetServiceName)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
@@ -805,14 +794,14 @@ func parseServiceDescription(buf []byte) (string, error) {
 	var d serviceDescriptionWOW64
 	_, err := binary.Decode(buf, le, &d)
 	if err != nil {
-		return "", fmt.Errorf("error parsing SERVICE_DESCRIPTION_WOW64: %v", err)
+		return "", fmt.Errorf("error parsing SERVICE_DESCRIPTION_WOW64: %w", err)
 	}
 	if len(buf) < int(d.DescriptionOffset) {
 		return "", fmt.Errorf("error parsing SERVICE_DESCRIPTION_WOW64, buffer is too small for string")
 	}
 	description, err := msdtyp.FromUnicodeString(buf[d.DescriptionOffset:])
 	if err != nil {
-		return "", fmt.Errorf("error parsing SERVICE_DESCRIPTION_WOW64 unicode string: %v", err)
+		return "", fmt.Errorf("error parsing SERVICE_DESCRIPTION_WOW64 unicode string: %w", err)
 	}
 	return description, nil
 }
@@ -825,7 +814,7 @@ func parseFailureActions(buf []byte) (*ServiceFailureActions, error) {
 	var fa serviceFailureActionsWOW64Buf
 	_, err := binary.Decode(buf, le, &fa)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing SERVICE_FAILURE_ACTIONS_WOW64: %v", err)
+		return nil, fmt.Errorf("error parsing SERVICE_FAILURE_ACTIONS_WOW64: %w", err)
 	}
 	result := &ServiceFailureActions{
 		ResetPeriod: fa.ResetPeriod,
@@ -836,7 +825,7 @@ func parseFailureActions(buf []byte) (*ServiceFailureActions, error) {
 		}
 		msg, err := readNullTerminatedUTF16(buf, fa.RebootMsgOffset)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing SERVICE_FAILURE_ACTIONS_WOW64 (RebootMsg): %v", err)
+			return nil, fmt.Errorf("error parsing SERVICE_FAILURE_ACTIONS_WOW64 (RebootMsg): %w", err)
 		}
 		result.RebootMsg = &msg
 	}
@@ -846,7 +835,7 @@ func parseFailureActions(buf []byte) (*ServiceFailureActions, error) {
 		}
 		command, err := readNullTerminatedUTF16(buf, fa.CommandOffset)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing SERVICE_FAILURE_ACTIONS_WOW64 (Command): %v", err)
+			return nil, fmt.Errorf("error parsing SERVICE_FAILURE_ACTIONS_WOW64 (Command): %w", err)
 		}
 		result.Command = &command
 	}
@@ -897,7 +886,7 @@ func parseRequiredPrivileges(buf []byte) ([]string, error) {
 	var d serviceRequiredPrivilegesInfoWOW64
 	_, err := binary.Decode(buf, le, &d)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing SERVICE_REQUIRED_PRIVILEGES_INFO_WOW64: %v", err)
+		return nil, fmt.Errorf("error parsing SERVICE_REQUIRED_PRIVILEGES_INFO_WOW64: %w", err)
 	}
 	if len(buf) < int(d.RequiredPrivilegesOffset) {
 		return nil, fmt.Errorf("error parsing SERVICE_REQUIRED_PRIVILEGES_INFO_WOW64, buffer is too small for string array")
@@ -905,7 +894,7 @@ func parseRequiredPrivileges(buf []byte) ([]string, error) {
 
 	res, err := msdtyp.FromUnicodeString(buf[d.RequiredPrivilegesOffset:])
 	if err != nil {
-		return nil, fmt.Errorf("error parsing SERVICE_REQUIRED_PRIVILEGES_INFO_WOW64: %v", err)
+		return nil, fmt.Errorf("error parsing SERVICE_REQUIRED_PRIVILEGES_INFO_WOW64: %w", err)
 	}
 	if res == "" {
 		return nil, nil

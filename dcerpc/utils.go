@@ -64,8 +64,7 @@ func transformKey(input []byte) []byte {
 // MS-LSAD 5.1.2 and 5.1.3 combined
 func EncryptSecretDes(key, input []byte) (ciphertext []byte, err error) {
 	if len(key) != 16 {
-		err = fmt.Errorf("Invalid key size for MS-LSAD secret encryption. Expected a 16 byte key!")
-		log.Errorln(err)
+		err = fmt.Errorf("invalid key size for MS-LSAD secret encryption, expected a 16 byte key")
 		return
 	}
 	/*
@@ -83,7 +82,6 @@ func EncryptSecretDes(key, input []byte) (ciphertext []byte, err error) {
 	tmpKey := transformKey(key0[:7])
 	block, err := des.NewCipher(tmpKey)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	tmpBuf := make([]byte, 8)
@@ -108,7 +106,6 @@ func EncryptSecretDes(key, input []byte) (ciphertext []byte, err error) {
 		tmpKey := transformKey(key0[:7])
 		block, err = des.NewCipher(tmpKey)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		block.Encrypt(tmpBuf, input[:8])

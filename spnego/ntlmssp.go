@@ -99,7 +99,7 @@ func (i *NTLMInitiator) InitSecContext(inputToken []byte) ([]byte, error) {
 
 // AcceptSecContext should only be called by a server application
 func (i *NTLMInitiator) AcceptSecContext(sc []byte) ([]byte, error) {
-	return nil, fmt.Errorf("AcceptSecContext NOT YET IMPLEMENTED!")
+	return nil, fmt.Errorf("AcceptSecContext not yet implemented")
 }
 
 func (i *NTLMInitiator) Sum(bs []byte) []byte {

@@ -71,7 +71,7 @@ type MapAuthenticator struct {
 
 // Verify implements Authenticator.
 func (m *MapAuthenticator) Verify(c *Conn, auth *ntlmssp.Authenticate, serverChallenge [8]byte) ([]byte, uint32) {
-	logger := c.Server.Config.logger()
+	logger := c.logger()
 	if auth == nil || len(auth.NtChallengeResponse) < 16 {
 		return nil, smb.StatusLogonFailure
 	}
@@ -161,13 +161,13 @@ func BuildCredential(c *Conn, auth *ntlmssp.Authenticate, chal [8]byte) *Credent
 	}
 	var err error
 	if cred.Username, err = encoder.FromUnicodeString(auth.UserName); err != nil {
-		c.Server.Config.logger().Debugf("BuildCredential: decode username: %v", err)
+		c.logger().Debugf("BuildCredential: decode username: %v", err)
 	}
 	if cred.Domain, err = encoder.FromUnicodeString(auth.DomainName); err != nil {
-		c.Server.Config.logger().Debugf("BuildCredential: decode domain: %v", err)
+		c.logger().Debugf("BuildCredential: decode domain: %v", err)
 	}
 	if cred.Workstation, err = encoder.FromUnicodeString(auth.Workstation); err != nil {
-		c.Server.Config.logger().Debugf("BuildCredential: decode workstation: %v", err)
+		c.logger().Debugf("BuildCredential: decode workstation: %v", err)
 	}
 
 	if len(auth.NtChallengeResponse) > 24 {

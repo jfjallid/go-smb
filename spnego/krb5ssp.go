@@ -138,29 +138,25 @@ func (i *KRB5Initiator) initKerberosClient() error {
 	if i.SPN != "" {
 		parts := strings.Split(i.SPN, "/")
 		if len(parts) < 2 {
-			err = fmt.Errorf("Invalid SPN, expected <service>/<host>")
-			log.Errorln(err)
+			err = fmt.Errorf("invalid SPN, expected <service>/<host>")
 			return err
 		}
 		// Validate that SPN does not contain an IP address
 		ip := net.ParseIP(parts[1])
 		if ip != nil {
-			err = fmt.Errorf("Invalid SPN, expected a hostname and not an IP address")
-			log.Errorln(err)
+			err = fmt.Errorf("invalid SPN, expected a hostname and not an IP address")
 			return err
 		}
 	}
 	if i.DCIP != "" {
 		ip := net.ParseIP(i.DCIP)
 		if ip == nil {
-			err = fmt.Errorf("Invalid DC IP, expected an IP address to the domain controller")
-			log.Errorln(err)
+			err = fmt.Errorf("invalid DC IP, expected an IP address to the domain controller")
 			return err
 		}
 	}
 	if i.DialTimeout.Seconds() < 0 {
-		err = fmt.Errorf("A DialTimeout cannot be a negative duration")
-		log.Errorln(err)
+		err = fmt.Errorf("a DialTimeout cannot be a negative duration")
 		return err
 	}
 	// With a keytab the realm is self-describing: gokrb5 derives it (and the
@@ -171,8 +167,7 @@ func (i *KRB5Initiator) initKerberosClient() error {
 	if i.Domain == "" && i.Keytab == nil {
 		parts := strings.SplitN(i.Host, ".", 2)
 		if len(parts) < 2 {
-			err = fmt.Errorf("Must specify a host FQDN to initialize a Kerberos client")
-			log.Errorln(err)
+			err = fmt.Errorf("must specify a host FQDN to initialize a Kerberos client")
 			return err
 		}
 		i.Domain = parts[1]
@@ -207,7 +202,6 @@ func (i *KRB5Initiator) InitSecContext(inputToken []byte) (res []byte, err error
 		if i.client == nil {
 			err = i.initKerberosClient()
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 			if i.Domain == "" {
@@ -228,14 +222,13 @@ func (i *KRB5Initiator) InitSecContext(inputToken []byte) (res []byte, err error
 		var token krb5ssp.KRB5Token
 		err = token.UnmarshalBinary(inputToken)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		switch token.TokenId {
 		case krb5ssp.TokenIdKrb5APRep:
 			err = i.client.ParseAPRep(token.APRep.EncPart)
 			if err != nil {
-				log.Errorf("Failed to parse AP_REP: %v\n", err)
+				err = fmt.Errorf("parse AP_REP: %w", err)
 				return
 			}
 			// Initialize Wrap Token sequence numbers from the Kerberos context
@@ -248,20 +241,17 @@ func (i *KRB5Initiator) InitSecContext(inputToken []byte) (res []byte, err error
 					if len(parts) == 2 {
 						targetName := strings.TrimSuffix(token.KRBError.SName.PrincipalNameString(), "$")
 						if !strings.EqualFold(targetName, parts[1]) {
-							err = fmt.Errorf("Server could not decrypt provided TGS. TGS was issued for %s and sent to %s\n", parts[1], targetName)
-							log.Errorln(err)
+							err = fmt.Errorf("server could not decrypt provided TGS: TGS was issued for %s and sent to %s", parts[1], targetName)
 							return
 						}
 					}
 				}
-				err = fmt.Errorf("Server could not decrypt provided TGS")
+				err = fmt.Errorf("server could not decrypt provided TGS")
 			} else {
-				err = fmt.Errorf("Server returned Kerberos Error: %v\n", token.KRBError.Error())
+				err = fmt.Errorf("server returned Kerberos error: %v", token.KRBError.Error())
 			}
-			log.Errorln(err)
 		default:
-			err = fmt.Errorf("Invalid KRB5Token in InitSecContext. Expected an APRep but got tokenId: %d\n", token.TokenId)
-			log.Errorln(err)
+			err = fmt.Errorf("invalid KRB5Token in InitSecContext, expected an APRep but got tokenId: %d", token.TokenId)
 		}
 
 		// No return token is expected here
@@ -270,17 +260,19 @@ func (i *KRB5Initiator) InitSecContext(inputToken []byte) (res []byte, err error
 }
 
 func (i *KRB5Initiator) AcceptSecContext(sc []byte) (res []byte, err error) {
-	return nil, fmt.Errorf("AcceptSecContext NOT YET IMPLEMENTED!")
+	return nil, fmt.Errorf("AcceptSecContext not yet implemented")
 }
 
 func (i *KRB5Initiator) Sum(bs []byte) []byte {
 	if len(bs) == 0 {
-		log.Errorln("Cannot compute a MIC Checksum with a zero length payload!")
+		log.Errorln("cannot compute a MIC checksum with a zero length payload")
 		return nil
 	}
 
 	res, err := i.client.GetMICToken(bs, uint64(i.micSeqNum))
 	if err != nil {
+		// The gss.Mechanism Sum interface has no error return, so this is
+		// the only place the failure can be reported.
 		log.Errorln(err)
 		return nil
 	}

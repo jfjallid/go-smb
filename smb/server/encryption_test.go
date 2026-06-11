@@ -6,6 +6,7 @@ package server_test
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"sync/atomic"
 	"testing"
@@ -60,12 +61,12 @@ func TestEncryptedRoundTrip311(t *testing.T) {
 	defer shutdown()
 
 	opts := smb.Options{
-		Host:        "127.0.0.1",
-		Port:        addr.Port,
-		User:        user,
-		Password:    password,
-		Domain:      domain,
-		Initiator:   &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		Host:      "127.0.0.1",
+		Port:      addr.Port,
+		User:      user,
+		Password:  password,
+		Domain:    domain,
+		Initiator: &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		// DisableEncryption left false so the client engages encryption.
 		// RequireMessageSigning left false; encryption replaces signing
 		// per MS-SMB2 §3.3.4.1.4.
@@ -328,7 +329,7 @@ func TestPerShareEncryptDataRejectsPlaintextOp(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected PutFile on encrypt-only share to fail; got nil")
 	}
-	if err != smb.StatusMap[smb.StatusAccessDenied] {
+	if !errors.Is(err, smb.StatusMap[smb.StatusAccessDenied]) {
 		t.Fatalf("PutFile error: got %v, want STATUS_ACCESS_DENIED", err)
 	}
 }

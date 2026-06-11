@@ -264,7 +264,7 @@ func (c *Client) Search(baseDN, filter string, attributes []string, pageSize uin
 	if baseDN == "" {
 		baseDN, err = c.detectBaseDN("defaultNamingContext")
 		if err != nil {
-			return nil, fmt.Errorf("failed to lookup baseDN: %v", err)
+			return nil, fmt.Errorf("failed to lookup baseDN: %w", err)
 		}
 	}
 	req := goldap.NewSearchRequest(

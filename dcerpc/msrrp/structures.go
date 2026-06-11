@@ -260,7 +260,7 @@ func (s *OpenRootKeyReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling OpenRootKeyReq: %v", err)
+		return nil, fmt.Errorf("error marshaling OpenRootKeyReq: %w", err)
 	}
 	return b, nil
 }
@@ -269,7 +269,7 @@ func (s *OpenKeyRes) Unmarshal(buf []byte) error {
 	log.Traceln("In Unmarshal for OpenKeyRes")
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling OpenKeyRes: %v", err)
+		return fmt.Errorf("error unmarshaling OpenKeyRes: %w", err)
 	}
 	return nil
 }
@@ -281,7 +281,7 @@ func (s *BaseRegCloseKeyReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegCloseKeyReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegCloseKeyReq: %w", err)
 	}
 	return b, nil
 }
@@ -292,7 +292,7 @@ func (s *BaseRegCreateKeyReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegCreateKeyReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegCreateKeyReq: %w", err)
 	}
 	return b, nil
 }
@@ -301,7 +301,7 @@ func (s *BaseRegCreateKeyRes) Unmarshal(buf []byte) error {
 	log.Traceln("In Unmarshal for BaseRegCreateKeyRes")
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling BaseRegCreateKeyRes: %v", err)
+		return fmt.Errorf("error unmarshaling BaseRegCreateKeyRes: %w", err)
 	}
 	return nil
 }
@@ -312,7 +312,7 @@ func (s *BaseRegDeleteKeyReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegDeleteKeyReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegDeleteKeyReq: %w", err)
 	}
 	return b, nil
 }
@@ -323,7 +323,7 @@ func (s *BaseRegDeleteValueReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegDeleteValueReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegDeleteValueReq: %w", err)
 	}
 	return b, nil
 }
@@ -335,7 +335,7 @@ func (s *BaseRegEnumKeyReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegEnumKeyReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegEnumKeyReq: %w", err)
 	}
 	return b, nil
 }
@@ -344,7 +344,7 @@ func (s *BaseRegEnumKeyRes) Unmarshal(buf []byte) error {
 	log.Traceln("In Unmarshal for BaseRegEnumKeyRes")
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling BaseRegEnumKeyRes: %v", err)
+		return fmt.Errorf("error unmarshaling BaseRegEnumKeyRes: %w", err)
 	}
 	return nil
 }
@@ -356,7 +356,7 @@ func (s *BaseRegEnumValueReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegEnumValueReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegEnumValueReq: %w", err)
 	}
 	return b, nil
 }
@@ -368,7 +368,7 @@ func (s *BaseRegEnumValueRes) Unmarshal(buf []byte) error {
 	log.Traceln("In Unmarshal for BaseRegEnumValueRes")
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling BaseRegEnumValueRes: %v", err)
+		return fmt.Errorf("error unmarshaling BaseRegEnumValueRes: %w", err)
 	}
 	return nil
 }
@@ -380,7 +380,7 @@ func (s *BaseRegGetKeySecurityReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegGetKeySecurityReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegGetKeySecurityReq: %w", err)
 	}
 	return b, nil
 }
@@ -389,7 +389,7 @@ func (s *BaseRegGetKeySecurityRes) Unmarshal(buf []byte) error {
 	log.Traceln("In Unmarshal for BaseRegGetKeySecurityRes")
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling BaseRegGetKeySecurityRes: %v", err)
+		return fmt.Errorf("error unmarshaling BaseRegGetKeySecurityRes: %w", err)
 	}
 	return nil
 }
@@ -401,7 +401,7 @@ func (s *BaseRegOpenKeyReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegOpenKeyReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegOpenKeyReq: %w", err)
 	}
 	return b, nil
 }
@@ -413,7 +413,7 @@ func (s *BaseRegQueryInfoKeyReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegQueryInfoKeyReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegQueryInfoKeyReq: %w", err)
 	}
 	return b, nil
 }
@@ -422,7 +422,7 @@ func (s *BaseRegQueryInfoKeyRes) Unmarshal(buf []byte) error {
 	log.Traceln("In Unmarshal for BaseRegQueryInfoKeyRes")
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling BaseRegQueryInfoKeyRes: %v", err)
+		return fmt.Errorf("error unmarshaling BaseRegQueryInfoKeyRes: %w", err)
 	}
 	return nil
 }
@@ -434,7 +434,7 @@ func (s *BaseRegQueryValueReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegQueryValueReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegQueryValueReq: %w", err)
 	}
 	return b, nil
 }
@@ -443,7 +443,7 @@ func (s *BaseRegQueryValueRes) Unmarshal(buf []byte) error {
 	log.Traceln("In Unmarshal for BaseRegQueryValueRes")
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling BaseRegQueryValueRes: %v", err)
+		return fmt.Errorf("error unmarshaling BaseRegQueryValueRes: %w", err)
 	}
 	return nil
 }
@@ -455,7 +455,7 @@ func (s *BaseRegSaveKeyReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegSaveKeyReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegSaveKeyReq: %w", err)
 	}
 	return b, nil
 }
@@ -467,7 +467,7 @@ func (s *BaseRegSetKeySecurityReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegSetKeySecurityReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegSetKeySecurityReq: %w", err)
 	}
 	return b, nil
 }
@@ -479,7 +479,7 @@ func (s *BaseRegSetValueReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling BaseRegSetValueReq: %v", err)
+		return nil, fmt.Errorf("error marshaling BaseRegSetValueReq: %w", err)
 	}
 	return b, nil
 }

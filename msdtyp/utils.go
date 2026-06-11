@@ -37,7 +37,7 @@ import (
 func FromUnicodeString(buf []byte) (res string, err error) {
 	buflen := len(buf)
 	if (buflen % 2) != 0 {
-		err = fmt.Errorf("Invalid Unicode (UTF-16-LE) string")
+		err = fmt.Errorf("invalid unicode (UTF-16-LE) string")
 		return
 	}
 
@@ -102,7 +102,6 @@ func ReadConformantVaryingString(r *bytes.Reader, nullTerminated bool) (s string
 	var maxCount uint32
 	err = binary.Read(r, le, &maxCount)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -110,20 +109,17 @@ func ReadConformantVaryingString(r *bytes.Reader, nullTerminated bool) (s string
 	var offset uint32
 	err = binary.Read(r, le, &offset)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	// Read the Actual count
 	var actualCount uint32
 	err = binary.Read(r, le, &actualCount)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	if offset > 0 {
 		_, err = r.Seek(int64(offset), io.SeekCurrent)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -133,7 +129,6 @@ func ReadConformantVaryingString(r *bytes.Reader, nullTerminated bool) (s string
 		unc := make([]byte, actualCount*2)
 		err = binary.Read(r, le, unc)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
@@ -148,7 +143,6 @@ func ReadConformantVaryingString(r *bytes.Reader, nullTerminated bool) (s string
 
 		s, err = FromUnicodeString(unc)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -158,7 +152,6 @@ func ReadConformantVaryingString(r *bytes.Reader, nullTerminated bool) (s string
 	if paddLen != 4 {
 		_, err = r.Seek(int64(paddLen), io.SeekCurrent)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -169,7 +162,6 @@ func ReadConformantVaryingStringPtr(r *bytes.Reader, nullTerminated bool) (s str
 	// Skip ReferentId Ptr
 	_, err = r.Seek(4, io.SeekCurrent)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	return ReadConformantVaryingString(r, nullTerminated)
@@ -217,9 +209,6 @@ func WriteConformantVaryingStringPtr(w io.Writer, s string, refid *uint32, addNu
 	if s == "" {
 		// Empty strings are represented as a NULL Ptr
 		n, err = w.Write([]byte{0, 0, 0, 0})
-		if err != nil {
-			log.Errorln(err)
-		}
 		return
 	}
 	if *refid != 0 {
@@ -243,28 +232,24 @@ func WriteConformantVaryingArray(w io.Writer, buf []byte, maxCount uint32) (n in
 	}
 	err = binary.Write(w, le, maxCount)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	n += 4
 
 	err = binary.Write(w, le, uint32(0)) // Offset
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	n += 4
 
 	err = binary.Write(w, le, actualCount)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	n += 4
 
 	_, err = w.Write(buf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	n += len(buf)
@@ -276,7 +261,6 @@ func WriteConformantVaryingArray(w io.Writer, buf []byte, maxCount uint32) (n in
 	padd := make([]byte, paddlen)
 	_, err = w.Write(padd)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	n += paddlen
@@ -290,15 +274,11 @@ func WriteConformantVaryingArrayPtr(w io.Writer, buf []byte, maxCount uint32, re
 	if len(buf) == 0 && maxCount == 0 {
 		// Empty buffers are represented with a NULL Ptr?
 		n, err = w.Write([]byte{0, 0, 0, 0})
-		if err != nil {
-			log.Errorln(err)
-		}
 		return
 	}
 	if *refId != 0 {
 		err = binary.Write(w, le, *refId)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		*refId++
@@ -312,14 +292,12 @@ func WriteConformantVaryingArrayPtr(w io.Writer, buf []byte, maxCount uint32, re
 func ReadConformantVaryingArray(r *bytes.Reader) (data []byte, maxLength uint32, err error) {
 	err = binary.Read(r, le, &maxLength)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	offset := uint32(0)
 	err = binary.Read(r, le, &offset)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -327,14 +305,12 @@ func ReadConformantVaryingArray(r *bytes.Reader) (data []byte, maxLength uint32,
 
 	err = binary.Read(r, le, &actualCount)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	if offset > 0 {
 		_, err = r.Seek(int64(offset), io.SeekCurrent)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -343,7 +319,6 @@ func ReadConformantVaryingArray(r *bytes.Reader) (data []byte, maxLength uint32,
 		data = make([]byte, actualCount)
 		err = binary.Read(r, le, &data)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -355,7 +330,6 @@ func ReadConformantVaryingArray(r *bytes.Reader) (data []byte, maxLength uint32,
 
 	_, err = r.Seek(int64(paddlen), io.SeekCurrent)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	return
@@ -365,7 +339,6 @@ func ReadConformantVaryingArrayPtr(r *bytes.Reader) (data []byte, maxLength uint
 	// Skip ReferentId Ptr
 	_, err = r.Seek(4, io.SeekCurrent)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	return ReadConformantVaryingArray(r)
@@ -374,13 +347,11 @@ func ReadConformantVaryingArrayPtr(r *bytes.Reader) (data []byte, maxLength uint
 func WriteConformantArray(w io.Writer, buf []byte) (n int, err error) {
 	err = binary.Write(w, le, uint32(len(buf))) // MaxCount
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	n += 4
 	_, err = w.Write(buf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	n += len(buf)
@@ -392,7 +363,6 @@ func WriteConformantArray(w io.Writer, buf []byte) (n int, err error) {
 	padd := make([]byte, paddlen)
 	_, err = w.Write(padd)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	n += paddlen
@@ -405,15 +375,11 @@ func WriteConformantArrayPtr(w io.Writer, buf []byte, refid *uint32) (n int, err
 	if len(buf) == 0 {
 		// Empty buffers are represented with a NULL Ptr
 		n, err = w.Write([]byte{0, 0, 0, 0})
-		if err != nil {
-			log.Errorln(err)
-		}
 		return
 	}
 	if *refid != 0 {
 		err = binary.Write(w, le, refid)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		n = 4
@@ -441,18 +407,16 @@ func ConvertStrToSID(s string) (sid *SID, err error) {
 	sid = &SID{}
 	parts := strings.Split(s, "-")
 	if len(parts) < 4 {
-		err = fmt.Errorf("Invalid SID representation")
+		err = fmt.Errorf("invalid SID representation")
 		return
 	}
 	rev, err := strconv.ParseUint(parts[1], 10, 32)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	sid.Revision = byte(rev)
 	auth, err := strconv.ParseUint(parts[2], 10, 32)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	authBuf := make([]byte, 2, 6)
@@ -463,7 +427,6 @@ func ConvertStrToSID(s string) (sid *SID, err error) {
 	for _, part := range parts[3:] {
 		subA, err := strconv.ParseUint(part, 10, 32)
 		if err != nil {
-			log.Errorln(err)
 			return nil, err
 		}
 		subAuths = append(subAuths, uint32(subA))

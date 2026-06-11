@@ -51,7 +51,7 @@ type ccm struct {
 // The tagSize must be one of {4, 6, 8, 10, 12, 14, 16} bytes
 // The maximum payload size is based on the size of the nonce using a formula of
 // max payload size = 2^((15 - nonceSize)*8) - 1
-// If the payload exceeds the max size on Seal, nil is returned as there is no error in the
+// If the payload exceeds the max size, Seal panics as there is no error in the
 // return values defined by the AEAD interface.
 // For Seal, the max payload is the size of the plaintext. For Open, the max payload size is
 // defined as the size of the cipertext - the tagSize
@@ -60,19 +60,16 @@ func NewCCMWithNonceAndTagSizes(c cipher.Block, nonceSize, tagSize int) (cipher.
 	// Check length requirements from A.1
 	if c.BlockSize() != 16 {
 		err := fmt.Errorf("CCM mode requires a 16 byte (128-bit) block cipher but got a %d byte", c.BlockSize())
-		log.Errorln(err.Error())
 		return nil, err
 	}
 
 	if (nonceSize < 7) || (nonceSize > 13) {
 		err := fmt.Errorf("CCM: invalid size of nonce. Accepted values are: {7, 8, 9, 10, 11, 12, 13} but received (%d)", nonceSize)
-		log.Errorln(err.Error())
 		return nil, err
 	}
 
 	if ((tagSize < 4) || (tagSize > 16)) || ((tagSize % 2) != 0) {
 		err := fmt.Errorf("CCM: invalid tag size. Accepted values are: {4, 6, 8, 10, 12, 14, 16} but received (%d)", tagSize)
-		log.Errorln(err.Error())
 		return nil, err
 	}
 
@@ -110,9 +107,7 @@ func (ccm *ccm) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 	*/
 
 	if len(nonce) != ccm.nonceSize {
-		err := fmt.Sprintf("Seal: Incorrect size of nonce for AES CCM. Got %d and expected %d", len(nonce), ccm.nonceSize)
-		log.Criticalln(err)
-		panic(err)
+		panic(fmt.Sprintf("ccm: incorrect nonce length %d, expected %d", len(nonce), ccm.nonceSize))
 	}
 
 	/*
@@ -140,8 +135,7 @@ func (ccm *ccm) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 	// representation of the octet length of the plaintext e.g., do we have enough bytes left to store
 	// the q value?
 	if maxUint64ValueInBytes(15-ccm.nonceSize) < uint64(len(plaintext)) {
-		log.Errorln("Supplied plaintext was too large to encrypt with the given size of nonce")
-		return nil
+		panic("ccm: plaintext too large to encrypt with the given size of nonce")
 	}
 
 	// The AEAD interface Seal function states that the ciphertext and tag should
@@ -196,14 +190,12 @@ func (s *ccm) Open(dst, nonce, ciphertext, additionalData []byte) (result []byte
 	*/
 
 	if s.tagSize > len(ciphertext) {
-		err = fmt.Errorf("The ciphertext must be of a greater length than the tag size")
-		log.Errorln(err)
+		err = fmt.Errorf("ciphertext must be of a greater length than the tag size")
 		return
 	}
 
 	if s.nonceSize > len(nonce) {
-		err = fmt.Errorf("Incorrect nonce size. Must match size specified at initialization")
-		log.Errorln(err)
+		err = fmt.Errorf("incorrect nonce size, must match size specified at initialization")
 		return
 	}
 
@@ -213,8 +205,7 @@ func (s *ccm) Open(dst, nonce, ciphertext, additionalData []byte) (result []byte
 	// Check if the ciphertext is too large for the specified tagSize as the size of the
 	// plaintext must be encoded within the bytes left by 15 - nonceSize
 	if maxUint64ValueInBytes(15-s.nonceSize) < uint64(len(ciphertext)-s.tagSize) {
-		err = fmt.Errorf("The size of the ciphertext is too large for the given size of nonce")
-		log.Errorln(err.Error())
+		err = fmt.Errorf("ciphertext too large for the given size of nonce")
 		return
 	}
 
@@ -251,8 +242,7 @@ func (s *ccm) Open(dst, nonce, ciphertext, additionalData []byte) (result []byte
 
 	// Check if calculated tag matches provided tag
 	if bytes.Compare(mac, ciphertext[len(plaintext):]) != 0 {
-		err := fmt.Errorf("Invalid authentication tag on ciphertext")
-		log.Errorln(err)
+		err := fmt.Errorf("invalid authentication tag on ciphertext")
 		return nil, err
 	}
 

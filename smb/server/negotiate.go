@@ -106,7 +106,7 @@ func validateNegotiateAlignment(raw []byte) error {
 // (0x02FF), signaling "I speak SMB2 — please re-negotiate using SMB2". The
 // client then sends a real SMB2 NegotiateReq and dispatchSMB2 handles it.
 func (c *Conn) handleSMB1Negotiate() error {
-	c.Server.Config.logger().Debugf("SMB1 multi-proto Negotiate from %s -> 0x%04x",
+	c.logger().Debugf("SMB1 multi-proto Negotiate from %s -> 0x%04x",
 		c.RemoteAddr, smb.DialectSmb2_ALL)
 	res := smb.NewNegotiateRes()
 	res.Header.Command = smb.CommandNegotiate
@@ -145,16 +145,16 @@ func (c *Conn) handleSMB1Negotiate() error {
 
 // handleNegotiate parses the SMB2 NegotiateReq and replies with NegotiateRes.
 func (c *Conn) handleNegotiate(ctx pduCtx, raw []byte, h *smb.Header) error {
-	logger := c.Server.Config.logger()
+	logger := c.logger()
 	if err := validateNegotiateAlignment(raw); err != nil {
-		logger.Errorf("Negotiate from %s rejected: %v", c.RemoteAddr, err)
+		logger.Errorf("Negotiate rejected: %v", err)
 		return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
 	}
 	var req smb.NegotiateReq
 	if err := encoder.Unmarshal(raw, &req); err != nil {
 		return formatErr("decode NegotiateReq", err)
 	}
-	logger.Debugf("NegotiateReq from %s: dialects=%v", c.RemoteAddr, req.Dialects)
+	logger.Debugf("NegotiateReq: dialects=%v", req.Dialects)
 
 	// Capture the client GUID for later phases (preauth integrity hash, etc.).
 	if len(req.ClientGuid) == 16 {
@@ -247,7 +247,7 @@ func encodeForWire(res interface{}) ([]byte, error) {
 // fills those from the inbound header.
 func (c *Conn) buildNegotiateRes(req *smb.NegotiateReq) (*smb.NegotiateRes, error) {
 	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	// Pick the highest mutually-supported dialect.
 	allowed := cfg.dialectsAllowed()
@@ -361,7 +361,7 @@ func marshalLen(v interface{}) (int, error) {
 // client's offered list, and selecting a signing algorithm.
 func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.NegotiateRes) error {
 	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	var (
 		chosenCipher    uint16

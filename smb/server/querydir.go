@@ -37,22 +37,21 @@ import (
 // Any other class returns StatusInvalidParameter rather than silently emitting
 // the wrong layout.
 func (c *Conn) handleQueryDirectory(ctx pduCtx, raw []byte, h *smb.Header) error {
-	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	sess := c.session(h.SessionID)
 	if sess == nil || !sess.Authenticated {
-		logger.Debugf("QueryDirectory from %s: session %d not authenticated -> StatusUserSessionDeleted", c.RemoteAddr, h.SessionID)
+		logger.Debugf("QueryDirectory: session %d not authenticated -> StatusUserSessionDeleted", h.SessionID)
 		return c.writeRawError(ctx, h, smb.StatusUserSessionDeleted)
 	}
 	tree := sess.tree(h.TreeID)
 	if tree == nil {
-		logger.Debugf("QueryDirectory from %s: unknown TreeID %d -> StatusNetworkNameDeleted", c.RemoteAddr, h.TreeID)
+		logger.Debugf("QueryDirectory: unknown TreeID %d -> StatusNetworkNameDeleted", h.TreeID)
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 	var req smb.QueryDirectoryReq
 	if err := encoder.Unmarshal(raw, &req); err != nil {
-		logger.Errorf("QueryDirectory from %s: decode QueryDirectoryReq: %v", c.RemoteAddr, err)
+		logger.Errorf("QueryDirectory: decode QueryDirectoryReq: %v", err)
 		return formatErr("decode QueryDirectoryReq", err)
 	}
 	hndl := tree.lookupHandle(volatileFromFileID(req.FileID))
@@ -64,7 +63,7 @@ func (c *Conn) handleQueryDirectory(ctx pduCtx, raw []byte, h *smb.Header) error
 
 	pattern, err := encoder.FromUnicodeString(req.Buffer)
 	if err != nil {
-		logger.Debugf("QueryDirectory from %s: decode search pattern: %v (defaulting to *)", c.RemoteAddr, err)
+		logger.Debugf("QueryDirectory: decode search pattern: %v (defaulting to *)", err)
 	}
 	if pattern == "" {
 		pattern = "*"

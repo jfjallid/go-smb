@@ -98,7 +98,7 @@ func (s *AuthVerifier) MarshalBinary() (ret []byte, err error) {
 
 func (s *AuthVerifier) UnmarshalBinary(buf []byte) (err error) {
 	if len(buf) < 8 {
-		return fmt.Errorf("Buffer is too small to unmarshal AuthVerifier")
+		return fmt.Errorf("buffer is too small to unmarshal AuthVerifier")
 	}
 	r := bytes.NewReader(buf)
 	err = binary.Read(r, le, &s.AuthType)
@@ -256,23 +256,19 @@ func (s *Auth3Req) MarshalBinary() (ret []byte, err error) {
 
 	hBuf, err := s.Header.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	_, err = w.Write(hBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	err = binary.Write(w, le, s.MaxSendFragSize)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.MaxRecvFragSize)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -280,12 +276,10 @@ func (s *Auth3Req) MarshalBinary() (ret []byte, err error) {
 	var authBuf []byte
 	authBuf, err = s.AuthVerifier.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	_, err = w.Write(authBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -325,27 +319,22 @@ func (s *Header) MarshalBinary() (ret []byte, err error) {
 
 	_, err = w.Write([]byte{s.MajorVersion, s.MinorVersion, s.Type, s.Flags})
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.Representation)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.FragLength)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.AuthLength)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.CallId)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -354,48 +343,40 @@ func (s *Header) MarshalBinary() (ret []byte, err error) {
 
 func (s *Header) UnmarshalBinary(buf []byte) (err error) {
 	if len(buf) < 16 {
-		return fmt.Errorf("Buffer is too small to unmarshal Header")
+		return fmt.Errorf("buffer is too small to unmarshal Header")
 	}
 	r := bytes.NewReader(buf)
 
 	err = binary.Read(r, le, &s.MajorVersion)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.MinorVersion)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.Type)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.Flags)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.Representation)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.FragLength)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.AuthLength)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.CallId)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -407,38 +388,31 @@ func (s *ContextItem) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 	err = binary.Write(w, le, s.Id)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, byte(len(s.TransferSyntax)))
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, byte(0)) // Alignment
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.AbstractSyntax.UUID)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.AbstractSyntax.Version)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	for i := range s.TransferSyntax {
 		err = binary.Write(w, le, s.TransferSyntax[i].UUID)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		err = binary.Write(w, le, s.TransferSyntax[i].Version)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -451,30 +425,25 @@ func readContextItem(r *bytes.Reader, bo binary.ByteOrder) (res *ContextItem, er
 	res = &ContextItem{}
 	err = binary.Read(r, bo, &res.Id)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, bo, &res.Count)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	_, err = r.ReadByte() // Skip reserved
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	res.AbstractSyntax.UUID = make([]byte, 16)
 	_, err = r.Read(res.AbstractSyntax.UUID)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, bo, &res.AbstractSyntax.Version)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -482,12 +451,10 @@ func readContextItem(r *bytes.Reader, bo binary.ByteOrder) (res *ContextItem, er
 		syntaxId := SyntaxId{UUID: make([]byte, 16)}
 		_, err = r.Read(syntaxId.UUID)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		err = binary.Read(r, bo, &syntaxId.Version)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		res.TransferSyntax = append(res.TransferSyntax, syntaxId)
@@ -501,7 +468,6 @@ func (s *ContextItem) UnmarshalBinary(buf []byte) (err error) {
 
 	result, err := readContextItem(r, le)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	*s = *result
@@ -513,24 +479,20 @@ func (s *ContextList) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 	err = binary.Write(w, le, byte(len(s.Items)))
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, []byte{0, 0, 0}) // Alignment
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	var itemBuf []byte
 	for i := range s.Items {
 		itemBuf, err = s.Items[i].MarshalBinary()
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		_, err = w.Write(itemBuf)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -543,12 +505,10 @@ func (s *ContextList) UnmarshalBinary(buf []byte) (err error) {
 
 	err = binary.Read(r, le, &s.Count)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	_, err = r.Seek(3, io.SeekCurrent) // Skip alignment bytes
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -556,7 +516,6 @@ func (s *ContextList) UnmarshalBinary(buf []byte) (err error) {
 		item := &ContextItem{}
 		item, err = readContextItem(r, le)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		s.Items = append(s.Items, *item)
@@ -572,40 +531,33 @@ func (s *BindReq) MarshalBinary() (ret []byte, err error) {
 	// Encode Header
 	hBuf, err := s.Header.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	_, err = w.Write(hBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	err = binary.Write(w, le, s.MaxSendFragSize)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.MaxRecvFragSize)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.Association)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	// Encode Context Item list
 	contextBuf := []byte{}
 	contextBuf, err = s.ContextList.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	_, err = w.Write(contextBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -616,7 +568,6 @@ func (s *BindReq) MarshalBinary() (ret []byte, err error) {
 		if authPad > 0 {
 			_, err = w.Write(make([]byte, authPad))
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 		}
@@ -625,12 +576,10 @@ func (s *BindReq) MarshalBinary() (ret []byte, err error) {
 		var authBuf []byte
 		authBuf, err = s.AuthVerifier.MarshalBinary()
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		_, err = w.Write(authBuf)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -691,23 +640,19 @@ func readContextResItem(r *bytes.Reader, bo binary.ByteOrder) (res *ContextResIt
 	res = &ContextResItem{}
 	err = binary.Read(r, le, &res.Result)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &res.Reason)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	res.TransferSyntax.UUID = make([]byte, 16)
 	err = binary.Read(r, le, &res.TransferSyntax.UUID)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &res.TransferSyntax.Version)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	return
@@ -717,19 +662,16 @@ func readContextResList(r *bytes.Reader, bo binary.ByteOrder) (res *ContextResLi
 	res = &ContextResList{}
 	res.Results, err = r.ReadByte()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	_, err = r.Seek(3, io.SeekCurrent) // Skip alignment bytes
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	for i := 0; i < int(res.Results); i++ {
 		item := &ContextResItem{}
 		item, err = readContextResItem(r, bo)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		res.Items = append(res.Items, *item)
@@ -744,7 +686,6 @@ func (s *ContextResList) UnmarshalBinary(buf []byte) (err error) {
 
 	result, err := readContextResList(r, le)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	*s = *result
@@ -842,35 +783,29 @@ func (s *BindRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Traceln("In UnmarshalBinary for BindRes")
 	err = s.Header.UnmarshalBinary(buf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	// Skip over header bytes
 	r := bytes.NewReader(buf[16:])
 	err = binary.Read(r, le, &s.MaxSendFragSize)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.MaxRecvFragSize)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.Association)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.SecAddrLen)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	s.SecAddr = make([]byte, s.SecAddrLen)
 	err = binary.Read(r, le, &s.SecAddr)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -880,14 +815,12 @@ func (s *BindRes) UnmarshalBinary(buf []byte) (err error) {
 	alignmentBytes := (4 - ((s.SecAddrLen + 2) % 4)) % 4
 	_, err = r.Seek(int64(alignmentBytes), io.SeekCurrent) // Align to 4-byte boundary
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	resList := &ContextResList{}
 	resList, err = readContextResList(r, le)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	s.ResultList = *resList
@@ -902,7 +835,6 @@ func (s *BindRes) UnmarshalBinary(buf []byte) (err error) {
 			s.AuthVerifier = &AuthVerifier{}
 			err = s.AuthVerifier.UnmarshalBinary(buf[authStart:s.Header.FragLength])
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 		}
@@ -917,41 +849,34 @@ func (s *RequestReq) MarshalBinary() (ret []byte, err error) {
 	// Encode Header
 	hBuf, err := s.Header.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	_, err = w.Write(hBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	err = binary.Write(w, le, s.AllocHint)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	err = binary.Write(w, le, s.ContextId)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.Opnum)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	if len(s.ObjectUUID) > 0 {
 		_, err = w.Write(s.ObjectUUID)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
 	_, err = w.Write(s.Buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	return w.Bytes(), nil
@@ -1038,38 +963,32 @@ func (s *RequestRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Traceln("In UnmarshalBinary for RequestRes")
 	err = s.Header.UnmarshalBinary(buf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	if len(buf[16:]) < (int(s.Header.FragLength) - 24) {
-		return fmt.Errorf("Provided buffer is too small to unmarshal a RequestRes")
+		return fmt.Errorf("provided buffer is too small to unmarshal a RequestRes")
 	}
 	// Skip over header bytes
 	r := bytes.NewReader(buf[16:])
 	err = binary.Read(r, le, &s.AllocHint)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.ContextId)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	s.CancelCount, err = r.ReadByte()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	s.Reserved, err = r.ReadByte()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	s.Buffer = make([]byte, s.Header.FragLength-24)
 	_, err = r.Read(s.Buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	return

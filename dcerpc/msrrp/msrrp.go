@@ -303,6 +303,22 @@ type RPCCon struct {
 	*dcerpc.ServiceBind
 }
 
+// checkReturnCode maps a non-zero RRP return code to a *dcerpc.StatusError
+// carrying op, the raw code, and the mapped sentinel from ReturnCodeMap
+// (nil when unmapped). Codes in okCodes are treated as success in addition
+// to ErrorSuccess.
+func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
+	if code == ErrorSuccess {
+		return nil
+	}
+	for _, ok := range okCodes {
+		if code == ok {
+			return nil
+		}
+	}
+	return &dcerpc.StatusError{Op: op, Code: code, Err: ReturnCodeMap[code]}
+}
+
 func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 	return &RPCCon{sb}
 }
@@ -326,19 +342,17 @@ func (r *RPCCon) OpenBaseKey(baseName byte) (handle []byte, err error) {
 	case HKEYCurrentConfig:
 		opCode = OpenCurrentConfig
 	default:
-		err = fmt.Errorf("NOT Implemented base key!")
+		err = fmt.Errorf("not implemented base key")
 		return
 	}
 
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(opCode, reqBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -346,18 +360,10 @@ func (r *RPCCon) OpenBaseKey(baseName byte) (handle []byte, err error) {
 	res := OpenKeyRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode != ErrorSuccess {
-		status, found := ReturnCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in OpenBaseKey response: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
+	if err = checkReturnCode("OpenBaseKey", res.ReturnCode); err != nil {
 		return
 	}
 
@@ -368,39 +374,28 @@ func (r *RPCCon) OpenBaseKey(baseName byte) (handle []byte, err error) {
 func (r *RPCCon) CloseKeyHandle(hKey []byte) (err error) {
 	req := BaseRegCloseKeyReq{}
 	if len(hKey) != 20 {
-		return fmt.Errorf("Invalid length of HKey in CloseKeyHandle")
+		return fmt.Errorf("invalid length of HKey in CloseKeyHandle")
 	}
 	copy(req.HKey[:], hKey)
 
 	log.Debugf("Trying to close basekey handle (0x%x)\n", hKey)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(BaseRegCloseKey, reqBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	res := msdtyp.ReturnCode{}
 	err = res.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.Value() != ErrorSuccess {
-		status, found := ReturnCodeMap[res.Value()]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in BaseRegCloseKey response: 0x%x\n", res.Value())
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("BaseRegCloseKey", res.Value()); err != nil {
 		return
 	}
 
@@ -413,7 +408,7 @@ func (r *RPCCon) CreateKey(hKey []byte, name, class string, options, desiredAcce
 		desiredAccess = PermMaximumAllowed
 	}
 	if len(hKey) != 20 {
-		err = fmt.Errorf("Invalid length of HKey in CreateKey")
+		err = fmt.Errorf("invalid length of HKey in CreateKey")
 		return
 	}
 
@@ -431,7 +426,6 @@ func (r *RPCCon) CreateKey(hKey []byte, name, class string, options, desiredAcce
 	log.Debugf("Trying to create registry key (%s)\n", name)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -440,25 +434,16 @@ func (r *RPCCon) CreateKey(hKey []byte, name, class string, options, desiredAcce
 		return
 	}
 	if len(buffer) < 28 {
-		err = fmt.Errorf("Response to BaseRegCreateKey was too short")
-		log.Errorln(err)
+		err = fmt.Errorf("response to BaseRegCreateKey was too short")
 		return
 	}
 	var res BaseRegCreateKeyRes
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode != ErrorSuccess {
-		status, found := ReturnCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in BaseRegCreateKey response: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
+	if err = checkReturnCode("BaseRegCreateKey", res.ReturnCode); err != nil {
 		return
 	}
 
@@ -472,7 +457,7 @@ func (r *RPCCon) CreateKey(hKey []byte, name, class string, options, desiredAcce
 // Opnum 7
 func (r *RPCCon) DeleteKey(hKey []byte, name string) (err error) {
 	if len(hKey) != 20 {
-		return fmt.Errorf("Invalid length of HKey in DeleteKey")
+		return fmt.Errorf("invalid length of HKey in DeleteKey")
 	}
 	req := BaseRegDeleteKeyReq{
 		SubKey: newRRPString(name),
@@ -482,7 +467,6 @@ func (r *RPCCon) DeleteKey(hKey []byte, name string) (err error) {
 	log.Debugf("Trying to delete registry key (%s)\n", name)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -491,25 +475,18 @@ func (r *RPCCon) DeleteKey(hKey []byte, name string) (err error) {
 		return
 	}
 	if len(buffer) < 4 {
-		err = fmt.Errorf("Response to BaseRegDeleteKey was too short")
-		log.Errorln(err)
+		err = fmt.Errorf("response to BaseRegDeleteKey was too short")
 		return
 	}
 	returnCode := binary.LittleEndian.Uint32(buffer[:4])
 	if returnCode != ErrorSuccess {
 		if returnCode == ErrorFileNotFound {
-			err = fmt.Errorf("Registry Key does not exist")
+			err = fmt.Errorf("registry key does not exist")
 			return
 		}
-		status, found := ReturnCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in BaseRegDeleteKey response: 0x%x\n", returnCode)
-			log.Errorln(err)
+		if err = checkReturnCode("BaseRegDeleteKey", returnCode); err != nil {
 			return
 		}
-		err = status
-		log.Errorln(err)
-		return
 	}
 	return
 }
@@ -517,7 +494,7 @@ func (r *RPCCon) DeleteKey(hKey []byte, name string) (err error) {
 // Opnum 8
 func (r *RPCCon) DeleteValue(hKey []byte, name string) (err error) {
 	if len(hKey) != 20 {
-		return fmt.Errorf("Invalid length of HKey in DeleteValue")
+		return fmt.Errorf("invalid length of HKey in DeleteValue")
 	}
 	req := BaseRegDeleteValueReq{
 		ValueName: newRRPString(name),
@@ -527,7 +504,6 @@ func (r *RPCCon) DeleteValue(hKey []byte, name string) (err error) {
 	log.Debugf("Trying to delete registry key value (%s)\n", name)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -536,25 +512,18 @@ func (r *RPCCon) DeleteValue(hKey []byte, name string) (err error) {
 		return
 	}
 	if len(buffer) < 4 {
-		err = fmt.Errorf("Response to BaseRegDeleteValue was too short")
-		log.Errorln(err)
+		err = fmt.Errorf("response to BaseRegDeleteValue was too short")
 		return
 	}
 	returnCode := binary.LittleEndian.Uint32(buffer[:4])
 	if returnCode != ErrorSuccess {
 		if returnCode == ErrorFileNotFound {
-			err = fmt.Errorf("Registry value does not exist")
+			err = fmt.Errorf("registry value does not exist")
 			return
 		}
-		status, found := ReturnCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in BaseRegDeleteValue response: 0x%x\n", returnCode)
-			log.Errorln(err)
+		if err = checkReturnCode("BaseRegDeleteValue", returnCode); err != nil {
 			return
 		}
-		err = status
-		log.Errorln(err)
-		return
 	}
 	return
 }
@@ -562,7 +531,7 @@ func (r *RPCCon) DeleteValue(hKey []byte, name string) (err error) {
 // Opnum 9
 func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 	if len(hKey) != 20 {
-		err = fmt.Errorf("Invalid length of HKey in EnumKey")
+		err = fmt.Errorf("invalid length of HKey in EnumKey")
 		return
 	}
 	req := BaseRegEnumKeyReq{
@@ -576,31 +545,21 @@ func (r *RPCCon) EnumKey(hKey []byte, index uint32) (info *KeyInfo, err error) {
 	log.Debugf("Trying to enumerate subkey (%d) for key handle (0x%x)\n", index, hKey)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(BaseRegEnumKey, reqBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	res := BaseRegEnumKeyRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode != ErrorSuccess {
-		status, found := ReturnCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in BaseRegEnumKey response: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
+	if err = checkReturnCode("BaseRegEnumKey", res.ReturnCode); err != nil {
 		return
 	}
 
@@ -631,20 +590,17 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 	log.Debugf("Trying to enumerate value name for index (%d) for key handle (0x%x)\n", index, hKey)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(BaseRegEnumValue, reqBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	res := BaseRegEnumValueRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -654,18 +610,15 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 		req.MaxLen = res.DataLen
 		reqBuf, err = req.Marshal()
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		buffer, err = r.MakeRequest(BaseRegEnumValue, reqBuf)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		res = BaseRegEnumValueRes{}
 		err = res.Unmarshal(buffer)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -674,15 +627,9 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 		if res.ReturnCode == ErrorMoreData {
 			log.Debugf("EnumValue failed with ERROR_MORE_DATA. Here is the response: %+v\n", res)
 		}
-		status, found := ReturnCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in BaseRegEnumValue response: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
+		if err = checkReturnCode("BaseRegEnumValue", res.ReturnCode); err != nil {
 			return
 		}
-		err = status
-		log.Errorf("EnumValue failed with return code: %s\n", err.Error())
-		return
 	}
 
 	typeName, found := RegValueTypeMap[*res.Type]
@@ -702,7 +649,6 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 func NewAce(sidStr string, mask uint32, aceType, aceFlags byte) (ace *msdtyp.ACE, err error) {
 	sid, err := msdtyp.ConvertStrToSID(sidStr)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	return &msdtyp.ACE{
@@ -771,7 +717,7 @@ func (r *RPCCon) OpenSubKeyExt(hKey []byte, subkey string, opts, desiredAccess u
 		desiredAccess = PermMaximumAllowed
 	}
 	if len(hKey) != 20 {
-		err = fmt.Errorf("Invalid length of HKey in OpenSubKeyExt")
+		err = fmt.Errorf("invalid length of HKey in OpenSubKeyExt")
 		return
 	}
 	req := BaseRegOpenKeyReq{
@@ -784,13 +730,11 @@ func (r *RPCCon) OpenSubKeyExt(hKey []byte, subkey string, opts, desiredAccess u
 	log.Debugf("Trying to open subkey (%s)\n", subkey)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(BaseRegOpenKey, reqBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -798,18 +742,10 @@ func (r *RPCCon) OpenSubKeyExt(hKey []byte, subkey string, opts, desiredAccess u
 	res := OpenKeyRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode != ErrorSuccess {
-		status, found := ReturnCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in BaseRegOpenKey response: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
+	if err = checkReturnCode("BaseRegOpenKey", res.ReturnCode); err != nil {
 		return
 	}
 
@@ -819,7 +755,7 @@ func (r *RPCCon) OpenSubKeyExt(hKey []byte, subkey string, opts, desiredAccess u
 
 func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 	if len(hKey) != 20 {
-		err = fmt.Errorf("Invalid length of HKey in QueryKeyInfo")
+		err = fmt.Errorf("invalid length of HKey in QueryKeyInfo")
 		return
 	}
 	req := BaseRegQueryInfoKeyReq{
@@ -830,7 +766,6 @@ func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 	log.Debugf("Trying to Query key info for key handle (0x%x)\n", hKey)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -842,18 +777,10 @@ func (r *RPCCon) QueryKeyInfo(hKey []byte) (info *KeyInfo, err error) {
 	res := BaseRegQueryInfoKeyRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode != ErrorSuccess {
-		status, found := ReturnCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in BaseRegQueryInfoKey response: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
+	if err = checkReturnCode("BaseRegQueryInfoKey", res.ReturnCode); err != nil {
 		return
 	}
 
@@ -874,7 +801,6 @@ func (r *RPCCon) QueryValueExt(hKey []byte, name string) (result any, dataType u
 	var data []byte
 	data, dataType, _, err = r.QueryValue2(hKey, name)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	switch dataType {
@@ -884,7 +810,6 @@ func (r *RPCCon) QueryValueExt(hKey []byte, name string) (result any, dataType u
 		var s string
 		s, err = msdtyp.FromUnicodeString(data)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		// Optionally remove null terminator
@@ -897,15 +822,13 @@ func (r *RPCCon) QueryValueExt(hKey []byte, name string) (result any, dataType u
 		result = data
 	case RegDword:
 		if len(data) != 4 {
-			err = fmt.Errorf("Invalid length for DWORD type registry value")
-			log.Errorln(err)
+			err = fmt.Errorf("invalid length for DWORD type registry value")
 			return
 		}
 		result = binary.LittleEndian.Uint32(data)
 	case RegDwordBigEndian:
 		if len(data) != 4 {
-			err = fmt.Errorf("Invalid length for DWORD big endian type registry value")
-			log.Errorln(err)
+			err = fmt.Errorf("invalid length for DWORD big endian type registry value")
 			return
 		}
 		result = binary.BigEndian.Uint32(data)
@@ -913,18 +836,16 @@ func (r *RPCCon) QueryValueExt(hKey []byte, name string) (result any, dataType u
 	case RegMultiSz:
 		result, err = fromUnicodeStrArray(data)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	case RegQword:
 		if len(data) != 8 {
-			err = fmt.Errorf("Invalid length for QWORD type registry value")
-			log.Errorln(err)
+			err = fmt.Errorf("invalid length for QWORD type registry value")
 			return
 		}
 		result = binary.LittleEndian.Uint64(data)
 	default:
-		log.Errorf("Unknown type %d of registry value", dataType)
+		log.Warningf("unknown type %d of registry value", dataType)
 		result = data
 	}
 	return
@@ -951,7 +872,6 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 	log.Debugf("Trying to Query key value for (%s)\n", name)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -963,7 +883,6 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 	res := BaseRegQueryValueRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -973,18 +892,15 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 		req.MaxLen = res.DataLen
 		reqBuf, err = req.Marshal()
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		buffer, err = r.MakeRequest(BaseRegQueryValue, reqBuf)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		res = BaseRegQueryValueRes{}
 		err = res.Unmarshal(buffer)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -992,22 +908,16 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 	if res.ReturnCode != ErrorSuccess {
 		if res.ReturnCode == ErrorFileNotFound {
 			if name == "" {
-				err = fmt.Errorf("Default value has not been defined")
+				err = fmt.Errorf("default value has not been defined")
 			} else {
-				err = fmt.Errorf("Provided name of registry key value not found")
+				err = fmt.Errorf("provided name of registry key value not found")
 			}
 			log.Debugln(err)
 			return
 		}
-		status, knownCode := ReturnCodeMap[res.ReturnCode]
-		if !knownCode {
-			err = fmt.Errorf("Received unknown return code in BaseRegQueryValue response: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
+		if err = checkReturnCode("BaseRegQueryValue", res.ReturnCode); err != nil {
 			return
 		}
-		err = status
-		log.Debugln(err)
-		return
 	}
 	if res.Type != nil {
 		dataType = *res.Type
@@ -1028,12 +938,10 @@ func (r *RPCCon) QueryValueString(hKey []byte, name string) (result string, err 
 		return
 	}
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	if dataType != RegSz {
-		err = fmt.Errorf("Registry value is not of type string")
-		log.Errorln(err)
+		err = fmt.Errorf("registry value is not of type string")
 		return
 	}
 
@@ -1044,7 +952,7 @@ func (r *RPCCon) QueryValueString(hKey []byte, name string) (result string, err 
 
 func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err error) {
 	if len(hKey) != 20 {
-		err = fmt.Errorf("Invalid length of HKey in RegSaveKey")
+		err = fmt.Errorf("invalid length of HKey in RegSaveKey")
 		return
 	}
 	var ownerSid *msdtyp.SID
@@ -1054,26 +962,22 @@ func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err err
 	if owner != "" {
 		ownerSid, err = msdtyp.ConvertStrToSID(owner)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		adminMask := PermGenericRead | PermGenericWrite | PermWriteDacl | PermDelete
 		var adminAce *msdtyp.ACE
 		adminAce, err = NewAce(owner, adminMask, msdtyp.AccessAllowedAceType, msdtyp.ContainerInheritAce)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		acl = NewACL([]msdtyp.ACE{*adminAce})
 	}
 	sd, err := NewSecurityDescriptor(msdtyp.SecurityDescriptorFlagSR, ownerSid, nil, acl, nil)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	sdBytes, err := sd.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	sdLen := uint32(len(sdBytes))
@@ -1099,7 +1003,6 @@ func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err err
 	log.Debugf("Trying to save reg key to file (%s)\n", filename)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1111,18 +1014,10 @@ func (r *RPCCon) RegSaveKey(hKey []byte, filename string, owner string) (err err
 	res := msdtyp.ReturnCode{}
 	err = res.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.Value() != ErrorSuccess {
-		status, found := ReturnCodeMap[res.Value()]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in BaseRegSaveKey response: 0x%x\n", res.Value())
-			log.Errorln(err)
-			return
-		}
-		err = status
+	if err = checkReturnCode("BaseRegSaveKey", res.Value()); err != nil {
 		return
 	}
 
@@ -1138,7 +1033,7 @@ func (r *RPCCon) GetKeySecurityExt(hKey []byte, securityInformation uint32) (sd 
 		securityInformation = OwnerSecurityInformation
 	}
 	if len(hKey) != 20 {
-		err = fmt.Errorf("Invalid length of HKey in GetKeySecurityExt")
+		err = fmt.Errorf("invalid length of HKey in GetKeySecurityExt")
 		return
 	}
 
@@ -1156,32 +1051,21 @@ func (r *RPCCon) GetKeySecurityExt(hKey []byte, securityInformation uint32) (sd 
 	//log.Debugf("Trying to Query key value for (%s)\n", name)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(BaseRegGetKeySecurity, reqBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	res := BaseRegGetKeySecurityRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode != ErrorSuccess {
-		status, found := ReturnCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in BaseRegGetKeySecurity response: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("BaseRegGetKeySecurity", res.ReturnCode); err != nil {
 		return
 	}
 	log.Debugln("Successfully got the security information")
@@ -1191,7 +1075,6 @@ func (r *RPCCon) GetKeySecurityExt(hKey []byte, securityInformation uint32) (sd 
 	}
 	sdOut := &msdtyp.SecurityDescriptor{}
 	if err = sdOut.UnmarshalBinary(res.SecurityDescriptorOut.Data); err != nil {
-		log.Errorln(err)
 		return
 	}
 	sd = sdOut
@@ -1201,12 +1084,11 @@ func (r *RPCCon) GetKeySecurityExt(hKey []byte, securityInformation uint32) (sd 
 
 func (r *RPCCon) SetKeySecurity(hKey []byte, sd *msdtyp.SecurityDescriptor) (err error) {
 	if len(hKey) != 20 {
-		err = fmt.Errorf("Invalid length of HKey in SetKeySecurity")
+		err = fmt.Errorf("invalid length of HKey in SetKeySecurity")
 		return
 	}
 	sdBytes, err := sd.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	sdLen := uint32(len(sdBytes))
@@ -1234,32 +1116,21 @@ func (r *RPCCon) SetKeySecurity(hKey []byte, sd *msdtyp.SecurityDescriptor) (err
 	//log.Debugf("Trying to Query key value for (%s)\n", name)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(BaseRegSetKeySecurity, reqBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	res := msdtyp.ReturnCode{}
 	err = res.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.Value() != ErrorSuccess {
-		status, found := ReturnCodeMap[res.Value()]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in BaseRegSetKeySecurity response: 0x%x\n", res.Value())
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("BaseRegSetKeySecurity", res.Value()); err != nil {
 		return
 	}
 	log.Debugln("Successfully changed the SecurityDescriptor")
@@ -1275,7 +1146,6 @@ func (r *RPCCon) GetSubKeyNamesExt(hKey []byte, subkey string, opts, desiredAcce
 	if subkey != "" {
 		hSubKey, err = r.OpenSubKeyExt(hKey, subkey, opts, desiredAccess)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		defer r.CloseKeyHandle(hSubKey)
@@ -1284,7 +1154,6 @@ func (r *RPCCon) GetSubKeyNamesExt(hKey []byte, subkey string, opts, desiredAcce
 	}
 	res, err := r.QueryKeyInfo(hSubKey)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	names = make([]string, 0, res.SubKeys)
@@ -1293,7 +1162,6 @@ func (r *RPCCon) GetSubKeyNamesExt(hKey []byte, subkey string, opts, desiredAcce
 	for i := uint32(0); i < res.SubKeys; i++ {
 		res2, err = r.EnumKey(hSubKey, i)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
@@ -1307,7 +1175,6 @@ func (r *RPCCon) GetSubKeyNamesExt(hKey []byte, subkey string, opts, desiredAcce
 func (r *RPCCon) GetKeyValues(hKey []byte) (items []ValueInfo, err error) {
 	res, err := r.QueryKeyInfo(hKey)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1315,7 +1182,6 @@ func (r *RPCCon) GetKeyValues(hKey []byte) (items []ValueInfo, err error) {
 	for i := uint32(0); i < res.Values; i++ {
 		value, err := r.EnumValue(hKey, i)
 		if err != nil {
-			log.Errorln(err)
 			return nil, err
 		}
 		items = append(items, *value)
@@ -1326,7 +1192,6 @@ func (r *RPCCon) GetKeyValues(hKey []byte) (items []ValueInfo, err error) {
 func (r *RPCCon) GetValueNames(hKey []byte) (names []string, err error) {
 	res, err := r.QueryKeyInfo(hKey)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1334,7 +1199,6 @@ func (r *RPCCon) GetValueNames(hKey []byte) (names []string, err error) {
 	for i := uint32(0); i < res.Values; i++ {
 		value, err := r.EnumValue(hKey, i)
 		if err != nil {
-			log.Errorln(err)
 			return nil, err
 		}
 		name := value.Name
@@ -1350,8 +1214,7 @@ func (r *RPCCon) SetValue(hKey []byte, name string, value any, dataType uint32) 
 	case RegSz:
 		s, ok := value.(string)
 		if !ok {
-			err = fmt.Errorf("Provided value is not of type string")
-			log.Errorln(err)
+			err = fmt.Errorf("provided value is not of type string")
 			return
 		}
 		data = msdtyp.ToUnicode(msdtyp.NullTerminate(s))
@@ -1359,16 +1222,14 @@ func (r *RPCCon) SetValue(hKey []byte, name string, value any, dataType uint32) 
 	case RegBinary:
 		b, ok := value.([]byte)
 		if !ok {
-			err = fmt.Errorf("Provided value is not of type []byte")
-			log.Errorln(err)
+			err = fmt.Errorf("provided value is not of type []byte")
 			return
 		}
 		data = b
 	case RegDword:
 		d, ok := value.(uint32)
 		if !ok {
-			err = fmt.Errorf("Provided value is not of type uint32")
-			log.Errorln(err)
+			err = fmt.Errorf("provided value is not of type uint32")
 			return
 		}
 		data = make([]byte, 4)
@@ -1376,8 +1237,7 @@ func (r *RPCCon) SetValue(hKey []byte, name string, value any, dataType uint32) 
 	case RegDwordBigEndian:
 		d, ok := value.(uint32)
 		if !ok {
-			err = fmt.Errorf("Provided value is not of type uint32")
-			log.Errorln(err)
+			err = fmt.Errorf("provided value is not of type uint32")
 			return
 		}
 		data = make([]byte, 4)
@@ -1387,19 +1247,17 @@ func (r *RPCCon) SetValue(hKey []byte, name string, value any, dataType uint32) 
 	case RegQword:
 		d, ok := value.(uint64)
 		if !ok {
-			err = fmt.Errorf("Provided value is not of type uint64")
-			log.Errorln(err)
+			err = fmt.Errorf("provided value is not of type uint64")
 			return
 		}
 		data = make([]byte, 8)
 		binary.LittleEndian.PutUint64(data, d)
 	default:
-		err = fmt.Errorf("Unknown type %d of registry value", dataType)
-		log.Errorln(err)
+		err = fmt.Errorf("unknown type %d of registry value", dataType)
 		return
 	}
 	if len(hKey) != 20 {
-		err = fmt.Errorf("Invalid length of HKey in SetValue")
+		err = fmt.Errorf("invalid length of HKey in SetValue")
 		return
 	}
 	req := BaseRegSetValueReq{
@@ -1413,7 +1271,6 @@ func (r *RPCCon) SetValue(hKey []byte, name string, value any, dataType uint32) 
 	log.Debugf("Trying to Set the key value for (%s)\n", name)
 	reqBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1423,20 +1280,11 @@ func (r *RPCCon) SetValue(hKey []byte, name string, value any, dataType uint32) 
 	}
 
 	if len(buffer) < 4 {
-		err = fmt.Errorf("Response to BaseRegSetValue was too short")
-		log.Errorln(err)
+		err = fmt.Errorf("response to BaseRegSetValue was too short")
 		return
 	}
 	returnCode := binary.LittleEndian.Uint32(buffer[:4])
-	if returnCode != ErrorSuccess {
-		status, found := ReturnCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code in BaseRegSetValue response: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("BaseRegSetValue", returnCode); err != nil {
 		return
 	}
 

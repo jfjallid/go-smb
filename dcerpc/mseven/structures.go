@@ -63,7 +63,7 @@ func (s *elfrOpenBELWReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling ElfrOpenBELWReq: %v", err)
+		return nil, fmt.Errorf("error marshaling ElfrOpenBELWReq: %w", err)
 	}
 	return b, nil
 }
@@ -72,7 +72,7 @@ func (s *elfrOpenBELWRes) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling ElfrOpenBELWRes: %v", err)
+		return fmt.Errorf("error unmarshaling ElfrOpenBELWRes: %w", err)
 	}
 	return nil
 }
@@ -82,7 +82,7 @@ func (s *elfrCloseELReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling ElfrCloseELReq: %v", err)
+		return nil, fmt.Errorf("error marshaling ElfrCloseELReq: %w", err)
 	}
 	return b, nil
 }
@@ -91,7 +91,7 @@ func (s *elfrCloseELRes) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling ElfrCloseELRes: %v", err)
+		return fmt.Errorf("error unmarshaling ElfrCloseELRes: %w", err)
 	}
 	return nil
 }

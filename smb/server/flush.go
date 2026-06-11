@@ -31,22 +31,21 @@ import (
 
 // handleFlush processes an SMB2 FLUSH.
 func (c *Conn) handleFlush(ctx pduCtx, raw []byte, h *smb.Header) error {
-	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	sess := c.session(h.SessionID)
 	if sess == nil || !sess.Authenticated {
-		logger.Debugf("Flush from %s: session %d not authenticated -> StatusUserSessionDeleted", c.RemoteAddr, h.SessionID)
+		logger.Debugf("Flush: session %d not authenticated -> StatusUserSessionDeleted", h.SessionID)
 		return c.writeRawError(ctx, h, smb.StatusUserSessionDeleted)
 	}
 	tree := sess.tree(h.TreeID)
 	if tree == nil {
-		logger.Debugf("Flush from %s: unknown TreeID %d -> StatusNetworkNameDeleted", c.RemoteAddr, h.TreeID)
+		logger.Debugf("Flush: unknown TreeID %d -> StatusNetworkNameDeleted", h.TreeID)
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 	var req smb.FlushReq
 	if err := encoder.Unmarshal(raw, &req); err != nil {
-		logger.Errorf("Flush from %s: decode FlushReq: %v", c.RemoteAddr, err)
+		logger.Errorf("Flush: decode FlushReq: %v", err)
 		return formatErr("decode FlushReq", err)
 	}
 	hndl := tree.lookupHandle(volatileFromFileID(req.FileId))
@@ -60,7 +59,7 @@ func (c *Conn) handleFlush(ctx pduCtx, raw []byte, h *smb.Header) error {
 		logger.Errorf("VFS.Flush: %v", err)
 		return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
 	} else if status != smb.StatusOk {
-		logger.Debugf("Flush from %s: VFS returned status=0x%08x", c.RemoteAddr, status)
+		logger.Debugf("Flush: VFS returned status=0x%08x", status)
 		return c.writeRawError(ctx, h, status)
 	}
 

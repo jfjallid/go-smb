@@ -32,6 +32,7 @@ import (
 
 	"github.com/jfjallid/go-smb/smb"
 	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/golog"
 )
 
 // maxNetBIOSPayload is the upper bound on a single SMB2 PDU after framing,
@@ -87,6 +88,32 @@ type Conn struct {
 	// server disconnects. Kept as a sync.Map keyed by MessageID; the entry
 	// value is unused. Bounded in practice by Connection.SequenceWindow.
 	seenMsgIDs sync.Map
+
+	// log is the per-connection logger, lazily derived from the configured
+	// Logger with the remote address baked in as a prefix. Access through
+	// c.logger().
+	log Logger
+}
+
+// connLogger derives a per-connection logger that carries the remote address
+// as a message prefix. When the configured Logger is a *golog.MyLogger (the
+// default), a detached child is returned via golog's With; custom Logger
+// implementations are returned unchanged (and continue to receive the remote
+// address as an explicit argument where it matters).
+func connLogger(base Logger, remote net.Addr) Logger {
+	if ml, ok := base.(*golog.MyLogger); ok {
+		return ml.With("[" + remote.String() + "]")
+	}
+	return base
+}
+
+// logger returns the connection's logger, deriving and caching it on first
+// use. Handlers use this so every line is tagged with the remote address.
+func (c *Conn) logger() Logger {
+	if c.log == nil {
+		c.log = connLogger(c.Server.Config.logger(), c.RemoteAddr)
+	}
+	return c.log
 }
 
 // pduCtx carries per-request state through the dispatch chain. The signing
@@ -177,7 +204,7 @@ func (c *Conn) close() {
 // serve is the per-connection main loop: read framed PDUs, dispatch, write
 // replies until the connection is closed or a fatal error occurs.
 func (c *Conn) serve() {
-	logger := c.Server.Config.logger()
+	logger := c.logger()
 	defer func() {
 		c.cleanupSessions()
 		if cb := c.Server.Config.OnDisconnect; cb != nil {
@@ -186,11 +213,11 @@ func (c *Conn) serve() {
 		c.close()
 	}()
 
-	logger.Debugf("client connected from %s", c.RemoteAddr)
+	logger.Debugf("client connected")
 
 	if cb := c.Server.Config.OnConnect; cb != nil {
 		if err := cb(c); err != nil {
-			logger.Errorf("OnConnect rejected %s: %v", c.RemoteAddr, err)
+			logger.Errorf("OnConnect rejected: %v", err)
 			return
 		}
 	}
@@ -199,7 +226,7 @@ func (c *Conn) serve() {
 		pkt, err := readPacket(c.nc)
 		if err != nil {
 			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
-				logger.Debugf("read error from %s: %v", c.RemoteAddr, err)
+				logger.Debugf("read error: %v", err)
 			}
 			return
 		}

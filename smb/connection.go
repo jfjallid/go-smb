@@ -144,7 +144,6 @@ func readPacket(conn net.Conn) (packet []byte, err error) {
 	packet = make([]byte, size)
 	l, err := io.ReadFull(conn, packet)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	if uint32(l) != size {
@@ -240,12 +239,12 @@ func (c *Connection) runReceiver() {
 				// last packet and the signing flag is not set
 				if h.Status != StatusPending {
 					if (h.Flags & SMB2_FLAGS_SIGNED) != SMB2_FLAGS_SIGNED {
-						err = fmt.Errorf("Signing is required but PDU is not signed; closing connection")
+						err = fmt.Errorf("signing is required but PDU is not signed; closing connection")
 						log.Errorln(err)
 						break
 					} else {
 						if !c.verify(data) {
-							err = fmt.Errorf("Signing is required and invalid signature found; closing connection")
+							err = fmt.Errorf("signing is required and invalid signature found; closing connection")
 							log.Errorln(err)
 							break
 						}
@@ -345,7 +344,6 @@ func (r *outstandingRequests) shutdown(err error) {
 func NewConnection(opt Options) (c *Connection, err error) {
 
 	if err := validateOptions(opt); err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	c = &Connection{
@@ -376,7 +374,6 @@ func NewConnection(opt Options) (c *Connection, err error) {
 		defer cancel()
 		c.conn, err = opt.ProxyDialer.(proxy.ContextDialer).DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", opt.Host, opt.Port))
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	} else {
@@ -409,12 +406,10 @@ func NewConnection(opt Options) (c *Connection, err error) {
 	}
 	// Determine if signing is required but client wants to disable it
 	if opt.DisableSigning && c.isSigningRequired.Load() && (!c.supportsEncryption) {
-		err = fmt.Errorf("Signing is required and cannot be disabled")
-		log.Errorln(err)
+		err = fmt.Errorf("signing is required and cannot be disabled")
 		return
 	} else if opt.DisableSigning && opt.DisableEncryption && (c.dialect == DialectSmb_3_1_1) {
-		err = fmt.Errorf("Signing or Encryption is required when using SMB 3.1.1")
-		log.Errorln(err)
+		err = fmt.Errorf("signing or encryption is required when using SMB 3.1.1")
 		return
 	}
 	if !opt.ManualLogin {
@@ -492,7 +487,6 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 			if c.Session.sessionFlags&SessionFlagEncryptData != 0 {
 				buf, err = c.encrypt(buf)
 				if err != nil {
-					log.Errorln(err)
 					return
 				}
 			} else if !c.Session.isSigningDisabled || (c.dialect == DialectSmb_3_1_1) {
@@ -502,7 +496,6 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 					if c.signer != nil {
 						buf, err = c.sign(buf)
 						if err != nil {
-							log.Errorln(err)
 							return
 						}
 					}
@@ -523,6 +516,14 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 }
 
 func (c *Connection) sendrecv(req interface{}) (buf []byte, err error) {
+	// Debug breadcrumb at the layer seam: every smb session operation
+	// passes through here, so a single hook shows where errors originate
+	// without duplicate Error logging at each call site.
+	defer func() {
+		if err != nil {
+			log.Debugln(err)
+		}
+	}()
 	rr, err := c.send(req)
 	if err != nil {
 		return
@@ -652,7 +653,7 @@ func (c *Connection) send(req interface{}) (rr *requestResponse, err error) {
 
 func (c *Connection) recv(rr *requestResponse) (buf []byte, err error) {
 	if rr == nil {
-		return nil, fmt.Errorf("Remote connection has closed")
+		return nil, fmt.Errorf("remote connection has closed")
 	}
 	select {
 	case <-c.rdone:
@@ -663,7 +664,7 @@ func (c *Connection) recv(rr *requestResponse) (buf []byte, err error) {
 		}
 		if len(buf) == 0 {
 			// Most likely received a TCP Reset
-			return nil, fmt.Errorf("Remote connection has closed!")
+			return nil, fmt.Errorf("remote connection has closed")
 		}
 		return buf, nil
 	}

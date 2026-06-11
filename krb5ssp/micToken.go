@@ -55,18 +55,15 @@ func (s *MICToken) MarshalHeader() []byte {
 func (s *MICToken) MarshalBinary() (ret []byte, err error) {
 	w := bytes.NewBuffer(ret)
 	if s.Checksum == nil {
-		err = fmt.Errorf("Checksum has not been calculated yet so can't marshal MICToken")
-		log.Errorln(err)
+		err = fmt.Errorf("checksum has not been calculated yet so can't marshal MICToken")
 		return
 	}
 	_, err = w.Write(s.MarshalHeader())
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	_, err = w.Write(s.Checksum)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 

@@ -40,17 +40,17 @@ const defaultMaximalAccess uint32 = 0x001f01ff
 // with a populated TreeConnectRes.
 func (c *Conn) handleTreeConnect(ctx pduCtx, raw []byte, h *smb.Header) error {
 	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	sess := c.session(h.SessionID)
 	if sess == nil || !sess.Authenticated {
-		logger.Debugf("TreeConnect from %s: session %d missing or not authenticated -> StatusUserSessionDeleted", c.RemoteAddr, h.SessionID)
+		logger.Debugf("TreeConnect: session %d missing or not authenticated -> StatusUserSessionDeleted", h.SessionID)
 		return c.writeRawError(ctx, h, smb.StatusUserSessionDeleted)
 	}
 
 	var req smb.TreeConnectReq
 	if err := encoder.Unmarshal(raw, &req); err != nil {
-		logger.Errorf("TreeConnect from %s: decode TreeConnectReq: %v", c.RemoteAddr, err)
+		logger.Errorf("TreeConnect: decode TreeConnectReq: %v", err)
 		return formatErr("decode TreeConnectReq", err)
 	}
 
@@ -109,16 +109,16 @@ func (c *Conn) handleTreeConnect(ctx pduCtx, raw []byte, h *smb.Header) error {
 // Open handles registered on the tree are closed via VFS.Close.
 func (c *Conn) handleTreeDisconnect(ctx pduCtx, h *smb.Header) error {
 	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	sess := c.session(h.SessionID)
 	if sess == nil {
-		logger.Debugf("TreeDisconnect from %s: unknown SessionID %d -> StatusUserSessionDeleted", c.RemoteAddr, h.SessionID)
+		logger.Debugf("TreeDisconnect: unknown SessionID %d -> StatusUserSessionDeleted", h.SessionID)
 		return c.writeRawError(ctx, h, smb.StatusUserSessionDeleted)
 	}
 	t := sess.removeTree(h.TreeID)
 	if t == nil {
-		logger.Debugf("TreeDisconnect from %s: unknown TreeID %d on session %d -> StatusNetworkNameDeleted", c.RemoteAddr, h.TreeID, sess.ID)
+		logger.Debugf("TreeDisconnect: unknown TreeID %d on session %d -> StatusNetworkNameDeleted", h.TreeID, sess.ID)
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 
@@ -128,7 +128,7 @@ func (c *Conn) handleTreeDisconnect(ctx pduCtx, h *smb.Header) error {
 
 	t.closeOpenHandles(context.Background(), logger)
 
-	logger.Debugf("TreeDisconnect from %s: SessionID=%d TreeID=%d", c.RemoteAddr, sess.ID, t.ID)
+	logger.Debugf("TreeDisconnect: SessionID=%d TreeID=%d", sess.ID, t.ID)
 
 	res := smb.TreeDisconnectRes{
 		Header:        buildResponseHeader(h, smb.StatusOk, h.SessionID, smb.CommandTreeDisconnect),

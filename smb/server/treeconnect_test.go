@@ -24,6 +24,7 @@ package server_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -169,7 +170,7 @@ func TestTreeConnectBadShare(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected TreeConnect to fail with bad-network-name; got nil")
 	}
-	if err != smb.StatusMap[smb.StatusBadNetworkName] {
+	if !errors.Is(err, smb.StatusMap[smb.StatusBadNetworkName]) {
 		t.Errorf("err: got %v want bad-network-name", err)
 	}
 }

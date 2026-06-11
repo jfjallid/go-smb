@@ -155,6 +155,22 @@ var SystemAccessRightsMap = map[string]uint32{
 	"SEDENYREMOTEINTERACTIVELOGONRIGHT": 0x00000800,
 }
 
+// checkReturnCode maps a non-zero LSA/LSAT return code to a
+// *dcerpc.StatusError carrying op, the raw code, and the mapped sentinel
+// from ResponseCodeMap (nil when unmapped). Codes in okCodes are treated
+// as success in addition to StatusSuccess.
+func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
+	if code == StatusSuccess {
+		return nil
+	}
+	for _, ok := range okCodes {
+		if code == ok {
+			return nil
+		}
+	}
+	return &dcerpc.StatusError{Op: op, Code: code, Err: ResponseCodeMap[code]}
+}
+
 func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 	return &RPCCon{sb}
 }
@@ -167,7 +183,6 @@ func (sb *RPCCon) LsarCloseHandle(handle []byte) (err error) {
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -177,19 +192,11 @@ func (sb *RPCCon) LsarCloseHandle(handle []byte) (err error) {
 	}
 
 	if len(buffer) < 24 {
-		return fmt.Errorf("Server response to LsarCloseHandle was too small. Expected at atleast 24 bytes")
+		return fmt.Errorf("server response to LsarCloseHandle was too small, expected at least 24 bytes")
 	}
 
 	returnCode := le.Uint32(buffer[20:])
-	if returnCode > 0 {
-		status, found := ResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarCloseHandle response: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("LsarCloseHandle", returnCode); err != nil {
 		return
 	}
 	return
@@ -198,7 +205,7 @@ func (sb *RPCCon) LsarCloseHandle(handle []byte) (err error) {
 func (sb *RPCCon) LsarQueryInformationPolicy(policyHandle []byte, informationClass uint16) (res LsaprPolicyInformation, err error) {
 	log.Traceln("In LsarQueryInformationPolicy")
 	if informationClass != PolicyPrimaryDomainInformation {
-		err = fmt.Errorf("Currently, only informationClass PolicyPrimaryDomainInformation (%d) is supported", PolicyPrimaryDomainInformation)
+		err = fmt.Errorf("LsarQueryInformationPolicy: currently only informationClass PolicyPrimaryDomainInformation (%d) is supported", PolicyPrimaryDomainInformation)
 		return
 	}
 
@@ -209,7 +216,6 @@ func (sb *RPCCon) LsarQueryInformationPolicy(policyHandle []byte, informationCla
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -219,25 +225,16 @@ func (sb *RPCCon) LsarQueryInformationPolicy(policyHandle []byte, informationCla
 	}
 
 	if len(buffer) < 32 {
-		return res, fmt.Errorf("Server response to LsarQueryInformationPolicy was too small. Expected at atleast 32 bytes")
+		return res, fmt.Errorf("server response to LsarQueryInformationPolicy was too small, expected at least 32 bytes")
 	}
 
 	var resp LsarQueryInformationPolicyRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarQueryInformationPolicy response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("LsarQueryInformationPolicy", resp.ReturnCode); err != nil {
 		return
 	}
 
@@ -261,14 +258,12 @@ func (sb *RPCCon) LsarCreateAccount(policyHandle []byte, sid string, desiredAcce
 
 	s, err := msdtyp.ConvertStrToSID(sid)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	innerReq.AccountSid = *s
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -278,27 +273,18 @@ func (sb *RPCCon) LsarCreateAccount(policyHandle []byte, sid string, desiredAcce
 	}
 
 	if len(buffer) < 24 {
-		return nil, fmt.Errorf("Server response to LsarCreateAccount was too small. Expected at atleast 24 bytes")
+		return nil, fmt.Errorf("server response to LsarCreateAccount was too small, expected at least 24 bytes")
 	}
 
 	var resp LsarCreateAccountRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	accountHandle = resp.AccountHandle[:]
 
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarCreateAccount response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("LsarCreateAccount", resp.ReturnCode); err != nil {
 		return
 	}
 	return
@@ -315,7 +301,6 @@ func (sb *RPCCon) LsarEnumerateAccounts(policyHandle []byte) (accounts []msdtyp.
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -325,29 +310,20 @@ func (sb *RPCCon) LsarEnumerateAccounts(policyHandle []byte) (accounts []msdtyp.
 	}
 
 	if len(buffer) < 16 {
-		return nil, fmt.Errorf("Server response to LsarEnumerateAccounts was too small. Expected at atleast 20 bytes")
+		return nil, fmt.Errorf("server response to LsarEnumerateAccounts was too small, expected at least 20 bytes")
 	}
 
 	var resp LsarEnumerateAccountsRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarEnumerateAccounts response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("LsarEnumerateAccounts", resp.ReturnCode); err != nil {
 		return
 	}
 	if resp.EnumerationBuffer == nil {
-		err = fmt.Errorf("Unexpected nil value for EnumerationBuffer in response with Status Success")
+		err = fmt.Errorf("LsarEnumerateAccounts: unexpected nil EnumerationBuffer in success response")
 		return
 	}
 
@@ -371,7 +347,6 @@ func (sb *RPCCon) LsarOpenAccount(policyHandle []byte, sid *msdtyp.SID, desiredA
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -381,25 +356,16 @@ func (sb *RPCCon) LsarOpenAccount(policyHandle []byte, sid *msdtyp.SID, desiredA
 	}
 
 	if len(buffer) < 24 {
-		return nil, fmt.Errorf("Server response to LsarOpenAccount was too small. Expected at atleast 24 bytes")
+		return nil, fmt.Errorf("server response to LsarOpenAccount was too small, expected at least 24 bytes")
 	}
 
 	var resp LsarOpenAccountRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarOpenAccount response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("LsarOpenAccount", resp.ReturnCode); err != nil {
 		return
 	}
 	accountHandle = resp.AccountHandle[:]
@@ -414,7 +380,6 @@ func (sb *RPCCon) LsarGetSystemAccessAccount(accountHandle []byte) (systemAccess
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -424,25 +389,16 @@ func (sb *RPCCon) LsarGetSystemAccessAccount(accountHandle []byte) (systemAccess
 	}
 
 	if len(buffer) < 8 {
-		return 0, fmt.Errorf("Server response to LsarGetSystemAccessAccount was too small. Expected at atleast 8 bytes")
+		return 0, fmt.Errorf("server response to LsarGetSystemAccessAccount was too small, expected at least 8 bytes")
 	}
 
 	var resp LsarGetSystemAccessAccountRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarGetSystemAccessAccount response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("LsarGetSystemAccessAccount", resp.ReturnCode); err != nil {
 		return
 	}
 	systemAccess = resp.SystemAccess
@@ -459,7 +415,6 @@ func (sb *RPCCon) LsarSetSystemAccessAccount(accountHandle []byte, systemAccess 
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -469,19 +424,11 @@ func (sb *RPCCon) LsarSetSystemAccessAccount(accountHandle []byte, systemAccess 
 	}
 
 	if len(buffer) < 4 {
-		return fmt.Errorf("Server response to LsarSetSystemAccessAccount was too small. Expected at atleast 4 bytes")
+		return fmt.Errorf("server response to LsarSetSystemAccessAccount was too small, expected at least 4 bytes")
 	}
 
 	returnCode := le.Uint32(buffer[:4])
-	if returnCode > 0 {
-		status, found := ResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarSetSystemAccessAccount response: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("LsarSetSystemAccessAccount", returnCode); err != nil {
 		return
 	}
 	return
@@ -497,7 +444,6 @@ func (sb *RPCCon) LsarEnumerateAccountRights(policyHandle []byte, sid *msdtyp.SI
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -507,13 +453,12 @@ func (sb *RPCCon) LsarEnumerateAccountRights(policyHandle []byte, sid *msdtyp.SI
 	}
 
 	if len(buffer) < 12 {
-		return nil, fmt.Errorf("Server response to LsarEnumerateAccountRights was too small. Expected at atleast 12 bytes")
+		return nil, fmt.Errorf("server response to LsarEnumerateAccountRights was too small, expected at least 12 bytes")
 	}
 
 	var resp LsarEnumerateAccountRightsRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -521,15 +466,9 @@ func (sb *RPCCon) LsarEnumerateAccountRights(policyHandle []byte, sid *msdtyp.SI
 		if (resp.ReturnCode == StatusObjectNameNotFound) && (resp.UserRights.Entries == 0) {
 			return []string{}, nil
 		}
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarEnumerateAccountRights response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
+		if err = checkReturnCode("LsarEnumerateAccountRights", resp.ReturnCode); err != nil {
 			return
 		}
-		err = status
-		log.Errorln(err)
-		return
 	}
 	for _, str := range resp.UserRights.UserRights {
 		rights = append(rights, str.Value)
@@ -550,7 +489,6 @@ func (sb *RPCCon) LsarAddAccountRights(policyHandle []byte, sid *msdtyp.SID, rig
 	innerReq.UserRights.Entries = uint32(len(rights))
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -560,19 +498,11 @@ func (sb *RPCCon) LsarAddAccountRights(policyHandle []byte, sid *msdtyp.SID, rig
 	}
 
 	if len(buffer) < 4 {
-		return fmt.Errorf("Server response to LsarAddAccountRights was too small. Expected at atleast 4 bytes")
+		return fmt.Errorf("server response to LsarAddAccountRights was too small, expected at least 4 bytes")
 	}
 
 	returnCode := le.Uint32(buffer)
-	if returnCode > 0 {
-		status, found := ResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarAddAccountRights response: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("LsarAddAccountRights", returnCode); err != nil {
 		return
 	}
 
@@ -594,7 +524,6 @@ func (sb *RPCCon) LsarRemoveAccountRights(policyHandle []byte, sid *msdtyp.SID, 
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -604,24 +533,18 @@ func (sb *RPCCon) LsarRemoveAccountRights(policyHandle []byte, sid *msdtyp.SID, 
 	}
 
 	if len(buffer) < 4 {
-		return fmt.Errorf("Server response to LsarRemoveAccountRights was too small. Expected at atleast 4 bytes")
+		return fmt.Errorf("server response to LsarRemoveAccountRights was too small, expected at least 4 bytes")
 	}
 
 	returnCode := le.Uint32(buffer)
 	if returnCode > 0 {
 		if returnCode == StatusObjectNameNotFound {
-			err = fmt.Errorf("The specified rights were not present to be removed")
+			err = fmt.Errorf("LsarRemoveAccountRights: the specified rights were not present to be removed")
 			return
 		}
-		status, found := ResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarRemoveAccountRights response: 0x%x\n", returnCode)
-			log.Errorln(err)
+		if err = checkReturnCode("LsarRemoveAccountRights", returnCode); err != nil {
 			return
 		}
-		err = status
-		log.Errorln(err)
-		return
 	}
 
 	return
@@ -644,7 +567,6 @@ func (sb *RPCCon) LsarOpenPolicy2(systemName string) (policyHandle []byte, err e
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -654,25 +576,16 @@ func (sb *RPCCon) LsarOpenPolicy2(systemName string) (policyHandle []byte, err e
 	}
 
 	if len(buffer) < 24 {
-		return nil, fmt.Errorf("Server response to LsarOpenPolicy2 was too small. Expected at atleast 24 bytes")
+		return nil, fmt.Errorf("server response to LsarOpenPolicy2 was too small, expected at least 24 bytes")
 	}
 
 	var resp LsarOpenPolicy2Res
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarOpenPolicy2 response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("LsarOpenPolicy2", resp.ReturnCode); err != nil {
 		return
 	}
 
@@ -685,7 +598,6 @@ func (sb *RPCCon) ListAccounts() (accounts []msdtyp.SID, err error) {
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.LsarCloseHandle(policyHandle)
@@ -698,13 +610,11 @@ func (sb *RPCCon) ListAccountRights(sid string) (rights []string, err error) {
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.LsarCloseHandle(policyHandle)
 	accountSid, err := msdtyp.ConvertStrToSID(sid)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -716,13 +626,11 @@ func (sb *RPCCon) AddAccountRights(sid string, rights []string) (err error) {
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.LsarCloseHandle(policyHandle)
 	accountSid, err := msdtyp.ConvertStrToSID(sid)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -734,13 +642,11 @@ func (sb *RPCCon) RemoveAccountRights(sid string, rights []string, removeAllRigh
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.LsarCloseHandle(policyHandle)
 	accountSid, err := msdtyp.ConvertStrToSID(sid)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -752,24 +658,20 @@ func (sb *RPCCon) GetSystemAccessAccount(accountSid string) (rights []string, er
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.LsarCloseHandle(policyHandle)
 	sid, err := msdtyp.ConvertStrToSID(accountSid)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	accountHandle, err := sb.LsarOpenAccount(policyHandle, sid, 0)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	systemAccess, err := sb.LsarGetSystemAccessAccount(accountHandle)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	if systemAccess&SeInteractiveLogonRight > 0 {
@@ -805,26 +707,22 @@ func (sb *RPCCon) SetSystemAccessAccount(accountSid string, rights []string) (er
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.LsarCloseHandle(policyHandle)
 	sid, err := msdtyp.ConvertStrToSID(accountSid)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	accountHandle, err := sb.LsarOpenAccount(policyHandle, sid, 0)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	systemAccess := uint32(0)
 	for _, item := range rights {
 		val, found := SystemAccessRightsMap[strings.ToUpper(item)]
 		if !found {
-			err = fmt.Errorf("Unknown system access right: %s\n", item)
-			log.Errorln(err)
+			err = fmt.Errorf("SetSystemAccessAccount: unknown system access right %q", item)
 			return
 		}
 		systemAccess |= val
@@ -832,7 +730,6 @@ func (sb *RPCCon) SetSystemAccessAccount(accountSid string, rights []string) (er
 
 	err = sb.LsarSetSystemAccessAccount(accountHandle, systemAccess)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	return
@@ -841,13 +738,11 @@ func (sb *RPCCon) SetSystemAccessAccount(accountSid string, rights []string) (er
 func (sb *RPCCon) GetPrimaryDomainInfo() (domainInfo *LsaprPolicyPrimaryDomInfo, err error) {
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.LsarCloseHandle(policyHandle)
 	res, err := sb.LsarQueryInformationPolicy(policyHandle, PolicyPrimaryDomainInformation)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	domainInfo = &res.PolicyPrimaryDomainInfo

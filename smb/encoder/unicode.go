@@ -38,7 +38,7 @@ func Utf16ToUtf8(in []uint16) []byte {
 
 func Utf8ToUtf16(in []byte) ([]uint16, error) {
 	if len(in)%2 != 0 {
-		return nil, errors.New("Uneven length of UTF8 array")
+		return nil, errors.New("uneven length of UTF8 array")
 	}
 	t := make([]uint16, len(in)/2)
 	for i := 0; i < len(t); i++ {
@@ -50,7 +50,7 @@ func Utf8ToUtf16(in []byte) ([]uint16, error) {
 func FromUnicodeString(d []byte) (string, error) {
 	// Credit to https://github.com/Azure/go-ntlmssp/blob/master/unicode.go for logic
 	if len(d)%2 > 0 {
-		return "", errors.New("Unicode (UTF 16 LE) specified, but uneven data length")
+		return "", errors.New("unicode (UTF 16 LE) specified, but uneven data length")
 	}
 	s := make([]uint16, len(d)/2)
 	err := binary.Read(bytes.NewReader(d), binary.LittleEndian, &s)

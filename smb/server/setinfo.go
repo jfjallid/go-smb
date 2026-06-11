@@ -33,17 +33,16 @@ import (
 // VFS so implementations can choose their own deserializer per file-info
 // class.
 func (c *Conn) handleSetInfo(ctx pduCtx, raw []byte, h *smb.Header) error {
-	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	sess := c.session(h.SessionID)
 	if sess == nil || !sess.Authenticated {
-		logger.Debugf("SetInfo from %s: session %d not authenticated -> StatusUserSessionDeleted", c.RemoteAddr, h.SessionID)
+		logger.Debugf("SetInfo: session %d not authenticated -> StatusUserSessionDeleted", h.SessionID)
 		return c.writeRawError(ctx, h, smb.StatusUserSessionDeleted)
 	}
 	tree := sess.tree(h.TreeID)
 	if tree == nil {
-		logger.Debugf("SetInfo from %s: unknown TreeID %d -> StatusNetworkNameDeleted", c.RemoteAddr, h.TreeID)
+		logger.Debugf("SetInfo: unknown TreeID %d -> StatusNetworkNameDeleted", h.TreeID)
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 	if tree.Share.Type == smb.ShareTypeDisk && !tree.Share.UserCanWrite(sess) {
@@ -53,7 +52,7 @@ func (c *Conn) handleSetInfo(ctx pduCtx, raw []byte, h *smb.Header) error {
 	}
 	var req smb.SetInfoReq
 	if err := encoder.Unmarshal(raw, &req); err != nil {
-		logger.Errorf("SetInfo from %s: decode SetInfoReq: %v", c.RemoteAddr, err)
+		logger.Errorf("SetInfo: decode SetInfoReq: %v", err)
 		return formatErr("decode SetInfoReq", err)
 	}
 	hndl := tree.lookupHandle(volatileFromFileID(req.FileId))

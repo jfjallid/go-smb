@@ -64,12 +64,12 @@ func decryptNTHash(encHash, ridBytes []byte) (hash []byte, err error) {
 	deskey2 := plusOddParity(desSrc2)
 	dc1, err := des.NewCipher(deskey1)
 	if err != nil {
-		log.Errorf("Failed to initialize first DES cipher with error: %v\n", err)
+		err = fmt.Errorf("initialize first DES cipher: %w", err)
 		return
 	}
 	dc2, err := des.NewCipher(deskey2)
 	if err != nil {
-		log.Errorf("Failed to initialize second DES cipher with error: %v\n", err)
+		err = fmt.Errorf("initialize second DES cipher: %w", err)
 		return
 	}
 	dc1.Decrypt(nt1, encHash[:8])
@@ -81,7 +81,7 @@ func decryptNTHash(encHash, ridBytes []byte) (hash []byte, err error) {
 
 func encryptHashWithHash(key, hash []byte) (res []byte, err error) {
 	if (len(key) != 16) || (len(hash) != 16) {
-		err = fmt.Errorf("Input key and hash must both be 16 bytes length!")
+		err = fmt.Errorf("input key and hash must both be 16 bytes length")
 		return
 	}
 	part1 := make([]byte, 8)
@@ -93,12 +93,12 @@ func encryptHashWithHash(key, hash []byte) (res []byte, err error) {
 	deskey2 := plusOddParity(desSrc2)
 	dc1, err := des.NewCipher(deskey1)
 	if err != nil {
-		log.Errorf("Failed to initialize first DES cipher with error: %v\n", err)
+		err = fmt.Errorf("initialize first DES cipher: %w", err)
 		return
 	}
 	dc2, err := des.NewCipher(deskey2)
 	if err != nil {
-		log.Errorf("Failed to initialize second DES cipher with error: %v\n", err)
+		err = fmt.Errorf("initialize second DES cipher: %w", err)
 		return
 	}
 	// Encrypt hash

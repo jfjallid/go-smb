@@ -18,7 +18,7 @@ type Client struct {
 
 func NewClient(mechs []gss.Mechanism) (c *Client, err error) {
 	if len(mechs) == 0 {
-		err = fmt.Errorf("A new SPNEGO client requires atleast one GSS Mechanism")
+		err = fmt.Errorf("a new SPNEGO client requires atleast one GSS mechanism")
 		return
 	}
 	c = &Client{
@@ -85,7 +85,7 @@ func (c *Client) InitSecContext(inputToken []byte) (res []byte, err error) {
 
 // AcceptSecContext should only be called by a server application
 func (c *Client) AcceptSecContext(buf []byte) (res []byte, err error) {
-	return nil, fmt.Errorf("AcceptSecContext NOT YET IMPLEMENTED!")
+	return nil, fmt.Errorf("AcceptSecContext not yet implemented")
 }
 
 func (c *Client) SessionKey() []byte {

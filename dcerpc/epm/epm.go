@@ -88,19 +88,16 @@ func (c *RPCCon) EptMap(requestTower *Tower, maxTowers uint32) ([]Tower, error) 
 
 	buf, err := req.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 
 	result, err := c.MakeRequest(EpmOpEptMap, buf)
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 
 	var resp EptMapResponse
 	if err := resp.UnmarshalBinary(result); err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 

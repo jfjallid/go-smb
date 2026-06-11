@@ -196,6 +196,22 @@ type RPCCon struct {
 	ntdsDsaObjectGuid [16]byte // NTDS DSA GUID for the target DC, set by DCSync
 }
 
+// checkReturnCode maps a non-zero DRSR return code to a *dcerpc.StatusError
+// carrying op, the raw code, and the mapped sentinel from ResponseCodeMap
+// (nil when unmapped). Codes in okCodes are treated as success in addition
+// to ErrorSuccess.
+func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
+	if code == ErrorSuccess {
+		return nil
+	}
+	for _, ok := range okCodes {
+		if code == ok {
+			return nil
+		}
+	}
+	return &dcerpc.StatusError{Op: op, Code: code, Err: ResponseCodeMap[code]}
+}
+
 func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 	return &RPCCon{ServiceBind: sb}
 }
@@ -260,12 +276,8 @@ func (c *RPCCon) DRSBind() error {
 		c.serverCaps = serverExt.Flags
 	}
 
-	if resp.ReturnCode != ErrorSuccess {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			return fmt.Errorf("DRSBind returned unknown error code: 0x%x (%d)", resp.ReturnCode, resp.ReturnCode)
-		}
-		return fmt.Errorf("DRSBind failed: %w", status)
+	if err := checkReturnCode("DRSBind", resp.ReturnCode); err != nil {
+		return err
 	}
 
 	c.drsHandle = make([]byte, 20)
@@ -298,12 +310,8 @@ func (c *RPCCon) DRSUnbind() error {
 		return fmt.Errorf("failed to unmarshal DRSUnbind response: %w", err)
 	}
 
-	if resp.ReturnCode != ErrorSuccess {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			return fmt.Errorf("DRSUnbind returned unknown error code: 0x%x", resp.ReturnCode)
-		}
-		return fmt.Errorf("DRSUnbind failed: %w", status)
+	if err := checkReturnCode("DRSUnbind", resp.ReturnCode); err != nil {
+		return err
 	}
 
 	c.drsHandle = nil
@@ -357,12 +365,8 @@ func (c *RPCCon) DRSCrackNames(formatOffered, formatDesired uint32, names []stri
 		return nil, fmt.Errorf("failed to unmarshal DRSCrackNames response: %w", err)
 	}
 
-	if resp.ReturnCode != ErrorSuccess {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			return nil, fmt.Errorf("DRSCrackNames returned unknown error code: 0x%x", resp.ReturnCode)
-		}
-		return nil, fmt.Errorf("DRSCrackNames failed: %w", status)
+	if err := checkReturnCode("DRSCrackNames", resp.ReturnCode); err != nil {
+		return nil, err
 	}
 
 	result := resp.PmsgOut.Level1.PResult
@@ -430,12 +434,8 @@ func (c *RPCCon) DRSDomainControllerInfo(domain string, infoLevel uint32) ([]DCI
 		return nil, fmt.Errorf("failed to unmarshal DRSDomainControllerInfo response: %w", err)
 	}
 
-	if resp.ReturnCode != ErrorSuccess {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			return nil, fmt.Errorf("DRSDomainControllerInfo returned unknown error code: 0x%x", resp.ReturnCode)
-		}
-		return nil, fmt.Errorf("DRSDomainControllerInfo failed: %w", status)
+	if err := checkReturnCode("DRSDomainControllerInfo", resp.ReturnCode); err != nil {
+		return nil, err
 	}
 
 	var items []DSDomainControllerInfo2W
@@ -538,12 +538,8 @@ func (c *RPCCon) DRSGetNCChanges(ncDN string, objectGuid [16]byte, extendedOp ui
 			return nil, nil, fmt.Errorf("failed to unmarshal GetNCChanges response: %w", err)
 		}
 
-		if resp.ReturnCode != ErrorSuccess && resp.ReturnCode != ErrorMoreData {
-			status, found := ResponseCodeMap[resp.ReturnCode]
-			if !found {
-				return nil, nil, fmt.Errorf("DRSGetNCChanges returned unknown error code: 0x%x (%d)", resp.ReturnCode, resp.ReturnCode)
-			}
-			return nil, nil, fmt.Errorf("DRSGetNCChanges failed: %w", status)
+		if err := checkReturnCode("DRSGetNCChanges", resp.ReturnCode, ErrorMoreData); err != nil {
+			return nil, nil, err
 		}
 
 		if prefixTable == nil {

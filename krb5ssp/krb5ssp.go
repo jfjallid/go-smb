@@ -108,7 +108,6 @@ func (t *KRB5Token) MarshalBinary() (res []byte, err error) {
 	log.Traceln("In MarshalBinary for KRB5Token")
 	res, err = asn1.Marshal(t.Oid)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -118,17 +117,14 @@ func (t *KRB5Token) MarshalBinary() (res []byte, err error) {
 	case TokenIdKrb5APReq:
 		buf, err := t.APReq.Marshal()
 		if err != nil {
-			log.Errorln(err)
 			return nil, err
 		}
 		res = append(res, buf...)
 	case TokenIdKrb5APRep:
-		err = fmt.Errorf("MarshalBinary of KRB5Token APRep not yet implemented!")
-		log.Errorln(err)
+		err = fmt.Errorf("MarshalBinary of KRB5Token APRep not yet implemented")
 		return
 	case TokenIdKrb5Error:
-		err = fmt.Errorf("MarshalBinary of KRB5Token KRBError not yet implemented!")
-		log.Errorln(err)
+		err = fmt.Errorf("MarshalBinary of KRB5Token KRBError not yet implemented")
 		return
 	}
 
@@ -141,7 +137,6 @@ func (t *KRB5Token) MarshalBinary() (res []byte, err error) {
 	}
 	res, err = asn1.Marshal(r)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -153,32 +148,28 @@ func (t *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 
 	rest, err := asn1.UnmarshalWithParams(buf, &t.Oid, "application,explicit,tag:0")
 	if err != nil {
-		log.Errorf("Failed to unmarshal KRB5Token OID: %v\n", err)
+		err = fmt.Errorf("unmarshal KRB5Token OID: %w", err)
 		return
 	}
 
 	if !t.Oid.Equal(gss.KerberosSSPMechTypeOid) {
 		err = fmt.Errorf("KRB5Token OID is %s and not %s as expected", t.Oid.String(), gss.KerberosSSPMechTypeOid.String())
-		log.Errorln(err)
 		return
 	}
 	if len(rest) < 2 {
-		err = fmt.Errorf("Buffer is too short for KRB5Token")
-		log.Errorln(err)
+		err = fmt.Errorf("buffer is too short for KRB5Token")
 		return
 	}
 
 	t.TokenId = le.Uint16(rest[0:2])
 	switch t.TokenId {
 	case TokenIdKrb5APReq:
-		err = fmt.Errorf("Unmarshal of KRB5Token APReq not yet implemented!")
-		log.Errorln(err)
+		err = fmt.Errorf("unmarshal of KRB5Token APReq not yet implemented")
 		return
 	case TokenIdKrb5APRep:
 		rep := messages.APRep{}
 		err = rep.Unmarshal(rest[2:])
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		t.APRep = rep
@@ -186,13 +177,11 @@ func (t *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 		krb5err := messages.KRBError{}
 		err = krb5err.Unmarshal(rest[2:])
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		t.KRBError = krb5err
 	default:
-		err = fmt.Errorf("Unmarshal av KRB5Token failed with unknown TokenId of: %d\n", t.TokenId)
-		log.Errorln(err)
+		err = fmt.Errorf("unmarshal of KRB5Token failed with unknown TokenId: %d", t.TokenId)
 		return
 	}
 
@@ -201,7 +190,7 @@ func (t *KRB5Token) UnmarshalBinary(buf []byte) (err error) {
 
 func InitKerberosClientExt(username, domain, password string, hash, aesKey []byte, spn string, timeout time.Duration, dialer proxy.Dialer, cfg *config.Config, spnAliases map[string][]string) (c *Client, err error) {
 	if cfg == nil {
-		err = fmt.Errorf("Must specify a config when using InitKerberosClientExt")
+		err = fmt.Errorf("must specify a config when using InitKerberosClientExt")
 		return
 	}
 	c = &Client{}
@@ -218,8 +207,8 @@ func InitKerberosClientExt(username, domain, password string, hash, aesKey []byt
 	var fallbackSPN string
 	c.Client, fallbackSPN, err = getClientFromCachedTicket(cfg, username, strings.ToUpper(domain), spn, spnAliases, settings...)
 	if err != nil {
-		log.Errorln(err)
 		// Try other methods
+		log.Debugln(err)
 		c.Client = nil
 	}
 	if c.Client != nil && fallbackSPN != "" {
@@ -242,17 +231,16 @@ func InitKerberosClientExt(username, domain, password string, hash, aesKey []byt
 			//c.Client = client.NewWithPassword(username, strings.ToUpper(domain), password, cfg, client.DisablePAFXFAST(true))
 			log.Infoln("Used password to create new kerberos client")
 		} else {
-			return nil, fmt.Errorf("Cannot initialize a Kerberos client with an empty cache and without specifying either a password, hash or AES key")
+			return nil, fmt.Errorf("cannot initialize a Kerberos client with an empty cache and without specifying either a password, hash or AES key")
 		}
 		err = c.Client.Login()
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
 
 	if c.Client == nil {
-		return nil, fmt.Errorf("Failed to initialize Kerberos client")
+		return nil, fmt.Errorf("failed to initialize Kerberos client")
 	}
 
 	return
@@ -317,7 +305,7 @@ func InitKerberosClient(username, domain, password string, hash, aesKey []byte, 
 // lookup — supplying a keytab is an explicit request to authenticate from it.
 func InitKerberosClientWithKeytab(username, domain string, kt *keytab.Keytab, dcip, spn string, timeout time.Duration, dialer proxy.Dialer, dnsHost string, dnsTCP bool, spnAliases map[string][]string) (c *Client, err error) {
 	if kt == nil {
-		return nil, fmt.Errorf("Must provide a keytab to InitKerberosClientWithKeytab")
+		return nil, fmt.Errorf("must provide a keytab to InitKerberosClientWithKeytab")
 	}
 	// Recover only the realm (for the config's KDC routing above); the username
 	// is passed through untouched for gokrb5 to derive from the keytab.
@@ -339,12 +327,10 @@ func InitKerberosClientWithKeytab(username, domain string, kt *keytab.Keytab, dc
 	c = &Client{}
 	c.Client, err = client.NewWithKeytab(username, strings.ToUpper(domain), kt, cfg, settings...)
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	err = c.Client.Login()
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	log.Infoln("Used keytab to create new kerberos client")
@@ -394,7 +380,6 @@ func (i *Client) GetAPReq(spn string, dceStyle bool) ([]byte, error) {
 	}
 	ticket, i.sessionKey, err = i.Client.GetServiceTicket(effectiveSPN)
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	token := KRB5Token{
@@ -403,7 +388,6 @@ func (i *Client) GetAPReq(spn string, dceStyle bool) ([]byte, error) {
 	}
 	authenticator, err = types.NewAuthenticator(i.Client.Credentials.Domain(), i.Client.Credentials.CName())
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	flags := []int{
@@ -423,13 +407,11 @@ func (i *Client) GetAPReq(spn string, dceStyle bool) ([]byte, error) {
 
 	etype, err := crypto.GetEtype(i.sessionKey.KeyType)
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	subkey := make([]byte, etype.GetKeyByteSize())
 	_, err = rand.Read(subkey)
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	authenticator.SubKey = types.EncryptionKey{
@@ -443,7 +425,6 @@ func (i *Client) GetAPReq(spn string, dceStyle bool) ([]byte, error) {
 
 	apReq, err = messages.NewAPReq(ticket, i.sessionKey, authenticator)
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 
@@ -471,20 +452,17 @@ func (client *Client) ParseAPRep(encpart types.EncryptedData) error {
 	var err error
 	data, err = crypto.DecryptEncPart(encpart, client.sessionKey, 12)
 	if err != nil {
-		log.Errorf("Failed to decrypt APRep encrypted part: %v\n", err)
-		return err
+		return fmt.Errorf("decrypt APRep encrypted part: %w", err)
 	}
 
 	err = repPart.Unmarshal(data)
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 
 	// Validate the time for the AP_REP
 	if time.Since(repPart.CTime).Abs() > client.Config.LibDefaults.Clockskew {
-		err = fmt.Errorf("AP_REP time out of range. Current time is: %v and AP_REP time: %v\n", time.Now(), repPart.CTime)
-		log.Errorln(err)
+		err = fmt.Errorf("AP_REP time out of range, current time is: %v and AP_REP time: %v", time.Now(), repPart.CTime)
 		return err
 	}
 
@@ -576,19 +554,16 @@ func (client *Client) GetMICToken(bs []byte, seqNum uint64) ([]byte, error) {
 	// Calculate the checksum using the micSubKey
 	encType, err := crypto.GetEtype(client.micSubkey.KeyType)
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	checksum, err := encType.GetChecksumHash(client.micSubkey.KeyValue, buf, gss.KGUsageInitiatorSign)
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	micToken.Checksum = checksum
 
 	res, err := micToken.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	return res, err
@@ -716,7 +691,7 @@ func (client *Client) MICTokenSize() int {
 	}
 	encType, err := crypto.GetEtype(client.sessionSubKey.KeyType)
 	if err != nil {
-		log.Errorf("MICTokenSize failed: %v\n", err)
+		log.Errorf("MICTokenSize failed: %v", err)
 		return 0
 	}
 	return MICTokenHdrLen + encType.GetHMACBitLength()/8
@@ -730,7 +705,7 @@ func (client *Client) WrapTokenOverhead() (signatureSize, encryptionOverhead int
 	}
 	sigSize, overhead, err := WrapTokenOverhead(client.sessionSubKey.KeyType)
 	if err != nil {
-		log.Errorf("WrapTokenOverhead failed: %v\n", err)
+		log.Errorf("WrapTokenOverhead failed: %v", err)
 		return 0, 0
 	}
 	return sigSize, overhead

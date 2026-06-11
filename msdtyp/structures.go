@@ -262,7 +262,7 @@ type PaclPermissions struct {
 }
 
 func (s *ReturnCode) MarshalBinary() ([]byte, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary for ReturnCode")
+	return nil, fmt.Errorf("not implemented: MarshalBinary for ReturnCode")
 }
 
 func (s *ReturnCode) UnmarshalBinary(buf []byte) error {
@@ -283,7 +283,6 @@ func (s *SecurityDescriptor) MarshalBinary() (ret []byte, err error) {
 	if s.Sacl != nil {
 		sBuf, err := s.Sacl.MarshalBinary()
 		if err != nil {
-			log.Errorln(err)
 			return nil, err
 		}
 		ptrBuf = append(ptrBuf, sBuf...)
@@ -324,44 +323,37 @@ func (s *SecurityDescriptor) MarshalBinary() (ret []byte, err error) {
 	// Encode revision
 	err = binary.Write(w, le, s.Revision)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	// Encode control
 	err = binary.Write(w, le, s.Control)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	// Encode  OffsetOwner
 	err = binary.Write(w, le, s.OffsetOwner)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	// Encode  OffsetGroup
 	err = binary.Write(w, le, s.OffsetGroup)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	// Encode  OffsetSacl
 	err = binary.Write(w, le, s.OffsetSacl)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	// Encode  OffsetDacl
 	err = binary.Write(w, le, s.OffsetDacl)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	// Encode serialized Owner, Group, Sacl and Dacl
 	_, err = w.Write(ptrBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -374,32 +366,26 @@ func (s *SecurityDescriptor) UnmarshalBinary(buf []byte) (err error) {
 
 	err = binary.Read(r, le, &s.Revision)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.Control)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.OffsetOwner)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.OffsetGroup)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.OffsetSacl)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.OffsetDacl)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -407,19 +393,16 @@ func (s *SecurityDescriptor) UnmarshalBinary(buf []byte) (err error) {
 		_, err = r.Seek(int64(s.OffsetOwner), io.SeekStart)
 		s.OwnerSid, err = ReadSID(r)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
 	if s.OffsetGroup != 0 {
 		_, err = r.Seek(int64(s.OffsetGroup), io.SeekStart)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		s.GroupSid, err = ReadSID(r)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -427,12 +410,10 @@ func (s *SecurityDescriptor) UnmarshalBinary(buf []byte) (err error) {
 	if (s.Control & SecurityDescriptorFlagSP) == SecurityDescriptorFlagSP {
 		_, err = r.Seek(int64(s.OffsetSacl), io.SeekStart)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		s.Sacl, err = readPACL(r)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -440,12 +421,10 @@ func (s *SecurityDescriptor) UnmarshalBinary(buf []byte) (err error) {
 	if (s.Control & SecurityDescriptorFlagDP) == SecurityDescriptorFlagDP {
 		_, err = r.Seek(int64(s.OffsetDacl), io.SeekStart)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		s.Dacl, err = readPACL(r)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -459,22 +438,18 @@ func (s *SID) MarshalBinary() (ret []byte, err error) {
 	// Encode ACE SID
 	err = binary.Write(w, le, s.Revision)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, byte(len(s.SubAuthorities)))
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.Authority)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.SubAuthorities)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -486,19 +461,16 @@ func ReadSID(r *bytes.Reader) (s *SID, err error) {
 	// Decode ACE SID
 	err = binary.Read(r, le, &s.Revision)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.NumAuth)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	//s.Authority = make([]byte, 6)
 	err = binary.Read(r, le, &s.Authority)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -506,7 +478,6 @@ func ReadSID(r *bytes.Reader) (s *SID, err error) {
 	for i := range s.SubAuthorities {
 		err = binary.Read(r, le, &s.SubAuthorities[i])
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -518,7 +489,6 @@ func (s *SID) UnmarshalBinary(buf []byte) (err error) {
 	r := bytes.NewReader(buf)
 	sid, err := ReadSID(r)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -531,23 +501,19 @@ func (s *ACE) MarshalBinary() (ret []byte, err error) {
 
 	err = binary.Write(w, le, s.Header.Type)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.Header.Flags)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.Header.Size)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	err = binary.Write(w, le, s.Mask)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -555,20 +521,17 @@ func (s *ACE) MarshalBinary() (ret []byte, err error) {
 	if IsObjectAceType(s.Header.Type) {
 		err = binary.Write(w, le, s.ObjectFlags)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		if s.ObjectFlags&AceObjectTypePresent != 0 {
 			err = binary.Write(w, le, s.ObjectType)
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 		}
 		if s.ObjectFlags&AceInheritedObjectTypePresent != 0 {
 			err = binary.Write(w, le, s.InheritedObjectType)
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 		}
@@ -577,12 +540,10 @@ func (s *ACE) MarshalBinary() (ret []byte, err error) {
 	// Encode ACE SID
 	sidBuf, err := s.Sid.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	err = binary.Write(w, le, sidBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	return w.Bytes(), nil
@@ -592,25 +553,21 @@ func readACE(r *bytes.Reader) (a *ACE, err error) {
 	a = &ACE{}
 	err = binary.Read(r, le, &a.Header.Type)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	err = binary.Read(r, le, &a.Header.Flags)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	err = binary.Read(r, le, &a.Header.Size)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	err = binary.Read(r, le, &a.Mask)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -618,20 +575,17 @@ func readACE(r *bytes.Reader) (a *ACE, err error) {
 	if IsObjectAceType(a.Header.Type) {
 		err = binary.Read(r, le, &a.ObjectFlags)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		if a.ObjectFlags&AceObjectTypePresent != 0 {
 			err = binary.Read(r, le, &a.ObjectType)
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 		}
 		if a.ObjectFlags&AceInheritedObjectTypePresent != 0 {
 			err = binary.Read(r, le, &a.InheritedObjectType)
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 		}
@@ -639,7 +593,6 @@ func readACE(r *bytes.Reader) (a *ACE, err error) {
 
 	sid, err := ReadSID(r)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	a.Sid = *sid
@@ -651,7 +604,6 @@ func (s *ACE) UnmarshalBinary(buf []byte) (err error) {
 	r := bytes.NewReader(buf)
 	ace, err := readACE(r)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -664,19 +616,16 @@ func (s *PACL) MarshalBinary() (ret []byte, err error) {
 
 	err = binary.Write(w, le, s.AclRevision)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Write(w, le, s.AclSize)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	// Encode AceCount at 4 byte boundary
 	err = binary.Write(w, le, uint32(len(s.ACLS)))
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -684,12 +633,10 @@ func (s *PACL) MarshalBinary() (ret []byte, err error) {
 		var aceBuf []byte
 		aceBuf, err = item.MarshalBinary()
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		_, err = w.Write(aceBuf)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}
@@ -701,18 +648,15 @@ func readPACL(r *bytes.Reader) (p *PACL, err error) {
 	p = &PACL{}
 	err = binary.Read(r, le, &p.AclRevision)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	err = binary.Read(r, le, &p.AclSize)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &p.AceCount)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -721,7 +665,6 @@ func readPACL(r *bytes.Reader) (p *PACL, err error) {
 		var ace *ACE
 		ace, err = readACE(r)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		p.ACLS[i] = *ace
@@ -734,7 +677,6 @@ func (s *PACL) UnmarshalBinary(buf []byte) (err error) {
 	r := bytes.NewReader(buf)
 	pacl, err := readPACL(r)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	*s = *pacl
@@ -785,13 +727,11 @@ func (s *SID) GetAuthority() uint32 {
 func (s *Filetime) ToWriter(w io.Writer) (n int, err error) {
 	err = binary.Write(w, le, s.LowDateTime)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	n += 2
 	err = binary.Write(w, le, s.HighDateTime)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	n += 2
@@ -801,12 +741,10 @@ func (s *Filetime) ToWriter(w io.Writer) (n int, err error) {
 func (s *Filetime) FromReader(r *bytes.Reader) (err error) {
 	err = binary.Read(r, le, &s.LowDateTime)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	err = binary.Read(r, le, &s.HighDateTime)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	return

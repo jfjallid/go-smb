@@ -138,25 +138,21 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	chall := NewChallenge()
 	err = encoder.Unmarshal(cmsg, &chall)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	if len(cmsg) < 48 {
 		err := fmt.Errorf("message length is too short")
-		log.Errorln(err)
 		return nil, err
 	}
 
 	if !bytes.Equal(chall.Signature, []byte(Signature)) {
 		err := fmt.Errorf("invalid signature")
-		log.Errorln(err)
 		return nil, err
 	}
 
 	if chall.MessageType != TypeNtLmChallenge {
 		err := fmt.Errorf("invalid message type")
-		log.Errorln(err)
 		return nil, err
 	}
 
@@ -164,20 +160,17 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 
 	if flags&FlgNegRequestTarget == 0 {
 		err := fmt.Errorf("invalid negotiate flags")
-		log.Errorln(err)
 		return nil, err
 	}
 	targetName := chall.TargetName
 
 	if flags&FlgNegTargetInfo == 0 {
 		err := fmt.Errorf("invalid negotiate flags")
-		log.Errorln(err)
 		return nil, err
 	}
 
 	if chall.TargetInfo == nil {
 		err := fmt.Errorf("invalid target info format")
-		log.Errorln(err)
 		return nil, err
 	}
 
@@ -196,7 +189,6 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 
 	domainstr, err := encoder.FromUnicodeString(domain)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -226,8 +218,9 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 		} else if av.AvID == MsvAvNbComputerName {
 			nbComputerName, err = encoder.FromUnicodeString(av.Value)
 			if err != nil {
-				log.Errorln(err)
 				// Can't use computer name for MsvAvTargetName but no reason to fail
+				log.Debugln(err)
+				err = nil
 			}
 		} else if av.AvID == MsvAvChannelBindings {
 			channelBindingsFound = true
@@ -451,7 +444,6 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 		var authBytes []byte
 		authBytes, err = encoder.Marshal(&auth)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		h.Write(authBytes)
@@ -464,12 +456,10 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 
 	session.clientHandle, err = rc4.NewCipher(sealKey(flags, session.exportedSessionKey, true))
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	session.serverHandle, err = rc4.NewCipher(sealKey(flags, session.exportedSessionKey, false))
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 

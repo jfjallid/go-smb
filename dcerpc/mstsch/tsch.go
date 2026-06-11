@@ -225,6 +225,22 @@ func TaskResultToString(code uint32) (string, bool) {
 	return desc, ok
 }
 
+// checkReturnCode maps a non-zero TSCH return code to a *dcerpc.StatusError
+// carrying op, the raw code, and the mapped sentinel from
+// TschResponseCodeMap (nil when unmapped). Codes in okCodes are treated as
+// success in addition to SOk.
+func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
+	if code == SOk {
+		return nil
+	}
+	for _, ok := range okCodes {
+		if code == ok {
+			return nil
+		}
+	}
+	return &dcerpc.StatusError{Op: op, Code: code, Err: TschResponseCodeMap[code]}
+}
+
 func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 	return &RPCCon{ServiceBind: sb}
 }
@@ -253,31 +269,22 @@ func (r *RPCCon) RegisterTask(path, xml string, flags, logonType uint32) (actual
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(TschRpcRegisterTask, buf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	res := SchRpcRegisterTaskRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode != SOk {
-		status, found := TschResponseCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("SchRpcRegisterTask returned unknown error code: 0x%x", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		return "", status
+	if err = checkReturnCode("SchRpcRegisterTask", res.ReturnCode); err != nil {
+		return "", err
 	}
 
 	actualPath = res.ActualPath
@@ -294,31 +301,22 @@ func (r *RPCCon) DeleteTask(path string, flags uint32) (err error) {
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(TschRpcDelete, buf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	if len(buffer) < 4 {
-		err = fmt.Errorf("Response too small for SchRpcDelete")
-		log.Errorln(err)
+		err = fmt.Errorf("response too small for SchRpcDelete")
 		return
 	}
 
 	returnCode := le.Uint32(buffer[:4])
-	if returnCode != SOk {
-		status, found := TschResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("SchRpcDelete returned unknown error code: 0x%x", returnCode)
-			log.Errorln(err)
-			return
-		}
-		return status
+	if err = checkReturnCode("SchRpcDelete", returnCode); err != nil {
+		return
 	}
 
 	return
@@ -338,31 +336,22 @@ func (r *RPCCon) RunTask(path string, flags, sessionId uint32, user string) (gui
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(TschRpcRun, buf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	res := SchRpcRunRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode != SOk {
-		status, found := TschResponseCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("SchRpcRun returned unknown error code: 0x%x", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		return guid, status
+	if err = checkReturnCode("SchRpcRun", res.ReturnCode); err != nil {
+		return
 	}
 
 	guid = res.GUID
@@ -378,31 +367,22 @@ func (r *RPCCon) GetLastRunInfo(path string) (lastRunTime SYSTEMTIME, lastReturn
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(TschRpcGetLastRunInfo, buf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	res := SchRpcGetLastRunInfoRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode != SOk {
-		status, found := TschResponseCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("SchRpcGetLastRunInfo returned unknown error code: 0x%x", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		return lastRunTime, 0, status
+	if err = checkReturnCode("SchRpcGetLastRunInfo", res.ReturnCode); err != nil {
+		return
 	}
 
 	lastRunTime = res.LastRunTime
@@ -420,31 +400,22 @@ func (r *RPCCon) EnumInstances(path string, flags uint32) (guids [][16]byte, err
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(TschRpcEnumInstances, buf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	res := SchRpcEnumInstancesRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode != SOk {
-		status, found := TschResponseCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("SchRpcEnumInstances returned unknown error code: 0x%x", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		return nil, status
+	if err = checkReturnCode("SchRpcEnumInstances", res.ReturnCode); err != nil {
+		return
 	}
 
 	guids = res.Guids
@@ -461,31 +432,22 @@ func (r *RPCCon) StopTask(path string, flags uint32) (err error) {
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(TschRpcStop, buf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	if len(buffer) < 4 {
-		err = fmt.Errorf("Response too small for SchRpcStop")
-		log.Errorln(err)
+		err = fmt.Errorf("response too small for SchRpcStop")
 		return
 	}
 
 	returnCode := le.Uint32(buffer[:4])
-	if returnCode != SOk {
-		status, found := TschResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("SchRpcStop returned unknown error code: 0x%x", returnCode)
-			log.Errorln(err)
-			return
-		}
-		return status
+	if err = checkReturnCode("SchRpcStop", returnCode); err != nil {
+		return
 	}
 
 	return
@@ -500,31 +462,22 @@ func (r *RPCCon) RetrieveTask(path string) (xml string, err error) {
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := r.MakeRequest(TschRpcRetrieveTask, buf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	res := SchRpcRetrieveTaskRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode != SOk {
-		status, found := TschResponseCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("SchRpcRetrieveTask returned unknown error code: 0x%x", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		return "", status
+	if err = checkReturnCode("SchRpcRetrieveTask", res.ReturnCode); err != nil {
+		return "", err
 	}
 
 	xml = res.Definition

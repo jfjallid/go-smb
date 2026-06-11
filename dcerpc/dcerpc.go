@@ -67,13 +67,7 @@ type BindNakError struct {
 }
 
 func (e *BindNakError) Error() string {
-	return fmt.Sprintf("Received Bind_Nak with reason: 0x%x", e.Reason)
-}
-
-var responseCodeMap = map[uint32]error{
-	ErrorSuccess:         fmt.Errorf("The operation completed successfully"),
-	ErrorAccessDenied:    fmt.Errorf("Access denied!"),
-	ErrorContextMismatch: fmt.Errorf("Context Mismatch"),
+	return fmt.Sprintf("received bind_nak with reason 0x%x", e.Reason)
 }
 
 // MSRPC Packet header common fields
@@ -266,7 +260,7 @@ func UUIDToBin(uuid string) ([]byte, error) {
 	// Assume Variant 2 UUID
 	matches := re.FindAllStringSubmatch(uuid, -1)
 	if (len(matches) == 0) || (len(matches[0]) != 7) {
-		return nil, fmt.Errorf("Failed to parse UUID v2 string")
+		return nil, fmt.Errorf("failed to parse UUID v2 string")
 	}
 	uuid1, uuid2, uuid3, uuid4, uuid5, uuid6 := matches[0][1], matches[0][2], matches[0][3], matches[0][4], matches[0][5], matches[0][6]
 	buf := make([]byte, 0)
@@ -314,12 +308,10 @@ func newBindReq(callId uint32, interfaceUUID string, majorVersion, minorVersion 
 
 	serviceUUID, err := UUIDToBin(interfaceUUID)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	transferSyntaxUUID, err := UUIDToBin(transferUUID)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	header := newHeader()
@@ -384,14 +376,14 @@ func parseAndValidateCommonHeader(response []byte, expectedCallId uint32) error 
 		return err
 	}
 	if h.CallId != expectedCallId {
-		return fmt.Errorf("Received invalid callId: %d\n", h.CallId)
+		return fmt.Errorf("received invalid callId: %d, expected %d", h.CallId, expectedCallId)
 	}
 	switch h.Type {
 	case PacketTypeBindNak:
 		return &BindNakError{Reason: le.Uint16(response[16:18])}
-	case PacketTypeBindAck,PacketTypeAlterContextResp:
+	case PacketTypeBindAck, PacketTypeAlterContextResp:
 	default:
-		return fmt.Errorf("Invalid response from server: %v\n", h)
+		return fmt.Errorf("unexpected PDU type %d in bind response", h.Type)
 	}
 	return nil
 }
@@ -411,33 +403,43 @@ func parseAndValidateBindAck(response []byte, expectedCallId uint32) (*BindRes, 
 	}
 
 	if len(bindRes.ResultList.Items) == 0 {
-		return nil, fmt.Errorf("Invalid response from server with no Context Items: %v\n", bindRes.ResultList)
+		return nil, fmt.Errorf("bind response has no context items")
 	}
 	// Perhaps add support for handling multiple Context Items in the result?
 	if bindRes.ResultList.Items[0].Result != acceptance {
-		errMsg := ""
-		switch bindRes.ResultList.Items[0].Reason {
-		case reasonNotSpecified:
-			errMsg = "Reason not specified"
-		case abstractSyntaxNotSupported:
-			errMsg = "Abstract syntax not supported"
-		case proposedTransferSyntaxNotSupported:
-			errMsg = "Proposed transfer syntax not supported"
-		case localLimitExceeded:
-			errMsg = "Local limit exceeded"
-		default:
-			errMsg = fmt.Sprintf("Unknown reason: %d\n", bindRes.ResultList.Items[0].Reason)
-		}
-		return nil, fmt.Errorf("Server did not approve bind request with reason: \"%s\"\n", errMsg)
+		return nil, fmt.Errorf("server rejected bind request: %s", bindRejectReason(bindRes.ResultList.Items[0].Reason))
 	}
 
 	return &bindRes, nil
 }
 
+// bindRejectReason maps a provider rejection reason to a human-readable string.
+func bindRejectReason(reason providerReason) string {
+	switch reason {
+	case reasonNotSpecified:
+		return "reason not specified"
+	case abstractSyntaxNotSupported:
+		return "abstract syntax not supported"
+	case proposedTransferSyntaxNotSupported:
+		return "proposed transfer syntax not supported"
+	case localLimitExceeded:
+		return "local limit exceeded"
+	default:
+		return fmt.Sprintf("unknown reason %d", reason)
+	}
+}
+
 func Bind(transport DCERPCTransport, interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string) (bind *ServiceBind, err error) {
 	log.Traceln("In Bind")
+	// Debug breadcrumb at the layer seam: every service connect passes
+	// through here, so a single hook surfaces the origin of bind errors.
+	defer func() {
+		if err != nil {
+			log.Debugln(err)
+		}
+	}()
 	if transport == nil {
-		return nil, fmt.Errorf("Transport argument cannot be nil")
+		return nil, fmt.Errorf("transport argument cannot be nil")
 	}
 	callId := atomic.Uint32{}
 	maxFragRxSize := defaultMaxFragSize
@@ -495,7 +497,7 @@ func authTypeForMechanism(mechanism gss.Mechanism) (uint8, error) {
 		// exchange (Bind, BindAck, AlterContext) to finalize the context.
 		return RpcAuthnGssNegotiate, nil
 	}
-	return 0, fmt.Errorf("Unsupported authentication mechanism OID: %v", oid)
+	return 0, fmt.Errorf("unsupported authentication mechanism OID: %v", oid)
 }
 
 // isKerberosMech returns true if the mechanism is a Kerberos mechanism.
@@ -550,11 +552,17 @@ func marshalSPNEGOResp(resp gss.NegTokenResp) ([]byte, error) {
 // leg to finalize the security context.
 func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, minorVersion uint16, transferUUID string, authLevel uint8, mechanism gss.Mechanism) (bind *ServiceBind, err error) {
 	log.Traceln("In BindAuth")
+	// Debug breadcrumb at the layer seam, see Bind.
+	defer func() {
+		if err != nil {
+			log.Debugln(err)
+		}
+	}()
 	if transport == nil {
-		return nil, fmt.Errorf("Transport argument cannot be nil")
+		return nil, fmt.Errorf("transport argument cannot be nil")
 	}
 	if mechanism == nil {
-		return nil, fmt.Errorf("Mechanism argument cannot be nil")
+		return nil, fmt.Errorf("mechanism argument cannot be nil")
 	}
 
 	authType, err := authTypeForMechanism(mechanism)
@@ -578,7 +586,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 	}
 	mechToken, err := mechanism.InitSecContext(nil)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to initialize security context: %w", err)
+		return nil, fmt.Errorf("initialize security context: %w", err)
 	}
 
 	// For Kerberos, wrap the raw AP_REQ in SPNEGO NegTokenInit
@@ -588,7 +596,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 		mechTypes := []asn1.ObjectIdentifier{gss.MsKerberosOid}
 		initToken, err = marshalSPNEGOInit(mechTypes, mechToken)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to marshal SPNEGO NegTokenInit: %w", err)
+			return nil, fmt.Errorf("marshal SPNEGO NegTokenInit: %w", err)
 		}
 	} else {
 		initToken = mechToken
@@ -636,7 +644,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 			// Kerberos with SPNEGO: unwrap NegTokenResp to get inner AP_REP
 			negResp, err2 := unmarshalSPNEGOResp(bindRes.AuthVerifier.AuthValue)
 			if err2 != nil {
-				return nil, fmt.Errorf("Failed to parse SPNEGO NegTokenResp from BindAck: %w", err2)
+				return nil, fmt.Errorf("parse SPNEGO NegTokenResp from BindAck: %w", err2)
 			}
 
 			// DCE-style: the ResponseToken is a bare AP_REP (not KRB5Token-wrapped)
@@ -647,7 +655,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 				_, err = mechanism.InitSecContext(negResp.ResponseToken)
 			}
 			if err != nil {
-				return nil, fmt.Errorf("Failed to process server auth token: %w", err)
+				return nil, fmt.Errorf("process server auth token: %w", err)
 			}
 
 			// Build 3rd leg: SPNEGO NegTokenResp with modified AP_REP
@@ -655,7 +663,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 			if provider, ok := mechanism.(DCEThirdLegProvider); ok {
 				thirdLegMechToken, err = provider.DCEThirdLeg()
 				if err != nil {
-					return nil, fmt.Errorf("Failed to build 3rd leg token: %w", err)
+					return nil, fmt.Errorf("build 3rd leg token: %w", err)
 				}
 			}
 
@@ -665,13 +673,13 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 			}
 			responseToken, err = marshalSPNEGOResp(thirdLeg)
 			if err != nil {
-				return nil, fmt.Errorf("Failed to marshal SPNEGO 3rd leg: %w", err)
+				return nil, fmt.Errorf("marshal SPNEGO 3rd leg: %w", err)
 			}
 		} else {
 			// NTLM: pass server token directly to mechanism
 			responseToken, err = mechanism.InitSecContext(bindRes.AuthVerifier.AuthValue)
 			if err != nil {
-				return nil, fmt.Errorf("Failed to process server auth token: %w", err)
+				return nil, fmt.Errorf("process server auth token: %w", err)
 			}
 		}
 
@@ -679,7 +687,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 		if len(responseToken) > 0 {
 			alterReq, err2 := newBindReq(callId.Add(1), interfaceUUID, majorVersion, minorVersion, transferUUID, maxFragTxSize, maxFragRxSize)
 			if err2 != nil {
-				return nil, fmt.Errorf("Failed to build Alter Context: %w", err2)
+				return nil, fmt.Errorf("build AlterContext: %w", err2)
 			}
 			alterReq.Header.Type = PacketTypeAlterContext
 			alterReq.AuthVerifier = &AuthVerifier{
@@ -693,31 +701,31 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 			var alterBuf []byte
 			alterBuf, err = alterReq.MarshalBinary()
 			if err != nil {
-				return nil, fmt.Errorf("Failed to marshal Alter Context: %w", err)
+				return nil, fmt.Errorf("marshal AlterContext: %w", err)
 			}
 			binary.LittleEndian.PutUint16(alterBuf[8:10], uint16(len(alterBuf)))
 
 			var alterResponse []byte
 			alterResponse, err = transport.Transceive(alterBuf)
 			if err != nil {
-				return nil, fmt.Errorf("Failed to send Alter Context: %w", err)
+				return nil, fmt.Errorf("send AlterContext: %w", err)
 			}
 
 			err := parseAndValidateCommonHeader(alterResponse, alterReq.CallId)
 			if err != nil {
-				return nil, fmt.Errorf("Alter Context Response validation failed with error: %w", err)
+				return nil, fmt.Errorf("validate AlterContext response: %w", err)
 			}
 			var alterRes BindRes
 			err = alterRes.UnmarshalBinary(alterResponse)
 			if err != nil {
-				return nil, fmt.Errorf("Failed to unmarshal Alter Context Response: %w", err)
+				return nil, fmt.Errorf("unmarshal AlterContext response: %w", err)
 			}
 
 			if len(alterRes.ResultList.Items) == 0 {
-				return nil, fmt.Errorf("Alter Context Response has no context items")
+				return nil, fmt.Errorf("AlterContext response has no context items")
 			}
 			if alterRes.ResultList.Items[0].Result != acceptance {
-				return nil, fmt.Errorf("Authentication failed: server rejected Alter Context")
+				return nil, fmt.Errorf("authentication failed: server rejected AlterContext")
 			}
 
 		}
@@ -735,7 +743,7 @@ func BindAuth(transport DCERPCTransport, interfaceUUID string, majorVersion, min
 	if authLevel >= RpcAuthnLevelPktIntegrity {
 		s, ok := mechanism.(Sealer)
 		if !ok {
-			return nil, fmt.Errorf("Mechanism does not support per-PDU auth for level %d", authLevel)
+			return nil, fmt.Errorf("mechanism does not support per-PDU auth for level %d", authLevel)
 		}
 		sealer = s
 	}
@@ -829,9 +837,8 @@ func (sb *ServiceBind) AlterContext(interfaceUUID string, majorVersion, minorVer
 	if len(alterRes.ResultList.Items) == 0 {
 		return nil, fmt.Errorf("AlterContext response has no context items")
 	}
-	if alterRes.ResultList.Items[0].Result != 0 {
-		return nil, fmt.Errorf("AlterContext rejected: result=%d reason=%d",
-			alterRes.ResultList.Items[0].Result, alterRes.ResultList.Items[0].Reason)
+	if alterRes.ResultList.Items[0].Result != acceptance {
+		return nil, fmt.Errorf("server rejected AlterContext: %s", bindRejectReason(alterRes.ResultList.Items[0].Reason))
 	}
 
 	return &ServiceBind{
@@ -857,6 +864,14 @@ func (sb *ServiceBind) MakeRequestWithObjectUUID(opcode uint16, objectUUID []byt
 }
 
 func (sb *ServiceBind) makeRequestInternal(opcode uint16, objectUUID []byte, innerBuf []byte) (result []byte, err error) {
+	// Debug breadcrumb at the layer seam: every RPC round trip from the
+	// service packages passes through here, so a single hook surfaces the
+	// origin without per-call-site Error logging.
+	defer func() {
+		if err != nil {
+			log.Debugln(err)
+		}
+	}()
 	callId := sb.callId.Add(1)
 	totalPayloadLen := len(innerBuf)
 	authOverhead := 0
@@ -888,7 +903,6 @@ func (sb *ServiceBind) makeRequestInternal(opcode uint16, objectUUID []byte, inn
 		var req *RequestReq
 		req, err = newRequestReq(callId, opcode, objectUUID)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
@@ -901,14 +915,12 @@ func (sb *ServiceBind) makeRequestInternal(opcode uint16, objectUUID []byte, inn
 		var buf []byte
 		buf, err = req.MarshalBinary()
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
 		if sb.sealer != nil {
 			buf, err = sb.sealRequestPDU(buf)
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 		}
@@ -916,7 +928,6 @@ func (sb *ServiceBind) makeRequestInternal(opcode uint16, objectUUID []byte, inn
 		var responseBuffer []byte
 		responseBuffer, err = sb.transport.Transceive(buf)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
@@ -938,7 +949,6 @@ func (sb *ServiceBind) makeRequestInternal(opcode uint16, objectUUID []byte, inn
 		var req *RequestReq
 		req, err = newRequestReq(callId, opcode, objectUUID)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
@@ -963,14 +973,12 @@ func (sb *ServiceBind) makeRequestInternal(opcode uint16, objectUUID []byte, inn
 		var buf []byte
 		buf, err = req.MarshalBinary()
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
 		if sb.sealer != nil {
 			buf, err = sb.sealRequestPDU(buf)
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 		}
@@ -980,7 +988,6 @@ func (sb *ServiceBind) makeRequestInternal(opcode uint16, objectUUID []byte, inn
 			var responseBuffer []byte
 			responseBuffer, err = sb.transport.Transceive(buf)
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 			return sb.processResponse(callId, responseBuffer)
@@ -989,7 +996,6 @@ func (sb *ServiceBind) makeRequestInternal(opcode uint16, objectUUID []byte, inn
 		// Non-last fragment: use Write (no response expected)
 		err = sb.transport.Write(buf)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
@@ -1044,7 +1050,7 @@ func (sb *ServiceBind) sealRequestPDU(pdu []byte) ([]byte, error) {
 	}
 	secTrailerBytes, err := secTrailer.MarshalBinary()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to marshal sec_trailer: %w", err)
+		return nil, fmt.Errorf("marshal sec_trailer: %w", err)
 	}
 	// secTrailerBytes is 8 bytes (no AuthValue)
 
@@ -1114,7 +1120,7 @@ func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, er
 	fragLen := int(header.FragLength)
 	authTotalLen := int(header.AuthLength) + 8
 	if fragLen < ResponseHeaderSize+authTotalLen {
-		return nil, fmt.Errorf("Response PDU too short to contain auth verifier")
+		return nil, fmt.Errorf("response PDU too short to contain auth verifier")
 	}
 
 	authStart := fragLen - authTotalLen
@@ -1128,7 +1134,7 @@ func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, er
 	var av AuthVerifier
 	err := av.UnmarshalBinary(pdu[authStart:fragLen])
 	if err != nil {
-		return nil, fmt.Errorf("Failed to unmarshal response AuthVerifier: %w", err)
+		return nil, fmt.Errorf("unmarshal response AuthVerifier: %w", err)
 	}
 
 	// Data between response header and sec_trailer
@@ -1140,13 +1146,13 @@ func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, er
 		// PktPrivacy: decrypt and verify integrity
 		plaintext, err = sb.sealer.Unseal(bodyData, signature, pdu[:ResponseHeaderSize], secTrailerBytes)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to unseal response PDU: %w", err)
+			return nil, fmt.Errorf("unseal response PDU: %w", err)
 		}
 	} else {
 		// PktIntegrity: verify signature only (data is plaintext)
 		err = sb.sealer.VerifySign(bodyData, signature, pdu[:ResponseHeaderSize], secTrailerBytes)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to verify response PDU signature: %w", err)
+			return nil, fmt.Errorf("verify response PDU signature: %w", err)
 		}
 		plaintext = bodyData
 	}
@@ -1154,7 +1160,7 @@ func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, er
 	// Strip auth padding
 	stubLen := len(plaintext) - int(av.AuthPadLength)
 	if stubLen < 0 {
-		return nil, fmt.Errorf("Auth padding length %d exceeds plaintext length %d", av.AuthPadLength, len(plaintext))
+		return nil, fmt.Errorf("auth padding length %d exceeds plaintext length %d", av.AuthPadLength, len(plaintext))
 	}
 	stub := plaintext[:stubLen]
 
@@ -1176,50 +1182,36 @@ func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, er
 func (sb *ServiceBind) processResponse(callId uint32, responseBuffer []byte) (result []byte, err error) {
 	for {
 		if len(responseBuffer) < PDUHeaderCommonSize {
-			err = fmt.Errorf("Read/IoCtl response on DCERPC fragment was smaller than the DCERPC header size")
-			log.Errorln(err)
+			err = fmt.Errorf("DCERPC response fragment of %d bytes is smaller than the %d byte header", len(responseBuffer), PDUHeaderCommonSize)
 			return
 		}
 
 		var resHeader Header
 		err = resHeader.UnmarshalBinary(responseBuffer[:PDUHeaderCommonSize])
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
 		if resHeader.CallId != callId {
-			err = fmt.Errorf("Incorrect CallId on response. Sent %d and received %d\n", callId, resHeader.CallId)
-			log.Errorln(err)
+			err = fmt.Errorf("incorrect callId on response, sent %d and received %d", callId, resHeader.CallId)
 			return
 		}
 
 		if resHeader.Type == PacketTypeFault {
-			if len(responseBuffer) >= (PDUHeaderCommonSize + 12) {
-				returnCode := binary.LittleEndian.Uint32(responseBuffer[PDUHeaderCommonSize+8:])
-				status, found := responseCodeMap[returnCode]
-				if !found {
-					err = fmt.Errorf("DCERPC Fault PDU received with status: 0x%x", returnCode)
-					log.Errorln(err)
-					return
-				}
-				err = fmt.Errorf("DCERPC Fault PDU received with status: %s", status)
-				log.Errorln(err)
+			if len(responseBuffer) < PDUHeaderCommonSize+12 {
+				err = fmt.Errorf("received truncated DCERPC fault PDU: %d bytes, fragLength %d", len(responseBuffer), resHeader.FragLength)
 				return
-			} else {
-				err = fmt.Errorf("DCERPC Fault PDU received but incomplete: %+v, full buffer: %x", resHeader, responseBuffer)
 			}
-			log.Errorln(err)
+			returnCode := binary.LittleEndian.Uint32(responseBuffer[PDUHeaderCommonSize+8:])
+			err = newFaultError(returnCode)
 			return
 		} else if resHeader.Type != PacketTypeResponse {
-			err = fmt.Errorf("DCERPC Unexpected PDU received with type: %d", resHeader.Type)
-			log.Errorln(err)
+			err = fmt.Errorf("unexpected DCERPC PDU type %d, expected response", resHeader.Type)
 			return
 		}
 
 		if len(responseBuffer) < int(resHeader.FragLength) {
-			err = fmt.Errorf("DCERPC response fragment is less that specified fragment lengh. Received %d bytes from ReadRequest, but FragLength field specifies %d bytes!", len(responseBuffer), resHeader.FragLength)
-			log.Errorln(err)
+			err = fmt.Errorf("DCERPC response fragment is shorter than its fragLength: received %d bytes, fragLength specifies %d", len(responseBuffer), resHeader.FragLength)
 			return
 		}
 
@@ -1227,13 +1219,11 @@ func (sb *ServiceBind) processResponse(callId uint32, responseBuffer []byte) (re
 		if resHeader.AuthLength > 0 && sb.sealer != nil {
 			responseBuffer, err = sb.unsealResponsePDU(responseBuffer, &resHeader)
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 			// Re-parse header since we rebuilt the buffer
 			err = resHeader.UnmarshalBinary(responseBuffer[:PDUHeaderCommonSize])
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 		}
@@ -1242,7 +1232,6 @@ func (sb *ServiceBind) processResponse(callId uint32, responseBuffer []byte) (re
 		var reqRes RequestRes
 		err = reqRes.UnmarshalBinary(responseBuffer)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		result = append(result, reqRes.Buffer...)
@@ -1253,7 +1242,6 @@ func (sb *ServiceBind) processResponse(callId uint32, responseBuffer []byte) (re
 		// Read the next response fragment
 		responseBuffer, err = sb.transport.Read(sb.maxFragReceiveSize)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 	}

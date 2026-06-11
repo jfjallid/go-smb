@@ -67,7 +67,6 @@ func (o *OXIDResolver) ResolveOxid2(oxid uint64, requestedProtseqs []uint16) (*R
 
 	result, err := o.MakeRequest(OpResolveOxid2, buf)
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 

@@ -87,7 +87,6 @@ func (sb *RPCCon) LsarGetUserName() (username, domain string, err error) {
 
 	innerBuf, err := innerReq.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -97,7 +96,7 @@ func (sb *RPCCon) LsarGetUserName() (username, domain string, err error) {
 	}
 
 	if len(buffer) < 12 {
-		return "", "", fmt.Errorf("server response to LsarGetUserName was too small. Expected at atleast 12 bytes")
+		return "", "", fmt.Errorf("server response to LsarGetUserName was too small, expected at least 12 bytes")
 	}
 
 	resp := LsarGetUserNameRes{
@@ -106,16 +105,9 @@ func (sb *RPCCon) LsarGetUserName() (username, domain string, err error) {
 	}
 	err = resp.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("received unknown LSAT return code for LsarGetUserName response: 0x%x", resp.ReturnCode)
-			return
-		}
-		err = fmt.Errorf("received error in LsarGetUserName response: %s", status)
+	if err = checkReturnCode("LsarGetUserName", resp.ReturnCode); err != nil {
 		return
 	}
 	username = resp.UserName.Data.String()
@@ -127,13 +119,12 @@ func (sb *RPCCon) LsarGetUserName() (username, domain string, err error) {
 func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res SidTranslations, err error) {
 	log.Traceln("In LsarLookupSids2")
 	if len(sids) == 0 {
-		err = fmt.Errorf("Must specify atleast one SID to lookup")
+		err = fmt.Errorf("LsarLookupSids2: must specify at least one SID to lookup")
 		return
 	}
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.LsarCloseHandle(policyHandle)
@@ -143,7 +134,6 @@ func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res Sid
 	for _, sidStr := range sids {
 		sid, err = mstypes.ConvertStrToSID(sidStr)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		sidList = append(sidList, LsaprSidInformation{Sid: *sid})
@@ -161,7 +151,6 @@ func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res Sid
 
 	innerBuf, err := innerReq.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -171,13 +160,12 @@ func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res Sid
 	}
 
 	if len(buffer) < 36 {
-		return SidTranslations{}, fmt.Errorf("Server response to LsarLookupSids2 was too small. Expected at atleast 36 bytes")
+		return SidTranslations{}, fmt.Errorf("server response to LsarLookupSids2 was too small, expected at least 36 bytes")
 	}
 
 	resp := LsarLookupSids2Res{}
 	err = resp.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -193,15 +181,7 @@ func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res Sid
 	// STATUS_SUCCESS and STATUS_SOME_NOT_MAPPED both indicate that the translations
 	// in res are valid (the latter signalling a partial mapping). Anything else is
 	// a real failure and must be surfaced as an error.
-	if resp.ReturnCode != StatusSuccess && resp.ReturnCode != StatusSomeNotMapped {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarLookupSids2 response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("LsarLookupSids2", resp.ReturnCode, StatusSomeNotMapped); err != nil {
 		return
 	}
 	return
@@ -210,13 +190,12 @@ func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res Sid
 func (sb *RPCCon) LsarLookupNames3(level LsapLookupLevel, names []string) (res NameTranslations, err error) {
 	log.Traceln("In LsarLookupNames3")
 	if len(names) == 0 {
-		err = fmt.Errorf("Must specify atleast one Name to lookup")
+		err = fmt.Errorf("LsarLookupNames3: must specify at least one name to lookup")
 		return
 	}
 
 	policyHandle, err := sb.LsarOpenPolicy2("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.LsarCloseHandle(policyHandle)
@@ -236,7 +215,6 @@ func (sb *RPCCon) LsarLookupNames3(level LsapLookupLevel, names []string) (res N
 
 	innerBuf, err := innerReq.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -246,13 +224,12 @@ func (sb *RPCCon) LsarLookupNames3(level LsapLookupLevel, names []string) (res N
 	}
 
 	if len(buffer) < 20 {
-		return NameTranslations{}, fmt.Errorf("Server response to LsarLookupNames3 was too small. Expected at atleast 20 bytes")
+		return NameTranslations{}, fmt.Errorf("server response to LsarLookupNames3 was too small, expected at least 20 bytes")
 	}
 
 	resp := LsarLookupNames3Res{}
 	err = resp.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -265,15 +242,7 @@ func (sb *RPCCon) LsarLookupNames3(level LsapLookupLevel, names []string) (res N
 		}
 	}
 	res.ReturnCode = resp.ReturnCode
-	if resp.ReturnCode != StatusSuccess && resp.ReturnCode != StatusSomeNotMapped {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown LSAD return code for LsarLookupNames3 response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("LsarLookupNames3", resp.ReturnCode, StatusSomeNotMapped); err != nil {
 		return
 	}
 	return

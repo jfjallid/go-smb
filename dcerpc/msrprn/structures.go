@@ -158,7 +158,7 @@ func (s *rpcOpenPrinterExReqNDR) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RpcOpenPrinterExReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RpcOpenPrinterExReq: %w", err)
 	}
 	return b, nil
 }
@@ -167,7 +167,7 @@ func (s *rpcOpenPrinterExResNDR) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling RpcOpenPrinterExRes: %v", err)
+		return fmt.Errorf("error unmarshaling RpcOpenPrinterExRes: %w", err)
 	}
 	return nil
 }
@@ -177,7 +177,7 @@ func (s *rpcClosePrinterReqNDR) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RpcClosePrinterReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RpcClosePrinterReq: %w", err)
 	}
 	return b, nil
 }
@@ -186,7 +186,7 @@ func (s *rpcClosePrinterResNDR) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling RpcClosePrinterRes: %v", err)
+		return fmt.Errorf("error unmarshaling RpcClosePrinterRes: %w", err)
 	}
 	return nil
 }
@@ -196,7 +196,7 @@ func (s *rpcRFFPCNReqNDR) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RpcRemoteFindFirstPrinterChangeNotificationReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RpcRemoteFindFirstPrinterChangeNotificationReq: %w", err)
 	}
 	return b, nil
 }
@@ -205,7 +205,7 @@ func (s *rpcRFFPCNResNDR) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling RpcRemoteFindFirstPrinterChangeNotificationRes: %v", err)
+		return fmt.Errorf("error unmarshaling RpcRemoteFindFirstPrinterChangeNotificationRes: %w", err)
 	}
 	return nil
 }
@@ -215,7 +215,7 @@ func (s *rpcRFFPCNExReqNDR) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling RpcRemoteFindFirstPrinterChangeNotificationExReq: %v", err)
+		return nil, fmt.Errorf("error marshaling RpcRemoteFindFirstPrinterChangeNotificationExReq: %w", err)
 	}
 	return b, nil
 }
@@ -224,7 +224,7 @@ func (s *rpcRFFPCNExResNDR) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling RpcRemoteFindFirstPrinterChangeNotificationExRes: %v", err)
+		return fmt.Errorf("error unmarshaling RpcRemoteFindFirstPrinterChangeNotificationExRes: %w", err)
 	}
 	return nil
 }

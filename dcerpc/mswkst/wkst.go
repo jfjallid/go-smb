@@ -69,6 +69,22 @@ var ResponseCodeMap = map[uint32]error{
 	ErrorBufTooSmall:      fmt.Errorf("More entries are available. The TransportInfo buffer was not large enough to contain all the entries."),
 }
 
+// checkReturnCode maps a non-zero WKST return code to a *dcerpc.StatusError
+// carrying op, the raw code, and the mapped sentinel from ResponseCodeMap
+// (nil when unmapped). Codes in okCodes are treated as success in addition
+// to ErrorSuccess.
+func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
+	if code == ErrorSuccess {
+		return nil
+	}
+	for _, ok := range okCodes {
+		if code == ok {
+			return nil
+		}
+	}
+	return &dcerpc.StatusError{Op: op, Code: code, Err: ResponseCodeMap[code]}
+}
+
 func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 	return &RPCCon{sb}
 }
@@ -76,7 +92,7 @@ func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 func (sb *RPCCon) EnumWkstLoggedOnUsers(level int) (res *WkstaUserEnum, err error) {
 	log.Traceln("In EnumWkstLoggedOnUsers")
 	if level < 0 || level > 1 {
-		return nil, fmt.Errorf("Only levels 0 and 1 are valid")
+		return nil, fmt.Errorf("EnumWkstLoggedOnUsers: only levels 0 and 1 are valid")
 	}
 
 	req := NetWkstaUserEnumRequest{
@@ -94,7 +110,6 @@ func (sb *RPCCon) EnumWkstLoggedOnUsers(level int) (res *WkstaUserEnum, err erro
 
 	innerBuf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -106,19 +121,10 @@ func (sb *RPCCon) EnumWkstLoggedOnUsers(level int) (res *WkstaUserEnum, err erro
 	var resp NetWkstaUserEnumResponse
 	err = resp.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if resp.ReturnCode != ErrorSuccess {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown WKST return code for NetWkstaEnum response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("NetWkstaEnum", resp.ReturnCode); err != nil {
 		return
 	}
 

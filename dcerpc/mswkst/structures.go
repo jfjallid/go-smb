@@ -104,7 +104,7 @@ func (s *NetWkstaUserEnumRequest) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetWkstaUserEnumRequest: %v", err)
+		err = fmt.Errorf("error marshaling NetWkstaUserEnumRequest: %w", err)
 	}
 	return
 }
@@ -113,7 +113,7 @@ func (s *NetWkstaUserEnumRequest) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetWkstaUserEnumRequest: %v", err)
+		return fmt.Errorf("error unmarshaling NetWkstaUserEnumRequest: %w", err)
 	}
 	return nil
 }
@@ -123,7 +123,7 @@ func (s *NetWkstaUserEnumResponse) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetWkstaUserEnumResponse: %v", err)
+		err = fmt.Errorf("error marshaling NetWkstaUserEnumResponse: %w", err)
 	}
 	return
 }
@@ -133,7 +133,7 @@ func (s *NetWkstaUserEnumResponse) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetWkstaUserEnumResponse: %v", err)
+		return fmt.Errorf("error unmarshaling NetWkstaUserEnumResponse: %w", err)
 	}
 	return nil
 }

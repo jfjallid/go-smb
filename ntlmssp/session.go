@@ -181,7 +181,7 @@ func (s *Session) VerifyMACOnly(signData, expectedSig []byte, seqNum uint32) (ui
 		computedSig, seqNum = mac(nil, s.negotiateFlags, s.clientHandle, s.clientSigningKey, seqNum, signData)
 	}
 	if !bytes.Equal(expectedSig, computedSig) {
-		return 0, fmt.Errorf("Signature mismatch")
+		return 0, fmt.Errorf("signature mismatch")
 	}
 	return seqNum, nil
 }
@@ -197,7 +197,7 @@ func (s *Session) VerifyMAC(signData, expectedSig []byte, seqNum uint32) (uint32
 		computedSig, seqNum = mac(nil, s.negotiateFlags, s.clientHandle, s.clientSigningKey, seqNum, signData)
 	}
 	if !bytes.Equal(expectedSig, computedSig) {
-		return 0, fmt.Errorf("Signature mismatch")
+		return 0, fmt.Errorf("signature mismatch")
 	}
 	return seqNum, nil
 }
@@ -217,7 +217,7 @@ func (s *Session) Unseal(dst, ciphertext []byte, seqNum uint32) ([]byte, uint32,
 			sum, seqNum = mac(nil, s.negotiateFlags, s.clientHandle, s.clientSigningKey, seqNum, plaintext)
 		}
 		if !bytes.Equal(ciphertext[:16], sum) {
-			err := fmt.Errorf("Signature mismatch")
+			err := fmt.Errorf("signature mismatch")
 			return nil, 0, err
 		}
 	case s.negotiateFlags&FlgNegSign != 0:
@@ -231,14 +231,14 @@ func (s *Session) Unseal(dst, ciphertext []byte, seqNum uint32) ([]byte, uint32,
 			sum, seqNum = mac(nil, s.negotiateFlags, s.clientHandle, s.clientSigningKey, seqNum, plaintext)
 		}
 		if !bytes.Equal(ciphertext[:16], sum) {
-			err := fmt.Errorf("Signature mismatch")
+			err := fmt.Errorf("signature mismatch")
 			return nil, 0, err
 		}
 	default:
 		copy(plaintext, ciphertext[16:])
 		for _, s := range ciphertext[:16] {
 			if s != 0x0 {
-				return nil, 0, fmt.Errorf("Signature mismatch")
+				return nil, 0, fmt.Errorf("signature mismatch")
 			}
 		}
 	}

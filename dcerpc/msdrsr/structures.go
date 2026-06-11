@@ -879,7 +879,7 @@ func (s *DRSBindReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling DRSBindReq: %v", err)
+		return nil, fmt.Errorf("error marshaling DRSBindReq: %w", err)
 	}
 	return b, nil
 }
@@ -888,7 +888,7 @@ func (s *DRSBindRes) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	dec.SetEndianness(binary.LittleEndian)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling DRSBindRes: %v", err)
+		return fmt.Errorf("error unmarshaling DRSBindRes: %w", err)
 	}
 	return nil
 }
@@ -898,7 +898,7 @@ func (s *DRSUnbindReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling DRSUnbindReq: %v", err)
+		return nil, fmt.Errorf("error marshaling DRSUnbindReq: %w", err)
 	}
 	return b, nil
 }
@@ -907,7 +907,7 @@ func (s *DRSUnbindRes) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	dec.SetEndianness(binary.LittleEndian)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling DRSUnbindRes: %v", err)
+		return fmt.Errorf("error unmarshaling DRSUnbindRes: %w", err)
 	}
 	return nil
 }
@@ -917,7 +917,7 @@ func (s *DRSCrackNamesReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling DRSCrackNamesReq: %v", err)
+		return nil, fmt.Errorf("error marshaling DRSCrackNamesReq: %w", err)
 	}
 	return b, nil
 }
@@ -926,7 +926,7 @@ func (s *DRSCrackNamesRes) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	dec.SetEndianness(binary.LittleEndian)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling DRSCrackNamesRes: %v", err)
+		return fmt.Errorf("error unmarshaling DRSCrackNamesRes: %w", err)
 	}
 	return nil
 }
@@ -936,7 +936,7 @@ func (s *DRSDCInfoReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling DRSDCInfoReq: %v", err)
+		return nil, fmt.Errorf("error marshaling DRSDCInfoReq: %w", err)
 	}
 	return b, nil
 }
@@ -945,7 +945,7 @@ func (s *DRSDCInfoRes) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	dec.SetEndianness(binary.LittleEndian)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling DRSDCInfoRes: %v", err)
+		return fmt.Errorf("error unmarshaling DRSDCInfoRes: %w", err)
 	}
 	return nil
 }
@@ -959,7 +959,7 @@ func (d *DSNAME) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(d)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling DSNAME: %v", err)
+		return nil, fmt.Errorf("error marshaling DSNAME: %w", err)
 	}
 	return b, nil
 }
@@ -969,7 +969,7 @@ func (s *DRSGetNCChangesReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling DRSGetNCChangesReq: %v", err)
+		return nil, fmt.Errorf("error marshaling DRSGetNCChangesReq: %w", err)
 	}
 	return b, nil
 }
@@ -980,7 +980,7 @@ func (d *DSNAME) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	dec.SetEndianness(binary.LittleEndian)
 	if err := dec.Decode(d); err != nil {
-		return fmt.Errorf("error unmarshaling DSNAME: %v", err)
+		return fmt.Errorf("error unmarshaling DSNAME: %w", err)
 	}
 	return nil
 }
@@ -1203,7 +1203,7 @@ func (r *DRSGetNCChangesRes) Unmarshal(data []byte) error {
 
 	var wrap drsGetNCChangesResWrap
 	if err := dec.Decode(&wrap); err != nil {
-		return fmt.Errorf("error unmarshaling DRSGetNCChangesRes: %v", err)
+		return fmt.Errorf("error unmarshaling DRSGetNCChangesRes: %w", err)
 	}
 	r.DwOutVersion = wrap.PmsgOut.Level
 
@@ -1237,7 +1237,7 @@ func (r *DRSGetNCChangesRes) Unmarshal(data []byte) error {
 		case 6:
 			var arr replValInfV1Array
 			if err := dec.Decode(&arr); err != nil {
-				return fmt.Errorf("error unmarshaling rgValues (REPLVALINF_V1): %v", err)
+				return fmt.Errorf("error unmarshaling rgValues (REPLVALINF_V1): %w", err)
 			}
 			r.LinkedValues = arr.Values
 		case 9:
@@ -1252,7 +1252,7 @@ func (r *DRSGetNCChangesRes) Unmarshal(data []byte) error {
 
 	var trailer struct{ ReturnCode uint32 }
 	if err := dec.Decode(&trailer); err != nil {
-		return fmt.Errorf("error unmarshaling DRSGetNCChanges returnCode: %v", err)
+		return fmt.Errorf("error unmarshaling DRSGetNCChanges returnCode: %w", err)
 	}
 	r.ReturnCode = trailer.ReturnCode
 	return nil

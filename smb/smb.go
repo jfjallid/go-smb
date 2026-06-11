@@ -589,7 +589,7 @@ var (
 )
 
 // Custom error not part of SMB
-var ErrorNotDir = fmt.Errorf("Not a directory")
+var ErrorNotDir = fmt.Errorf("not a directory")
 
 type Header struct { // 64 bytes
 	ProtocolID    []byte `smb:"fixed:4"`
@@ -928,7 +928,6 @@ func (s *QueryInfoRes) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 	log.Traceln("In UnmarshalBinary for QueryInfoRes")
 	err := encoder.Unmarshal(buf[:64], &s.Header)
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 	offset := 64
@@ -1192,7 +1191,6 @@ func (s *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 	log.Traceln("In UnmarshalBinary for NegotiateReq")
 	err := encoder.Unmarshal(buf[:64], &s.Header)
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 	offset := 64
@@ -1224,7 +1222,6 @@ func (s *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 		var negContext NegContext
 		err = encoder.Unmarshal(buf[offset:], &negContext)
 		if err != nil {
-			log.Errorln(err)
 			return err
 		}
 		s.ContextList = append(s.ContextList, negContext)
@@ -1341,7 +1338,6 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			Salt:               make([]byte, 32),
 		}
 		if _, err := rand.Read(pic.Salt); err != nil {
-			log.Errorln(err)
 			return req, err
 		}
 		ciphers := s.options.Ciphers
@@ -1363,19 +1359,16 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 
 		picBuf, err := encoder.Marshal(pic)
 		if err != nil {
-			log.Errorln(err)
 			return NegotiateReq{}, err
 		}
 
 		ccBuf, err := encoder.Marshal(cc)
 		if err != nil {
-			log.Errorln(err)
 			return NegotiateReq{}, err
 		}
 
 		scBuf, err := encoder.Marshal(sc)
 		if err != nil {
-			log.Errorln(err)
 			return NegotiateReq{}, err
 		}
 
@@ -1447,14 +1440,12 @@ func (s *Connection) NewSessionSetup1Req(spnegoClient *spnego.Client) (req Sessi
 
 	negTokenInitbytes, err := spnegoClient.InitSecContext(nil)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	var init gss.NegTokenInit
 	err = encoder.Unmarshal(negTokenInitbytes, &init)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1514,7 +1505,6 @@ func (s *Connection) NewSessionSetup2Req(sc []byte, msg *SessionSetup1Res) (Sess
 	var resp gss.NegTokenResp
 	err := encoder.Unmarshal(sc, &resp)
 	if err != nil {
-		log.Errorln(err)
 		return SessionSetup2Req{}, err
 	}
 
@@ -1816,7 +1806,7 @@ func (s *Session) NewWriteReq(share string, fileid []byte,
 
 func (f *File) NewIoCTLReq(operation uint32, data []byte) (*IoCtlReq, error) {
 	if f.fd == nil {
-		return nil, fmt.Errorf("Can't operate on a closed file")
+		return nil, fmt.Errorf("can't operate on a closed file")
 	}
 	header := newHeader()
 	header.Command = CommandIOCtl

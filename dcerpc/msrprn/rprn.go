@@ -129,25 +129,20 @@ func (c *RPCCon) RpcOpenPrinterEx(printerName string) (handle [20]byte, err erro
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return handle, err
 	}
 
 	result, err := c.MakeRequest(OpRpcOpenPrinterEx, buf)
 	if err != nil {
-		log.Errorln(err)
 		return handle, err
 	}
 
 	var resp rpcOpenPrinterExResNDR
 	if err = resp.Unmarshal(result); err != nil {
-		log.Errorln(err)
 		return handle, err
 	}
 
-	if resp.ReturnCode != ErrorSuccess {
-		err = responseError("RpcOpenPrinterEx", resp.ReturnCode)
-		log.Errorln(err)
+	if err = checkReturnCode("RpcOpenPrinterEx", resp.ReturnCode); err != nil {
 		return handle, err
 	}
 
@@ -165,25 +160,20 @@ func (c *RPCCon) RpcClosePrinter(handle *[20]byte) error {
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 
 	result, err := c.MakeRequest(OpRpcClosePrinter, buf)
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 
 	var resp rpcClosePrinterResNDR
 	if err = resp.Unmarshal(result); err != nil {
-		log.Errorln(err)
 		return err
 	}
 
-	if resp.ReturnCode != ErrorSuccess {
-		err = responseError("RpcClosePrinter", resp.ReturnCode)
-		log.Errorln(err)
+	if err = checkReturnCode("RpcClosePrinter", resp.ReturnCode); err != nil {
 		return err
 	}
 
@@ -212,25 +202,20 @@ func (c *RPCCon) RpcRemoteFindFirstPrinterChangeNotification(
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 
 	result, err := c.MakeRequest(OpRpcRemoteFindFirstPrinterChangeNotification, buf)
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 
 	var resp rpcRFFPCNResNDR
 	if err = resp.Unmarshal(result); err != nil {
-		log.Errorln(err)
 		return err
 	}
 
-	if resp.ReturnCode != ErrorSuccess {
-		err = responseError("RpcRemoteFindFirstPrinterChangeNotification", resp.ReturnCode)
-		log.Errorln(err)
+	if err = checkReturnCode("RpcRemoteFindFirstPrinterChangeNotification", resp.ReturnCode); err != nil {
 		return err
 	}
 
@@ -267,34 +252,37 @@ func (c *RPCCon) RpcRemoteFindFirstPrinterChangeNotificationEx(
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 
 	result, err := c.MakeRequest(OpRpcRemoteFindFirstPrinterChangeNotificationEx, buf)
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 
 	var resp rpcRFFPCNExResNDR
 	if err = resp.Unmarshal(result); err != nil {
-		log.Errorln(err)
 		return err
 	}
 
-	if resp.ReturnCode != ErrorSuccess {
-		err = responseError("RpcRemoteFindFirstPrinterChangeNotificationEx", resp.ReturnCode)
-		log.Errorln(err)
+	if err = checkReturnCode("RpcRemoteFindFirstPrinterChangeNotificationEx", resp.ReturnCode); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func responseError(method string, code uint32) error {
-	if errMsg, ok := ResponseCodeMap[code]; ok {
-		return fmt.Errorf("%s returned error: %v", method, errMsg)
+// checkReturnCode maps a non-success RPC return code to a *dcerpc.StatusError
+// carrying the op, the raw code and the mapped sentinel from ResponseCodeMap
+// (nil when unmapped). Codes in okCodes are treated as success.
+func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
+	if code == ErrorSuccess {
+		return nil
 	}
-	return fmt.Errorf("%s returned unknown error: 0x%08x", method, code)
+	for _, ok := range okCodes {
+		if code == ok {
+			return nil
+		}
+	}
+	return &dcerpc.StatusError{Op: op, Code: code, Err: ResponseCodeMap[code]}
 }

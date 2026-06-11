@@ -47,34 +47,33 @@ func timeToFileTime(t time.Time) uint64 {
 // handleCreate parses an inbound Create request, looks up the share's VFS,
 // invokes it, registers the resulting handle, and replies with a CreateRes.
 func (c *Conn) handleCreate(ctx pduCtx, raw []byte, h *smb.Header) error {
-	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	sess := c.session(h.SessionID)
 	if sess == nil || !sess.Authenticated {
-		logger.Debugf("Create from %s: session %d not authenticated -> StatusUserSessionDeleted", c.RemoteAddr, h.SessionID)
+		logger.Debugf("Create: session %d not authenticated -> StatusUserSessionDeleted", h.SessionID)
 		return c.writeRawError(ctx, h, smb.StatusUserSessionDeleted)
 	}
 	tree := sess.tree(h.TreeID)
 	if tree == nil {
-		logger.Debugf("Create from %s: unknown TreeID %d on session %d -> StatusNetworkNameDeleted", c.RemoteAddr, h.TreeID, sess.ID)
+		logger.Debugf("Create: unknown TreeID %d on session %d -> StatusNetworkNameDeleted", h.TreeID, sess.ID)
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 
 	var req smb.CreateReq
 	if err := encoder.Unmarshal(raw, &req); err != nil {
-		logger.Errorf("Create from %s: decode CreateReq: %v", c.RemoteAddr, err)
+		logger.Errorf("Create: decode CreateReq: %v", err)
 		return formatErr("decode CreateReq", err)
 	}
 
 	nameBytes, err := req.CreateReqName()
 	if err != nil {
-		logger.Errorf("Create from %s: CreateReqName: %v", c.RemoteAddr, err)
+		logger.Errorf("Create: CreateReqName: %v", err)
 		return formatErr("CreateReq name", err)
 	}
 	name, err := encoder.FromUnicodeString(nameBytes)
 	if err != nil {
-		logger.Errorf("Create from %s: decode name: %v", c.RemoteAddr, err)
+		logger.Errorf("Create: decode name: %v", err)
 		return formatErr("CreateReq decode name", err)
 	}
 	name = normalizeSMBPath(name)
@@ -127,7 +126,7 @@ func (c *Conn) handleCreate(ctx pduCtx, raw []byte, h *smb.Header) error {
 		return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
 	}
 	if status != smb.StatusOk {
-		logger.Debugf("Create from %s: VFS.Create %q returned status=0x%08x", c.RemoteAddr, name, status)
+		logger.Debugf("Create: VFS.Create %q returned status=0x%08x", name, status)
 		return c.writeRawError(ctx, h, status)
 	}
 
@@ -162,7 +161,7 @@ func (c *Conn) handleCreate(ctx pduCtx, raw []byte, h *smb.Header) error {
 // tree's handle table.
 func (c *Conn) handleCreatePipe(ctx pduCtx, h *smb.Header, tree *Tree, name string) error {
 	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	if cfg.PipeOpener == nil {
 		logger.Debugf("Create pipe %q from %s: no PipeOpener configured -> StatusObjectNameNotFound", name, c.RemoteAddr)
@@ -203,28 +202,28 @@ func (c *Conn) handleCreatePipe(ctx pduCtx, h *smb.Header, tree *Tree, name stri
 // snapshot fields are zero per spec.
 func (c *Conn) handleClose(ctx pduCtx, raw []byte, h *smb.Header) error {
 	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	sess := c.session(h.SessionID)
 	if sess == nil || !sess.Authenticated {
-		logger.Debugf("Close from %s: session %d not authenticated -> StatusUserSessionDeleted", c.RemoteAddr, h.SessionID)
+		logger.Debugf("Close: session %d not authenticated -> StatusUserSessionDeleted", h.SessionID)
 		return c.writeRawError(ctx, h, smb.StatusUserSessionDeleted)
 	}
 	tree := sess.tree(h.TreeID)
 	if tree == nil {
-		logger.Debugf("Close from %s: unknown TreeID %d -> StatusNetworkNameDeleted", c.RemoteAddr, h.TreeID)
+		logger.Debugf("Close: unknown TreeID %d -> StatusNetworkNameDeleted", h.TreeID)
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 
 	var req smb.CloseReq
 	if err := encoder.Unmarshal(raw, &req); err != nil {
-		logger.Errorf("Close from %s: decode CloseReq: %v", c.RemoteAddr, err)
+		logger.Errorf("Close: decode CloseReq: %v", err)
 		return formatErr("decode CloseReq", err)
 	}
 	volatile := volatileFromFileID(req.FileId)
 	hndl := tree.evictHandle(volatile)
 	if hndl == nil {
-		logger.Debugf("Close from %s: tree=%d unknown volatileFID=%d -> StatusFileClosed", c.RemoteAddr, tree.ID, volatile)
+		logger.Debugf("Close: tree=%d unknown volatileFID=%d -> StatusFileClosed", tree.ID, volatile)
 		return c.writeRawError(ctx, h, smb.StatusFileClosed)
 	}
 
@@ -234,7 +233,7 @@ func (c *Conn) handleClose(ctx pduCtx, raw []byte, h *smb.Header) error {
 	if req.Flags&0x0001 != 0 {
 		var statErr error
 		if info, statErr = hndl.Stat(); statErr != nil {
-			logger.Debugf("Close from %s: Stat for POSTQUERY_ATTRIB failed: %v", c.RemoteAddr, statErr)
+			logger.Debugf("Close: Stat for POSTQUERY_ATTRIB failed: %v", statErr)
 		}
 	}
 

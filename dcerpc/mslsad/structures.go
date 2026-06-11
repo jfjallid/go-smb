@@ -213,13 +213,13 @@ func (s *LsarCloseReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling LsarCloseReq: %v", err)
+		err = fmt.Errorf("error marshaling LsarCloseReq: %w", err)
 	}
 	return
 }
 
 func (s *LsarCloseReq) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarCloseReq")
+	return fmt.Errorf("not implemented: UnmarshalBinary of LsarCloseReq")
 }
 
 func (s *LsarQueryInformationPolicyReq) MarshalBinary() (res []byte, err error) {
@@ -228,28 +228,28 @@ func (s *LsarQueryInformationPolicyReq) MarshalBinary() (res []byte, err error) 
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling LsarQueryInformationPolicyReq: %v", err)
+		err = fmt.Errorf("error marshaling LsarQueryInformationPolicyReq: %w", err)
 	}
 	return
 }
 
 func (s *LsarQueryInformationPolicyReq) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarQueryInformationPolicyReq")
+	return fmt.Errorf("not implemented: UnmarshalBinary of LsarQueryInformationPolicyReq")
 }
 
 func (s *LsarQueryInformationPolicyRes) MarshalBinary() ([]byte, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarQueryInformationPolicyRes")
+	return nil, fmt.Errorf("not implemented: MarshalBinary of LsarQueryInformationPolicyRes")
 }
 
 func (s *LsarQueryInformationPolicyRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Traceln("In UnmarshalBinary for LsarQueryInformationPolicyRes")
 	if len(buf) < 24 {
-		return fmt.Errorf("Buffer to small for LsarQueryInformationPolicyRes")
+		return fmt.Errorf("buffer too small for LsarQueryInformationPolicyRes")
 	}
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling LsarQueryInformationPolicyRes: %v", err)
+		return fmt.Errorf("error unmarshaling LsarQueryInformationPolicyRes: %w", err)
 	}
 
 	return
@@ -261,28 +261,28 @@ func (s *LsarCreateAccountReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling LsarCreateAccountReq: %v", err)
+		err = fmt.Errorf("error marshaling LsarCreateAccountReq: %w", err)
 	}
 	return
 }
 
 func (s *LsarCreateAccountReq) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarCreateAccountReq")
+	return fmt.Errorf("not implemented: UnmarshalBinary of LsarCreateAccountReq")
 }
 
 func (s *LsarCreateAccountRes) MarshalBinary() ([]byte, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarCreateAccountRes")
+	return nil, fmt.Errorf("not implemented: MarshalBinary of LsarCreateAccountRes")
 }
 
 func (s *LsarCreateAccountRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Traceln("In UnmarshalBinary for LsarCreateAccountRes")
 	if len(buf) < 24 {
-		return fmt.Errorf("Buffer to small for LsarCreateAccountRes")
+		return fmt.Errorf("buffer too small for LsarCreateAccountRes")
 	}
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling LsarCreateAccountRes: %v", err)
+		return fmt.Errorf("error unmarshaling LsarCreateAccountRes: %w", err)
 	}
 
 	return
@@ -294,28 +294,28 @@ func (s *LsarEnumerateAccountsReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling LsarEnumerateAccountsReq: %v", err)
+		err = fmt.Errorf("error marshaling LsarEnumerateAccountsReq: %w", err)
 	}
 	return
 }
 
 func (s *LsarEnumerateAccountsReq) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarEnumerateAccountsReq")
+	return fmt.Errorf("not implemented: UnmarshalBinary of LsarEnumerateAccountsReq")
 }
 
 func (s *LsarEnumerateAccountsRes) MarshalBinary() ([]byte, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarEnumerateAccountsRes")
+	return nil, fmt.Errorf("not implemented: MarshalBinary of LsarEnumerateAccountsRes")
 }
 
 func (s *LsarEnumerateAccountsRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Traceln("In UnmarshalBinary for LsarEnumerateAccountsRes")
 	if len(buf) < 16 {
-		return fmt.Errorf("Buffer to small for LsarEnumerateAccountsRes")
+		return fmt.Errorf("buffer too small for LsarEnumerateAccountsRes")
 	}
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling LsarEnumerateAccountsRes: %v", err)
+		return fmt.Errorf("error unmarshaling LsarEnumerateAccountsRes: %w", err)
 	}
 
 	return
@@ -327,28 +327,28 @@ func (s *LsarOpenAccountReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling LsarOpenAccountReq: %v", err)
+		err = fmt.Errorf("error marshaling LsarOpenAccountReq: %w", err)
 	}
 	return
 }
 
 func (s *LsarOpenAccountReq) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarOpenAccountReq")
+	return fmt.Errorf("not implemented: UnmarshalBinary of LsarOpenAccountReq")
 }
 
 func (s *LsarOpenAccountRes) MarshalBinary() ([]byte, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarOpenAccountRes")
+	return nil, fmt.Errorf("not implemented: MarshalBinary of LsarOpenAccountRes")
 }
 
 func (s *LsarOpenAccountRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Traceln("In UnmarshalBinary for LsarOpenAccountRes")
 	if len(buf) < 20 {
-		return fmt.Errorf("Buffer to small for LsarOpenAccountRes")
+		return fmt.Errorf("buffer too small for LsarOpenAccountRes")
 	}
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling LsarOpenAccountRes: %v", err)
+		return fmt.Errorf("error unmarshaling LsarOpenAccountRes: %w", err)
 	}
 
 	return
@@ -360,28 +360,28 @@ func (s *LsarGetSystemAccessAccountReq) MarshalBinary() (res []byte, err error) 
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling LsarGetSystemAccessAccountReq: %v", err)
+		err = fmt.Errorf("error marshaling LsarGetSystemAccessAccountReq: %w", err)
 	}
 	return
 }
 
 func (s *LsarGetSystemAccessAccountReq) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarGetSystemAccessAccountReq")
+	return fmt.Errorf("not implemented: UnmarshalBinary of LsarGetSystemAccessAccountReq")
 }
 
 func (s *LsarGetSystemAccessAccountRes) MarshalBinary() ([]byte, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarGetSystemAccessAccountRes")
+	return nil, fmt.Errorf("not implemented: MarshalBinary of LsarGetSystemAccessAccountRes")
 }
 
 func (s *LsarGetSystemAccessAccountRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Traceln("In UnmarshalBinary for LsarGetSystemAccessAccountRes")
 	if len(buf) < 8 {
-		return fmt.Errorf("Buffer to small for LsarGetSystemAccessAccountRes")
+		return fmt.Errorf("buffer too small for LsarGetSystemAccessAccountRes")
 	}
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling LsarGetSystemAccessAccountRes: %v", err)
+		return fmt.Errorf("error unmarshaling LsarGetSystemAccessAccountRes: %w", err)
 	}
 
 	return
@@ -393,13 +393,13 @@ func (s *LsarSetSystemAccessAccountReq) MarshalBinary() (res []byte, err error) 
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling LsarSetSystemAccessAccountReq: %v", err)
+		err = fmt.Errorf("error marshaling LsarSetSystemAccessAccountReq: %w", err)
 	}
 	return
 }
 
 func (s *LsarSetSystemAccessAccountReq) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarSetSystemAccessAccountReq")
+	return fmt.Errorf("not implemented: UnmarshalBinary of LsarSetSystemAccessAccountReq")
 }
 
 func (s *LsarEnumerateAccountRightsReq) MarshalBinary() (res []byte, err error) {
@@ -408,28 +408,28 @@ func (s *LsarEnumerateAccountRightsReq) MarshalBinary() (res []byte, err error) 
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling LsarEnumerateAccountRightsReq: %v", err)
+		err = fmt.Errorf("error marshaling LsarEnumerateAccountRightsReq: %w", err)
 	}
 	return
 }
 
 func (s *LsarEnumerateAccountRightsReq) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarEnumerateAccountRightsReq")
+	return fmt.Errorf("not implemented: UnmarshalBinary of LsarEnumerateAccountRightsReq")
 }
 
 func (s *LsarEnumerateAccountRightsRes) MarshalBinary() ([]byte, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarEnumerateAccountRightsRes")
+	return nil, fmt.Errorf("not implemented: MarshalBinary of LsarEnumerateAccountRightsRes")
 }
 
 func (s *LsarEnumerateAccountRightsRes) UnmarshalBinary(buf []byte) (err error) {
 	log.Traceln("In UnmarshalBinary for LsarEnumerateAccountRightsRes")
 	if len(buf) < 12 {
-		return fmt.Errorf("Buffer to small for LsarEnumerateAccountRightsRes")
+		return fmt.Errorf("buffer too small for LsarEnumerateAccountRightsRes")
 	}
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling LsarEnumerateAccountRightsRes: %v", err)
+		return fmt.Errorf("error unmarshaling LsarEnumerateAccountRightsRes: %w", err)
 	}
 	return
 }
@@ -440,13 +440,13 @@ func (s *LsarAddAccountRightsReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling LsarAddAccountRightsReq: %v", err)
+		err = fmt.Errorf("error marshaling LsarAddAccountRightsReq: %w", err)
 	}
 	return
 }
 
 func (s *LsarAddAccountRightsReq) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarAddAccountRightsReq")
+	return fmt.Errorf("not implemented: UnmarshalBinary of LsarAddAccountRightsReq")
 }
 
 func (s *LsarRemoveAccountRightsReq) MarshalBinary() (res []byte, err error) {
@@ -455,13 +455,13 @@ func (s *LsarRemoveAccountRightsReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling LsarRemoveAccountRightsReq: %v", err)
+		err = fmt.Errorf("error marshaling LsarRemoveAccountRightsReq: %w", err)
 	}
 	return
 }
 
 func (s *LsarRemoveAccountRightsReq) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarRemoveAccountRightsReq")
+	return fmt.Errorf("not implemented: UnmarshalBinary of LsarRemoveAccountRightsReq")
 }
 
 func (s *LsarOpenPolicy2Req) MarshalBinary() (res []byte, err error) {
@@ -470,28 +470,28 @@ func (s *LsarOpenPolicy2Req) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling LsarOpenPolicy2Req: %v", err)
+		err = fmt.Errorf("error marshaling LsarOpenPolicy2Req: %w", err)
 	}
 	return
 }
 
 func (s *LsarOpenPolicy2Req) UnmarshalBinary(buf []byte) error {
-	return fmt.Errorf("NOT IMPLEMENTED UnmarshalBinary of LsarOpenPolicy2Req")
+	return fmt.Errorf("not implemented: UnmarshalBinary of LsarOpenPolicy2Req")
 }
 
 func (s *LsarOpenPolicy2Res) MarshalBinary() ([]byte, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED MarshalBinary of LsarOpenPolicy2Res")
+	return nil, fmt.Errorf("not implemented: MarshalBinary of LsarOpenPolicy2Res")
 }
 
 func (s *LsarOpenPolicy2Res) UnmarshalBinary(buf []byte) (err error) {
 	log.Traceln("In UnmarshalBinary for LsarOpenPolicy2Res")
 	if len(buf) < 24 {
-		return fmt.Errorf("Buffer to small for LsarOpenPolicy2Res")
+		return fmt.Errorf("buffer too small for LsarOpenPolicy2Res")
 	}
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling LsarOpenPolicy2Res: %v", err)
+		return fmt.Errorf("error unmarshaling LsarOpenPolicy2Res: %w", err)
 	}
 
 	return

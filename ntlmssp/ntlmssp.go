@@ -456,8 +456,7 @@ func (s *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 	baseSize := 64
 	bufLen := len(buf)
 	if bufLen < baseSize {
-		err := fmt.Errorf("Authenticate buffer is only %d bytes, but at least 64 bytes is required to unmarshal", bufLen)
-		log.Errorln(err)
+		err := fmt.Errorf("authenticate buffer is only %d bytes, but at least 64 bytes is required to unmarshal", bufLen)
 		return err
 	}
 
@@ -494,33 +493,27 @@ func (s *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 
 	// Sanity check that none of the offsets + lengths points outside buffer
 	if (s.LmChallengeResponseBufferOffset + uint32(s.LmChallengeResponseLen)) > uint32(bufLen) {
-		err := fmt.Errorf("Custom length field offset is outside buffer")
-		log.Errorln(err)
+		err := fmt.Errorf("custom length field offset is outside buffer")
 		return err
 	}
 	if (s.NtChallengResponseBufferOffset + uint32(s.NtChallengeResponseLen)) > uint32(bufLen) {
-		err := fmt.Errorf("Custom length field offset is outside buffer")
-		log.Errorln(err)
+		err := fmt.Errorf("custom length field offset is outside buffer")
 		return err
 	}
 	if (s.DomainNameBufferOffset + uint32(s.DomainNameLen)) > uint32(bufLen) {
-		err := fmt.Errorf("Custom length field offset is outside buffer")
-		log.Errorln(err)
+		err := fmt.Errorf("custom length field offset is outside buffer")
 		return err
 	}
 	if (s.UserNameBufferOffset + uint32(s.UserNameLen)) > uint32(bufLen) {
-		err := fmt.Errorf("Custom length field offset is outside buffer")
-		log.Errorln(err)
+		err := fmt.Errorf("custom length field offset is outside buffer")
 		return err
 	}
 	if (s.WorkstationBufferOffset + uint32(s.WorkstationLen)) > uint32(bufLen) {
-		err := fmt.Errorf("Custom length field offset is outside buffer")
-		log.Errorln(err)
+		err := fmt.Errorf("custom length field offset is outside buffer")
 		return err
 	}
 	if (s.EncryptedRandomSessionKeyBufferOffset + uint32(s.EncryptedRandomSessionKeyLen)) > uint32(bufLen) {
-		err := fmt.Errorf("Custom length field offset is outside buffer")
-		log.Errorln(err)
+		err := fmt.Errorf("custom length field offset is outside buffer")
 		return err
 	}
 
@@ -531,8 +524,7 @@ func (s *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 		extraBytes += 8
 	}
 	if baseSize+extraBytes > bufLen {
-		err := fmt.Errorf("Authenticate buffer is only %d bytes, but at least %d bytes is required to unmarshal all the specified custom length fields", bufLen, baseSize+extraBytes)
-		log.Errorln(err)
+		err := fmt.Errorf("authenticate buffer is only %d bytes, but at least %d bytes is required to unmarshal all the specified custom length fields", bufLen, baseSize+extraBytes)
 		return err
 	}
 
@@ -628,11 +620,11 @@ func (s *AvPairSlice) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error 
 	slice := []AvPair{}
 	l, ok := meta.Lens[meta.CurrField]
 	if !ok {
-		return fmt.Errorf("Cannot unmarshal field '%s'. Missing length", meta.CurrField)
+		return fmt.Errorf("cannot unmarshal field '%s', missing length", meta.CurrField)
 	}
 	o, ok := meta.Offsets[meta.CurrField]
 	if !ok {
-		return fmt.Errorf("Cannot unmarshal field '%s'. Missing offset", meta.CurrField)
+		return fmt.Errorf("cannot unmarshal field '%s', missing offset", meta.CurrField)
 	}
 	for i := l; i > 0; {
 		var avPair AvPair

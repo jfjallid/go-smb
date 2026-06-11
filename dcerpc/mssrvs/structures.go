@@ -506,7 +506,7 @@ func (s *NetServerGetInfoRequest) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetServerGetInfoRequest: %v", err)
+		err = fmt.Errorf("error marshaling NetServerGetInfoRequest: %w", err)
 	}
 	return
 }
@@ -515,7 +515,7 @@ func (s *NetServerGetInfoRequest) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetServerGetInfoRequest: %v", err)
+		return fmt.Errorf("error unmarshaling NetServerGetInfoRequest: %w", err)
 	}
 	return nil
 }
@@ -525,7 +525,7 @@ func (s *NetServerGetInfoResponse) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetServerGetInfoResponse: %v", err)
+		err = fmt.Errorf("error marshaling NetServerGetInfoResponse: %w", err)
 	}
 	return
 }
@@ -535,7 +535,7 @@ func (s *NetServerGetInfoResponse) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetServerGetInfoResponse: %v", err)
+		return fmt.Errorf("error unmarshaling NetServerGetInfoResponse: %w", err)
 	}
 	return nil
 }
@@ -546,7 +546,7 @@ func (s *NetSessionEnumRequest) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetSessionEnumRequest: %v", err)
+		err = fmt.Errorf("error marshaling NetSessionEnumRequest: %w", err)
 	}
 	return
 }
@@ -555,7 +555,7 @@ func (s *NetSessionEnumRequest) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetSessionEnumRequest: %v", err)
+		return fmt.Errorf("error unmarshaling NetSessionEnumRequest: %w", err)
 	}
 	return nil
 }
@@ -565,7 +565,7 @@ func (s *NetSessionEnumResponse) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetSessionEnumResponse: %v", err)
+		err = fmt.Errorf("error marshaling NetSessionEnumResponse: %w", err)
 	}
 	return
 }
@@ -575,7 +575,7 @@ func (s *NetSessionEnumResponse) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetSessionEnumResponse: %v", err)
+		return fmt.Errorf("error unmarshaling NetSessionEnumResponse: %w", err)
 	}
 	return nil
 }
@@ -585,7 +585,7 @@ func (s *NetrpGetFileSecurityReq) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetrpGetFileSecurityReq: %v", err)
+		err = fmt.Errorf("error marshaling NetrpGetFileSecurityReq: %w", err)
 	}
 	return
 }
@@ -594,7 +594,7 @@ func (s *NetrpGetFileSecurityReq) Unmarshal(b []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err = dec.Decode(s)
 	if err != nil {
-		err = fmt.Errorf("error unmarshaling NetrpGetFileSecurityReq: %v", err)
+		err = fmt.Errorf("error unmarshaling NetrpGetFileSecurityReq: %w", err)
 	}
 	return
 }
@@ -604,7 +604,7 @@ func (s *NetrpGetFileSecurityRes) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetrpGetFileSecurityRes: %v", err)
+		err = fmt.Errorf("error marshaling NetrpGetFileSecurityRes: %w", err)
 	}
 	return
 }
@@ -613,7 +613,7 @@ func (s *NetrpGetFileSecurityRes) Unmarshal(b []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err = dec.Decode(s)
 	if err != nil {
-		err = fmt.Errorf("error unmarshaling NetrpGetFileSecurityRes: %v", err)
+		err = fmt.Errorf("error unmarshaling NetrpGetFileSecurityRes: %w", err)
 	}
 	return
 }
@@ -624,7 +624,7 @@ func (s *NetShareEnumAllRequest) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetShareEnumAllRequest: %v", err)
+		err = fmt.Errorf("error marshaling NetShareEnumAllRequest: %w", err)
 	}
 	return
 }
@@ -633,7 +633,7 @@ func (s *NetShareEnumAllRequest) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetShareEnumAllRequest: %v", err)
+		return fmt.Errorf("error unmarshaling NetShareEnumAllRequest: %w", err)
 	}
 	return nil
 }
@@ -643,7 +643,7 @@ func (s *NetShareEnumAllResponse) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetShareEnumAllResponse: %v", err)
+		err = fmt.Errorf("error marshaling NetShareEnumAllResponse: %w", err)
 	}
 	return
 }
@@ -653,7 +653,7 @@ func (s *NetShareEnumAllResponse) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetShareEnumAllResponse: %v", err)
+		return fmt.Errorf("error unmarshaling NetShareEnumAllResponse: %w", err)
 	}
 	return nil
 }
@@ -664,7 +664,7 @@ func (s *NetShareGetInfoRequest) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetShareGetInfoRequest: %v", err)
+		err = fmt.Errorf("error marshaling NetShareGetInfoRequest: %w", err)
 	}
 	return
 }
@@ -673,7 +673,7 @@ func (s *NetShareGetInfoRequest) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetShareGetInfoRequest: %v", err)
+		return fmt.Errorf("error unmarshaling NetShareGetInfoRequest: %w", err)
 	}
 	return nil
 }
@@ -683,7 +683,7 @@ func (s *NetShareGetInfoResponse) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetShareGetInfoResponse: %v", err)
+		err = fmt.Errorf("error marshaling NetShareGetInfoResponse: %w", err)
 	}
 	return
 }
@@ -693,7 +693,7 @@ func (s *NetShareGetInfoResponse) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetShareGetInfoResponse: %v", err)
+		return fmt.Errorf("error unmarshaling NetShareGetInfoResponse: %w", err)
 	}
 	return nil
 }
@@ -704,7 +704,7 @@ func (s *NetShareSetInfoRequest) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetShareSetInfoRequest: %v", err)
+		err = fmt.Errorf("error marshaling NetShareSetInfoRequest: %w", err)
 	}
 	return
 }
@@ -713,7 +713,7 @@ func (s *NetShareSetInfoRequest) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetShareSetInfoRequest: %v", err)
+		return fmt.Errorf("error unmarshaling NetShareSetInfoRequest: %w", err)
 	}
 	return nil
 }
@@ -723,7 +723,7 @@ func (s *NetShareSetInfoResponse) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetShareSetInfoResponse: %v", err)
+		err = fmt.Errorf("error marshaling NetShareSetInfoResponse: %w", err)
 	}
 	return
 }
@@ -733,7 +733,7 @@ func (s *NetShareSetInfoResponse) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetShareSetInfoResponse: %v", err)
+		return fmt.Errorf("error unmarshaling NetShareSetInfoResponse: %w", err)
 	}
 	return nil
 }
@@ -744,7 +744,7 @@ func (s *NetServerDiskEnumRequest) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetServerDiskEnumRequest: %v", err)
+		err = fmt.Errorf("error marshaling NetServerDiskEnumRequest: %w", err)
 	}
 	return
 }
@@ -753,7 +753,7 @@ func (s *NetServerDiskEnumRequest) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetServerDiskEnumRequest: %v", err)
+		return fmt.Errorf("error unmarshaling NetServerDiskEnumRequest: %w", err)
 	}
 	return nil
 }
@@ -763,7 +763,7 @@ func (s *NetServerDiskEnumResponse) Marshal() (b []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling NetServerDiskEnumResponse: %v", err)
+		err = fmt.Errorf("error marshaling NetServerDiskEnumResponse: %w", err)
 	}
 	return
 }
@@ -773,7 +773,7 @@ func (s *NetServerDiskEnumResponse) Unmarshal(b []byte) error {
 	dec := ndr.NewDecoder(bytes.NewReader(b), false)
 	err := dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling NetServerDiskEnumResponse: %v", err)
+		return fmt.Errorf("error unmarshaling NetServerDiskEnumResponse: %w", err)
 	}
 	return nil
 }

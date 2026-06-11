@@ -327,6 +327,24 @@ var ServiceSidTypeMap = map[uint32]string{
 	ServiceSidTypeRestricted:   "SidTypeRestricted",
 }
 
+// checkReturnCode maps a non-zero SCMR return code to a *dcerpc.StatusError
+// carrying op, the raw code, and the mapped sentinel from
+// ServiceResponseCodeMap (nil when unmapped). Codes in okCodes are treated
+// as success in addition to ErrorSuccess. The raw code field varies by RPC
+// method (ReturnCode / ReturnValue / ErrorCode), so callers pass the right
+// one.
+func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
+	if code == ErrorSuccess {
+		return nil
+	}
+	for _, ok := range okCodes {
+		if code == ok {
+			return nil
+		}
+	}
+	return &dcerpc.StatusError{Op: op, Code: code, Err: ServiceResponseCodeMap[code]}
+}
+
 func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 	return &RPCCon{ServiceBind: sb}
 }
@@ -341,14 +359,12 @@ func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err er
 	}
 
 	if _, ok := StartTypeStatusMap[config.StartType]; !ok {
-		err = fmt.Errorf("Could not identify returned start type: %d\n", config.StartType)
-		log.Errorln(err)
+		err = fmt.Errorf("could not identify returned start type: %d", config.StartType)
 	}
 	res.StartType = StartTypeStatusMap[config.StartType]
 
 	if _, ok := ErrorControlStatusMap[config.ErrorControl]; !ok {
-		err = fmt.Errorf("Could not identify returned start type: %d\n", config.ErrorControl)
-		log.Errorln(err)
+		err = fmt.Errorf("could not identify returned error control: %d", config.ErrorControl)
 	}
 	res.ErrorControl = ErrorControlStatusMap[config.ErrorControl]
 
@@ -360,8 +376,7 @@ func decodeServiceConfig(config *QueryServiceConfigW) (res ServiceConfig, err er
 	res.DisplayName = config.DisplayName
 
 	if err != nil {
-		err = fmt.Errorf("Error decoding service config: %s\n", err)
-		log.Errorln(err)
+		err = fmt.Errorf("decode service config: %w", err)
 	}
 
 	return
@@ -377,14 +392,12 @@ func (sb *RPCCon) ChangeServiceConfigExt(serviceName string, config *ServiceConf
 			parts := strings.Split(config.ServiceType, " ")
 			val, err2 := strconv.ParseUint(parts[2][2:], 16, 32)
 			if err2 != nil {
-				log.Errorln(err2)
 				err = err2
 				return
 			}
 			serviceType = uint32(val)
 		} else {
-			err = fmt.Errorf("Could not identify service type: %s\n", config.ServiceType)
-			log.Errorln(err)
+			err = fmt.Errorf("could not identify service type: %s", config.ServiceType)
 			return
 		}
 	} else {
@@ -392,21 +405,18 @@ func (sb *RPCCon) ChangeServiceConfigExt(serviceName string, config *ServiceConf
 	}
 
 	if _, ok := StartTypeMap[config.StartType]; !ok {
-		err = fmt.Errorf("Could not identify start type: %s\n", config.StartType)
-		log.Errorln(err)
+		err = fmt.Errorf("could not identify start type: %s", config.StartType)
 		return
 	}
 	startType = StartTypeMap[config.StartType]
 
 	if _, ok := ErrorControlMap[config.ErrorControl]; !ok {
-		err = fmt.Errorf("Could not identify start type: %s\n", config.ErrorControl)
-		log.Errorln(err)
+		err = fmt.Errorf("could not identify error control: %s", config.ErrorControl)
 		return
 	}
 	errorControl = ErrorControlMap[config.ErrorControl]
 	if err != nil {
-		err = fmt.Errorf("Error decoding service config: %s\n", err)
-		log.Errorln(err)
+		err = fmt.Errorf("decode service config: %w", err)
 		return
 	}
 
@@ -427,13 +437,11 @@ func (sb *RPCCon) openSCManager(desiredAccess uint32) (handle []byte, err error)
 	}
 	scBuf, err := scReq.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := sb.MakeRequest(SvcCtlROpenSCManagerW, scBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -441,18 +449,11 @@ func (sb *RPCCon) openSCManager(desiredAccess uint32) (handle []byte, err error)
 	res := ROpenSCManagerWRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if res.ReturnCode != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for ROpenSCManagerW: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		return nil, status
+	if err = checkReturnCode("ROpenSCManagerW", res.ReturnCode); err != nil {
+		return nil, err
 	}
 
 	handle = res.ContextHandle[:]
@@ -486,14 +487,8 @@ func (sb *RPCCon) openService(scHandle []byte, serviceName string, desiredAccess
 		return
 	}
 
-	if res.ReturnCode != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for ROpenServiceW: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		return nil, status
+	if err = checkReturnCode("ROpenServiceW", res.ReturnCode); err != nil {
+		return nil, err
 	}
 
 	handle = res.ContextHandle[:]
@@ -535,14 +530,8 @@ func (sb *RPCCon) GetServiceStatus(serviceName string) (status uint32, err error
 		return
 	}
 
-	if res.ReturnCode != ErrorSuccess {
-		msg, found := ServiceResponseCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RQueryServiceStatus: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		return 0, msg
+	if err = checkReturnCode("RQueryServiceStatus", res.ReturnCode); err != nil {
+		return
 	}
 
 	status = res.ServiceStatus.CurrentState
@@ -586,14 +575,8 @@ func (sb *RPCCon) StartService(serviceName string, args []string) (err error) {
 	}
 
 	returnValue := binary.LittleEndian.Uint32(buffer)
-	if returnValue != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[returnValue]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RStartServiceWReq: 0x%x\n", returnValue)
-			log.Errorln(err)
-			return err
-		}
-		return status
+	if err = checkReturnCode("RStartServiceWReq", returnValue); err != nil {
+		return err
 	}
 
 	return
@@ -636,14 +619,8 @@ func (sb *RPCCon) ControlService(serviceName string, control uint32) (err error)
 	}
 
 	// Retrieve context handle from response
-	if res.ReturnValue != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[res.ReturnValue]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RControlService: 0x%x\n", res.ReturnValue)
-			log.Errorln(err)
-			return
-		}
-		return status
+	if err = checkReturnCode("RControlService", res.ReturnValue); err != nil {
+		return err
 	}
 
 	return
@@ -687,14 +664,13 @@ func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, er
 		return
 	}
 
+	// The size probe (empty buffer) is expected to fail with
+	// ERROR_INSUFFICIENT_BUFFER; any other code is a real error.
 	if res.ErrorCode != ErrorInsufficientBuffer {
-		status, found := ServiceResponseCodeMap[res.ErrorCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RQueryServiceConfigW: 0x%x\n", res.ErrorCode)
-			log.Errorln(err)
-			return
+		if err = checkReturnCode("RQueryServiceConfigW", res.ErrorCode); err != nil {
+			return config, err
 		}
-		return config, status
+		return config, fmt.Errorf("RQueryServiceConfigW: unexpected success on size probe")
 	}
 
 	// Repeat request with allocated buffer size
@@ -716,14 +692,8 @@ func (sb *RPCCon) GetServiceConfig(serviceName string) (config ServiceConfig, er
 		return
 	}
 
-	if res.ErrorCode != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[res.ErrorCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RQueryServiceConfigW: 0x%x\n", res.ErrorCode)
-			log.Errorln(err)
-			return
-		}
-		return config, status
+	if err = checkReturnCode("RQueryServiceConfigW", res.ErrorCode); err != nil {
+		return config, err
 	}
 
 	return decodeServiceConfig(&res.ServiceConfig)
@@ -769,14 +739,13 @@ func (sb *RPCCon) queryServiceConfig2(serviceName string, infoLevel uint32) (res
 		return
 	}
 
+	// The size probe (empty buffer) is expected to fail with
+	// ERROR_INSUFFICIENT_BUFFER; any other code is a real error.
 	if res.ErrorCode != ErrorInsufficientBuffer {
-		status, found := ServiceResponseCodeMap[res.ErrorCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RQueryServiceConfig2W: 0x%x\n", res.ErrorCode)
-			log.Errorln(err)
-			return
+		if err = checkReturnCode("RQueryServiceConfig2W", res.ErrorCode); err != nil {
+			return nil, err
 		}
-		return nil, status
+		return nil, fmt.Errorf("RQueryServiceConfig2W: unexpected success on size probe")
 	}
 
 	// Repeat request with allocated buffer size
@@ -798,14 +767,8 @@ func (sb *RPCCon) queryServiceConfig2(serviceName string, infoLevel uint32) (res
 		return
 	}
 
-	if res.ErrorCode != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[res.ErrorCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RQueryServiceConfig2W: 0x%x\n", res.ErrorCode)
-			log.Errorln(err)
-			return
-		}
-		return nil, status
+	if err = checkReturnCode("RQueryServiceConfig2W", res.ErrorCode); err != nil {
+		return nil, err
 	}
 
 	result = res.Buffer
@@ -1043,7 +1006,6 @@ func (sb *RPCCon) ChangeServiceConfig(
 		uncPassword := msdtyp.ToUnicode(password + "\x00")
 		encPassword, err := dcerpc.EncryptSecretDes(sb.GetSessionKey(), uncPassword)
 		if err != nil {
-			log.Errorln(err)
 			return err
 		}
 		innerReq.Password = &encPassword
@@ -1052,13 +1014,11 @@ func (sb *RPCCon) ChangeServiceConfig(
 
 	innerBuf, err := innerReq.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := sb.MakeRequest(SvcCtlRChangeServiceConfigW, innerBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1066,17 +1026,10 @@ func (sb *RPCCon) ChangeServiceConfig(
 	res := RChangeServiceConfigWRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if res.ReturnCode != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RChangeServiceConfigW: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
-			return err
-		}
-		return status
+	if err = checkReturnCode("RChangeServiceConfigW", res.ReturnCode); err != nil {
+		return err
 	}
 
 	return
@@ -1118,19 +1071,13 @@ func (sb *RPCCon) ChangeServiceConfig2(serviceName string, info *ConfigInfoW) (e
 
 	// Parse response
 	if len(buffer) < 4 {
-		err = fmt.Errorf("Response too small for RChangeServiceConfig2W")
+		err = fmt.Errorf("response too small for RChangeServiceConfig2W")
 		return
 	}
 	errorCode := binary.LittleEndian.Uint32(buffer[:4])
 
-	if errorCode != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[errorCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RChangeServiceConfig2W: 0x%x\n", errorCode)
-			log.Errorln(err)
-			return
-		}
-		return status
+	if err = checkReturnCode("RChangeServiceConfig2W", errorCode); err != nil {
+		return err
 	}
 
 	return
@@ -1145,7 +1092,6 @@ func (sb *RPCCon) CreateService(
 
 	scHandle, err := sb.openSCManager(SCManagerCreateService)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.CloseServiceHandle(scHandle)
@@ -1177,7 +1123,6 @@ func (sb *RPCCon) CreateService(
 		uncPassword := msdtyp.ToUnicode(password + "\x00")
 		encPassword, err := dcerpc.EncryptSecretDes(sb.GetSessionKey(), uncPassword)
 		if err != nil {
-			log.Errorln(err)
 			return err
 		}
 		innerReq.Password = &encPassword
@@ -1186,13 +1131,11 @@ func (sb *RPCCon) CreateService(
 
 	innerBuf, err := innerReq.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := sb.MakeRequest(SvcCtlRCreateServiceW, innerBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1200,17 +1143,10 @@ func (sb *RPCCon) CreateService(
 	res := RCreateServiceWRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if res.ReturnCode != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RCreateServiceW: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
-			return err
-		}
-		return status
+	if err = checkReturnCode("RCreateServiceW", res.ReturnCode); err != nil {
+		return err
 	}
 
 	defer sb.CloseServiceHandle(res.ContextHandle[:])
@@ -1230,14 +1166,8 @@ func (sb *RPCCon) CreateService(
 		}
 
 		returnValue := binary.LittleEndian.Uint32(buffer)
-		if returnValue != ErrorSuccess {
-			status, found := ServiceResponseCodeMap[returnValue]
-			if !found {
-				err = fmt.Errorf("Received unknown return code for RStartServiceW: 0x%x\n", returnValue)
-				log.Errorln(err)
-				return err
-			}
-			return status
+		if err = checkReturnCode("RStartServiceW", returnValue); err != nil {
+			return err
 		}
 	}
 
@@ -1270,7 +1200,7 @@ func (sb *RPCCon) DeleteService(serviceName string) (err error) {
 
 	_, err = sb.MakeRequest(SvcCtlRControlService, csBuf)
 	if err != nil {
-		log.Errorln(err)
+		log.Warningln(err)
 		// Continue with deletion even if stop failed for some reason
 	}
 
@@ -1291,21 +1221,14 @@ func (sb *RPCCon) DeleteService(serviceName string) (err error) {
 	}
 
 	if len(buffer) < 4 {
-		err = fmt.Errorf("Invalid response to RDeleteServiceReq")
-		log.Errorln(err)
+		err = fmt.Errorf("invalid response to RDeleteServiceReq")
 		return
 	}
 
 	returnCode := le.Uint32(buffer[:4])
 
-	if returnCode != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RDeleteServiceReq: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return err
-		}
-		return status
+	if err = checkReturnCode("RDeleteServiceReq", returnCode); err != nil {
+		return err
 	}
 
 	return
@@ -1345,14 +1268,13 @@ func (sb *RPCCon) queryObjectSecurity(handle []byte, securityInformation uint32)
 		return
 	}
 
+	// The size probe (empty buffer) is expected to fail with
+	// ERROR_INSUFFICIENT_BUFFER; any other code is a real error.
 	if res.ErrorCode != ErrorInsufficientBuffer {
-		status, found := ServiceResponseCodeMap[res.ErrorCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RQueryServiceObjectSecurity: 0x%x\n", res.ErrorCode)
-			log.Errorln(err)
-			return
+		if err = checkReturnCode("RQueryServiceObjectSecurity", res.ErrorCode); err != nil {
+			return nil, err
 		}
-		return nil, status
+		return nil, fmt.Errorf("RQueryServiceObjectSecurity: unexpected success on size probe")
 	}
 
 	// Repeat request with allocated buffer size
@@ -1373,14 +1295,8 @@ func (sb *RPCCon) queryObjectSecurity(handle []byte, securityInformation uint32)
 		return
 	}
 
-	if res.ErrorCode != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[res.ErrorCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RQueryServiceObjectSecurity: 0x%x\n", res.ErrorCode)
-			log.Errorln(err)
-			return
-		}
-		return nil, status
+	if err = checkReturnCode("RQueryServiceObjectSecurity", res.ErrorCode); err != nil {
+		return nil, err
 	}
 
 	result = res.SecurityDescriptor
@@ -1455,7 +1371,6 @@ func (sb *RPCCon) GetServiceSecurity(serviceName string, securityInformation uin
 	}
 	sd := &msdtyp.SecurityDescriptor{}
 	if err = sd.UnmarshalBinary(buf); err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	return sd, nil
@@ -1478,7 +1393,6 @@ func (sb *RPCCon) GetSCManagerSecurity(securityInformation uint32) (*msdtyp.Secu
 	}
 	sd := &msdtyp.SecurityDescriptor{}
 	if err = sd.UnmarshalBinary(buf); err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 	return sd, nil
@@ -1503,8 +1417,7 @@ func (sb *RPCCon) setServiceObjectSecurity(serviceName string, securityInformati
 		desiredAccess |= AccessSystemSecurity
 	}
 	if desiredAccess == 0 {
-		err = fmt.Errorf("Invalid SecurityInformation: no OWNER, GROUP, DACL, or SACL bit set")
-		log.Errorln(err)
+		err = fmt.Errorf("setServiceObjectSecurity: invalid SecurityInformation, no OWNER, GROUP, DACL, or SACL bit set")
 		return
 	}
 
@@ -1539,20 +1452,13 @@ func (sb *RPCCon) setServiceObjectSecurity(serviceName string, securityInformati
 	}
 
 	if len(buffer) < 4 {
-		err = fmt.Errorf("Invalid response to RSetServiceObjectSecurity")
-		log.Errorln(err)
+		err = fmt.Errorf("invalid response to RSetServiceObjectSecurity")
 		return
 	}
 
 	returnCode := le.Uint32(buffer[:4])
-	if returnCode != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown return code for RSetServiceObjectSecurity: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return err
-		}
-		return status
+	if err = checkReturnCode("RSetServiceObjectSecurity", returnCode); err != nil {
+		return err
 	}
 
 	return
@@ -1571,7 +1477,6 @@ func (sb *RPCCon) SetServiceSecurity(serviceName string, securityInformation uin
 	log.Traceln("In SetServiceSecurity")
 	buf, err := sd.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 	return sb.setServiceObjectSecurity(serviceName, securityInformation, buf)
@@ -1582,7 +1487,6 @@ func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result [
 
 	scHandle, err := sb.openSCManager(SCManagerEnumerateService)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.CloseServiceHandle(scHandle)
@@ -1600,30 +1504,26 @@ func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result [
 
 	enumSSBuf, err := enumSSReq.Marshal()
 	if err != nil {
-		log.Errorf("Failed to encode EnumServicesStatus request with error: %v\n", err)
 		return
 	}
 
 	buffer, err := sb.MakeRequest(SvcCtlREnumServicesStatusW, enumSSBuf)
 	if err != nil {
-		log.Errorf("Failed to EnumServicesStatus with error: %v\n", err)
 		return
 	}
 
 	res := REnumServicesStatusWRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorf("Failed to unmarshal response of enumerate services status with error: %v\n", err)
 		return
 	}
 
+	// The size probe is expected to fail with ERROR_MORE_DATA so the server
+	// reports the required buffer size; any other code is a real error.
 	if res.ReturnCode != ErrorMoreData {
-		status, found := ServiceResponseCodeMap[res.ReturnCode]
-		if !found {
-			log.Errorf("Received unknown return code for REnumServicesStatus: 0x%x\n", res.ReturnCode)
+		if err = checkReturnCode("REnumServicesStatusW", res.ReturnCode); err != nil {
 			return
 		}
-		log.Errorf("Failed to enumerate services status with error (return value: 0x%x): %v\n", res.ReturnCode, status)
 		return
 	}
 
@@ -1633,31 +1533,22 @@ func (sb *RPCCon) EnumServicesStatus(serviceType, serviceState uint32) (result [
 
 	enumSSBuf, err = enumSSReq.Marshal()
 	if err != nil {
-		log.Errorf("Failed to encode EnumServicesStatus request with error: %v\n", err)
 		return
 	}
 
 	log.Debugln("Attempting to list all services")
 	buffer, err = sb.MakeRequest(SvcCtlREnumServicesStatusW, enumSSBuf)
 	if err != nil {
-		log.Errorf("Failed to EnumServicesStatus with error: %v\n", err)
 		return
 	}
 
 	res = REnumServicesStatusWRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorf("Failed to unmarshal response of enumerate services status with error: %v\n", err)
 		return
 	}
 
-	if res.ReturnCode != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[res.ReturnCode]
-		if !found {
-			log.Errorf("Received unknown return code for REnumServicesStatus: 0x%x\n", res.ReturnCode)
-			return
-		}
-		log.Errorf("Failed to enumerate services status with error (return value: 0x%x): %v\n", res.ReturnCode, status)
+	if err = checkReturnCode("REnumServicesStatusW", res.ReturnCode); err != nil {
 		return
 	}
 
@@ -1677,31 +1568,25 @@ func (sb *RPCCon) CloseServiceHandle(serviceHandle []byte) {
 	}
 	closeBuf, err := closeReq.Marshal()
 	if err != nil {
-		log.Errorf("Failed to encode close service handle request with error: %v\n", err)
+		log.Errorf("failed to encode close service handle request: %v", err)
 		return
 	}
 
 	buffer, err := sb.MakeRequest(SvcCtlRCloseServiceHandle, closeBuf)
 	if err != nil {
-		log.Errorf("Failed to close service handle with error: %v\n", err)
+		log.Errorf("failed to close service handle: %v", err)
 		return
 	}
 	res := RCloseServiceHandleRes{}
 	err = res.Unmarshal(buffer)
 	if err != nil {
-		log.Errorf("Failed to unmarshal response of close service handle with error: %v\n", err)
+		log.Errorf("failed to unmarshal close service handle response: %v", err)
 		return
 	}
 
-	if res.ReturnCode != ErrorSuccess {
-		status, found := ServiceResponseCodeMap[res.ReturnCode]
-		if !found {
-			log.Errorf("Received unknown return code for RCloseService: 0x%x\n", res.ReturnCode)
-			return
-		}
-		log.Errorf("Failed to close service handle with error (return value: 0x%x): %v\n", res.ReturnCode, status)
-		return
+	// CloseServiceHandle has no error return, so a non-success status can
+	// only be surfaced by logging it here.
+	if err := checkReturnCode("RCloseServiceHandle", res.ReturnCode); err != nil {
+		log.Errorln(err)
 	}
-
-	return
 }

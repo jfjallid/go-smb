@@ -116,7 +116,7 @@ func (s *SchRpcRegisterTaskReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling SchRpcRegisterTaskReq: %v", err)
+		return nil, fmt.Errorf("error marshaling SchRpcRegisterTaskReq: %w", err)
 	}
 	return b, nil
 }
@@ -131,7 +131,7 @@ func (s *SchRpcRegisterTaskRes) Unmarshal(buf []byte) error {
 	log.Traceln("In Unmarshal for SchRpcRegisterTaskRes")
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling SchRpcRegisterTaskRes: %v", err)
+		return fmt.Errorf("error unmarshaling SchRpcRegisterTaskRes: %w", err)
 	}
 	return nil
 }
@@ -155,7 +155,7 @@ func (s *SchRpcEnumInstancesReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling SchRpcEnumInstancesReq: %v", err)
+		return nil, fmt.Errorf("error marshaling SchRpcEnumInstancesReq: %w", err)
 	}
 	return b, nil
 }
@@ -170,7 +170,7 @@ func (s *SchRpcEnumInstancesRes) Unmarshal(buf []byte) error {
 	log.Traceln("In Unmarshal for SchRpcEnumInstancesRes")
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling SchRpcEnumInstancesRes: %v", err)
+		return fmt.Errorf("error unmarshaling SchRpcEnumInstancesRes: %w", err)
 	}
 	return nil
 }
@@ -192,7 +192,7 @@ func (s *SchRpcStopReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling SchRpcStopReq: %v", err)
+		return nil, fmt.Errorf("error marshaling SchRpcStopReq: %w", err)
 	}
 	return b, nil
 }
@@ -214,7 +214,7 @@ func (s *SchRpcDeleteReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling SchRpcDeleteReq: %v", err)
+		return nil, fmt.Errorf("error marshaling SchRpcDeleteReq: %w", err)
 	}
 	return b, nil
 }
@@ -236,7 +236,7 @@ func (s *SchRpcGetLastRunInfoReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling SchRpcGetLastRunInfoReq: %v", err)
+		return nil, fmt.Errorf("error marshaling SchRpcGetLastRunInfoReq: %w", err)
 	}
 	return b, nil
 }
@@ -251,7 +251,7 @@ func (s *SchRpcGetLastRunInfoRes) Unmarshal(buf []byte) error {
 	log.Traceln("In Unmarshal for SchRpcGetLastRunInfoRes")
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling SchRpcGetLastRunInfoRes: %v", err)
+		return fmt.Errorf("error unmarshaling SchRpcGetLastRunInfoRes: %w", err)
 	}
 	return nil
 }
@@ -282,7 +282,7 @@ func (s *SchRpcRunReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling SchRpcRunReq: %v", err)
+		return nil, fmt.Errorf("error marshaling SchRpcRunReq: %w", err)
 	}
 	return b, nil
 }
@@ -296,7 +296,7 @@ func (s *SchRpcRunRes) Unmarshal(buf []byte) error {
 	log.Traceln("In Unmarshal for SchRpcRunRes")
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling SchRpcRunRes: %v", err)
+		return fmt.Errorf("error unmarshaling SchRpcRunRes: %w", err)
 	}
 	return nil
 }
@@ -321,7 +321,7 @@ func (s *SchRpcRetrieveTaskReq) Marshal() ([]byte, error) {
 	enc.SetEndianness(binary.LittleEndian)
 	b, err := enc.Encode(s)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling SchRpcRetrieveTaskReq: %v", err)
+		return nil, fmt.Errorf("error marshaling SchRpcRetrieveTaskReq: %w", err)
 	}
 	return b, nil
 }
@@ -335,7 +335,7 @@ func (s *SchRpcRetrieveTaskRes) Unmarshal(buf []byte) error {
 	log.Traceln("In Unmarshal for SchRpcRetrieveTaskRes")
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	if err := dec.Decode(s); err != nil {
-		return fmt.Errorf("error unmarshaling SchRpcRetrieveTaskRes: %v", err)
+		return fmt.Errorf("error unmarshaling SchRpcRetrieveTaskRes: %w", err)
 	}
 	return nil
 }

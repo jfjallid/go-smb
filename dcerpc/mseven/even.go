@@ -92,25 +92,20 @@ func (c *RPCCon) ElfrOpenBELW(backupFileName string) (handle [20]byte, err error
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return handle, err
 	}
 
 	result, err := c.MakeRequest(OpElfrOpenBELW, buf)
 	if err != nil {
-		log.Errorln(err)
 		return handle, err
 	}
 
 	var resp elfrOpenBELWRes
 	if err = resp.Unmarshal(result); err != nil {
-		log.Errorln(err)
 		return handle, err
 	}
 
-	if resp.ReturnCode != StatusSuccess {
-		err = responseError("ElfrOpenBELW", resp.ReturnCode)
-		log.Errorln(err)
+	if err = checkReturnCode("ElfrOpenBELW", resp.ReturnCode); err != nil {
 		return handle, err
 	}
 
@@ -128,25 +123,20 @@ func (c *RPCCon) ElfrCloseEL(handle *[20]byte) error {
 
 	buf, err := req.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 
 	result, err := c.MakeRequest(OpElfrCloseEL, buf)
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 
 	var resp elfrCloseELRes
 	if err = resp.Unmarshal(result); err != nil {
-		log.Errorln(err)
 		return err
 	}
 
-	if resp.ReturnCode != StatusSuccess {
-		err = responseError("ElfrCloseEL", resp.ReturnCode)
-		log.Errorln(err)
+	if err = checkReturnCode("ElfrCloseEL", resp.ReturnCode); err != nil {
 		return err
 	}
 
@@ -154,9 +144,17 @@ func (c *RPCCon) ElfrCloseEL(handle *[20]byte) error {
 	return nil
 }
 
-func responseError(method string, code uint32) error {
-	if errMsg, ok := ResponseCodeMap[code]; ok {
-		return fmt.Errorf("%s returned error: %v", method, errMsg)
+// checkReturnCode maps a non-success RPC return code to a *dcerpc.StatusError
+// carrying the op, the raw code and the mapped sentinel from ResponseCodeMap
+// (nil when unmapped). Codes in okCodes are treated as success.
+func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
+	if code == StatusSuccess {
+		return nil
 	}
-	return fmt.Errorf("%s returned unknown error: 0x%08x", method, code)
+	for _, ok := range okCodes {
+		if code == ok {
+			return nil
+		}
+	}
+	return &dcerpc.StatusError{Op: op, Code: code, Err: ResponseCodeMap[code]}
 }

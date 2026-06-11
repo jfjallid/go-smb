@@ -32,16 +32,16 @@ import (
 // handleWrite processes an SMB2 WRITE.
 func (c *Conn) handleWrite(ctx pduCtx, raw []byte, h *smb.Header) error {
 	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	sess := c.session(h.SessionID)
 	if sess == nil || !sess.Authenticated {
-		logger.Debugf("Write from %s: session %d not authenticated -> StatusUserSessionDeleted", c.RemoteAddr, h.SessionID)
+		logger.Debugf("Write: session %d not authenticated -> StatusUserSessionDeleted", h.SessionID)
 		return c.writeRawError(ctx, h, smb.StatusUserSessionDeleted)
 	}
 	tree := sess.tree(h.TreeID)
 	if tree == nil {
-		logger.Debugf("Write from %s: unknown TreeID %d -> StatusNetworkNameDeleted", c.RemoteAddr, h.TreeID)
+		logger.Debugf("Write: unknown TreeID %d -> StatusNetworkNameDeleted", h.TreeID)
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 	if !tree.Share.UserCanWrite(sess) && tree.Share.Type == smb.ShareTypeDisk {
@@ -51,7 +51,7 @@ func (c *Conn) handleWrite(ctx pduCtx, raw []byte, h *smb.Header) error {
 	}
 	var req smb.WriteReq
 	if err := encoder.Unmarshal(raw, &req); err != nil {
-		logger.Errorf("Write from %s: decode WriteReq: %v", c.RemoteAddr, err)
+		logger.Errorf("Write: decode WriteReq: %v", err)
 		return formatErr("decode WriteReq", err)
 	}
 	hndl := tree.lookupHandle(volatileFromFileID(req.FileId))
@@ -94,11 +94,11 @@ func (c *Conn) handleWrite(ctx pduCtx, raw []byte, h *smb.Header) error {
 		return c.writeRawError(ctx, h, smb.StatusNotSupported)
 	}
 	if err != nil {
-		logger.Errorf("Write from %s: backend error: %v", c.RemoteAddr, err)
+		logger.Errorf("Write: backend error: %v", err)
 		return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
 	}
 	if status != smb.StatusOk {
-		logger.Debugf("Write from %s: backend returned status=0x%08x", c.RemoteAddr, status)
+		logger.Debugf("Write: backend returned status=0x%08x", status)
 		return c.writeRawError(ctx, h, status)
 	}
 

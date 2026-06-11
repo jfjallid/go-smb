@@ -27,6 +27,7 @@ import (
 	"crypto/rand"
 	"crypto/rc4"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -300,22 +301,38 @@ const (
 	UserAllUndefined          uint32 = 0xc0000000
 )
 
+// checkReturnCode maps a non-zero SAMR return code to a *dcerpc.StatusError
+// carrying op, the raw code, and the mapped sentinel from ResponseCodeMap
+// (nil when unmapped). Codes in okCodes are treated as success in addition
+// to STATUS_SUCCESS (0).
+func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
+	if code == 0 {
+		return nil
+	}
+	for _, ok := range okCodes {
+		if code == ok {
+			return nil
+		}
+	}
+	return &dcerpc.StatusError{Op: op, Code: code, Err: ResponseCodeMap[code]}
+}
+
 func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 	return &RPCCon{ServiceBind: sb}
 }
 
 func validateHandle(handle *SamrHandle, t uint8) error {
 	if handle == nil {
-		return fmt.Errorf("Cannot use a nil SamrHandle")
+		return fmt.Errorf("cannot use a nil SamrHandle")
 	}
 	desiredType, ok := SamrHandleTypeMap[t]
 	if !ok {
-		return fmt.Errorf("Cannot validate a SamrHandle against an unknown type: %d", t)
+		return fmt.Errorf("cannot validate a SamrHandle against an unknown type: %d", t)
 	}
 
 	if handle.Type != t {
 		handleType := SamrHandleTypeMap[handle.Type]
-		return fmt.Errorf("Invalid handle type. Expected %s not a type: [%s]", desiredType, handleType)
+		return fmt.Errorf("invalid handle type, expected %s not a type: [%s]", desiredType, handleType)
 	}
 	return nil
 }
@@ -328,7 +345,6 @@ func newUserPassword(pass string) (res *SamprUserPassword, err error) {
 	}
 	_, err = rand.Read(res.Buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	offset := 512 - len(unc)
@@ -344,18 +360,15 @@ func (s *SamprUserPassword) EncryptRC4(key []byte) (res []byte, err error) {
 
 	err = binary.Write(w, le, s.Buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	err = binary.Write(w, le, s.Length)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	cipher, err := rc4.NewCipher(key)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	plainText := w.Bytes()
@@ -380,7 +393,6 @@ func (sb *RPCCon) SamrConnect5(serverName string) (handle *SamrHandle, err error
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -390,25 +402,16 @@ func (sb *RPCCon) SamrConnect5(serverName string) (handle *SamrHandle, err error
 	}
 
 	if len(buffer) < 40 {
-		return nil, fmt.Errorf("Server response to SamrConnect5 was too small. Expected at atleast 40 bytes")
+		return nil, fmt.Errorf("server response to SamrConnect5 was too small, expected at least 40 bytes")
 	}
 
 	var resp SamrConnect5Res
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrConnect5 response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrConnect5", resp.ReturnCode); err != nil {
 		return
 	}
 
@@ -430,7 +433,6 @@ func (sb *RPCCon) SamrEnumDomains(handle *SamrHandle) (domains []string, err err
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -440,29 +442,19 @@ func (sb *RPCCon) SamrEnumDomains(handle *SamrHandle) (domains []string, err err
 	}
 
 	if len(buffer) < 12 {
-		return nil, fmt.Errorf("Server response to SamrEnumDomains was too small. Expected at atleast 12 bytes")
+		return nil, fmt.Errorf("server response to SamrEnumDomains was too small, expected at least 12 bytes")
 	}
 
 	var resp SamrEnumDomainsRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrEnumDomains response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrEnumDomains", resp.ReturnCode); err != nil {
 		return
 	}
 	if resp.Buffer == nil || resp.CountReturned == 0 {
-		err = fmt.Errorf("Received SamrEnumDomains response with 0 domains returned")
-		log.Errorln(err)
+		err = fmt.Errorf("received SamrEnumDomains response with 0 domains returned")
 		return
 	}
 	for _, item := range resp.Buffer.Buffer {
@@ -479,8 +471,7 @@ func (sb *RPCCon) SamrLookupDomain(handle *SamrHandle, name string) (domainId *m
 		return
 	}
 	if name == "" {
-		err = fmt.Errorf("Cannot lookup an empty domain!")
-		log.Errorln(err)
+		err = fmt.Errorf("SamrLookupDomain: cannot lookup an empty domain")
 		return
 	}
 
@@ -491,7 +482,6 @@ func (sb *RPCCon) SamrLookupDomain(handle *SamrHandle, name string) (domainId *m
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -501,24 +491,15 @@ func (sb *RPCCon) SamrLookupDomain(handle *SamrHandle, name string) (domainId *m
 	}
 
 	if len(buffer) < 8 {
-		return nil, fmt.Errorf("Server response to SamrLookupDomain was too small. Expected at atleast 8 bytes")
+		return nil, fmt.Errorf("server response to SamrLookupDomain was too small, expected at least 8 bytes")
 	}
 
 	var resp SamrLookupDomainRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrLookupDomain response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrLookupDomain", resp.ReturnCode); err != nil {
 		return
 	}
 	domainId = resp.DomainId
@@ -540,7 +521,6 @@ func (sb *RPCCon) SamrAddMemberToGroup(groupHandle *SamrHandle, rid, attributes 
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -550,19 +530,11 @@ func (sb *RPCCon) SamrAddMemberToGroup(groupHandle *SamrHandle, rid, attributes 
 	}
 
 	if len(buffer) < 4 {
-		return fmt.Errorf("Server response to SamrAddMemberToGroup was too small. Expected at atleast 4 bytes")
+		return fmt.Errorf("server response to SamrAddMemberToGroup was too small, expected at least 4 bytes")
 	}
 
 	returnCode := le.Uint32(buffer[:4])
-	if returnCode > 0 {
-		status, found := ResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrAddMemberToGroup response: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrAddMemberToGroup", returnCode); err != nil {
 		return
 	}
 
@@ -582,7 +554,6 @@ func (sb *RPCCon) SamrRemoveMemberFromGroup(groupHandle *SamrHandle, rid uint32)
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -592,22 +563,15 @@ func (sb *RPCCon) SamrRemoveMemberFromGroup(groupHandle *SamrHandle, rid uint32)
 	}
 
 	if len(buffer) < 4 {
-		return fmt.Errorf("Server response to SamrRemoveMemberFromGroup was too small. Expected at atleast 4 bytes")
+		return fmt.Errorf("server response to SamrRemoveMemberFromGroup was too small, expected at least 4 bytes")
 	}
 
 	returnCode := le.Uint32(buffer[:4])
 	if returnCode > 0 {
-		status, found := ResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrRemoveMemberFromGroup response: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return
-		} else if status == ResponseCodeMap[StatusMembersPrimaryGroup] {
-			err = fmt.Errorf("Cannot remove user from its primary group")
-			return
+		err = checkReturnCode("SamrRemoveMemberFromGroup", returnCode)
+		if errors.Is(err, ResponseCodeMap[StatusMembersPrimaryGroup]) {
+			err = fmt.Errorf("cannot remove user from its primary group: %w", err)
 		}
-		err = status
-		log.Errorln(err)
 		return
 	}
 
@@ -626,7 +590,6 @@ func (sb *RPCCon) SamrGetMembersInGroup(groupHandle *SamrHandle) (members []Samr
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -636,24 +599,15 @@ func (sb *RPCCon) SamrGetMembersInGroup(groupHandle *SamrHandle) (members []Samr
 	}
 
 	if len(buffer) < 8 {
-		return nil, fmt.Errorf("Server response to SamrGetMembersInGroup was too small. Expected at atleast 8 bytes")
+		return nil, fmt.Errorf("server response to SamrGetMembersInGroup was too small, expected at least 8 bytes")
 	}
 
 	var res SamrGetMembersInGroupRes
 	err = res.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if res.ReturnCode > 0 {
-		status, found := ResponseCodeMap[res.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrGetMembersInGroup response: 0x%x\n", res.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrGetMembersInGroup", res.ReturnCode); err != nil {
 		return
 	}
 	if res.Members != nil {
@@ -682,7 +636,6 @@ func (sb *RPCCon) SamrOpenDomain(handle *SamrHandle, desiredAccess uint32, domai
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -692,24 +645,15 @@ func (sb *RPCCon) SamrOpenDomain(handle *SamrHandle, desiredAccess uint32, domai
 	}
 
 	if len(buffer) < 24 {
-		return nil, fmt.Errorf("Server response to SamrOpenDomain was too small. Expected at atleast 24 bytes")
+		return nil, fmt.Errorf("server response to SamrOpenDomain was too small, expected at least 24 bytes")
 	}
 
 	var resp SamrOpenDomainRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrOpenDomain response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrOpenDomain", resp.ReturnCode); err != nil {
 		return
 	}
 
@@ -731,7 +675,6 @@ func (sb *RPCCon) SamrAddMemberToAlias(aliasHandle *SamrHandle, sid *msdtyp.SID)
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -741,19 +684,11 @@ func (sb *RPCCon) SamrAddMemberToAlias(aliasHandle *SamrHandle, sid *msdtyp.SID)
 	}
 
 	if len(buffer) < 4 {
-		return fmt.Errorf("Server response to SamrAddMemberToAlias was too small. Expected at atleast 4 bytes")
+		return fmt.Errorf("server response to SamrAddMemberToAlias was too small, expected at least 4 bytes")
 	}
 
 	returnCode := le.Uint32(buffer[:4])
-	if returnCode > 0 {
-		status, found := ResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrAddMemberToAlias response: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrAddMemberToAlias", returnCode); err != nil {
 		return
 	}
 
@@ -773,7 +708,6 @@ func (sb *RPCCon) SamrRemoveMemberFromAlias(aliasHandle *SamrHandle, sid *msdtyp
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -783,19 +717,11 @@ func (sb *RPCCon) SamrRemoveMemberFromAlias(aliasHandle *SamrHandle, sid *msdtyp
 	}
 
 	if len(buffer) < 4 {
-		return fmt.Errorf("Server response to SamrRemoveMemberFromAlias was too small. Expected at atleast 4 bytes")
+		return fmt.Errorf("server response to SamrRemoveMemberFromAlias was too small, expected at least 4 bytes")
 	}
 
 	returnCode := le.Uint32(buffer[:4])
-	if returnCode > 0 {
-		status, found := ResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrRemoveMemberFromAlias response: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrRemoveMemberFromAlias", returnCode); err != nil {
 		return
 	}
 
@@ -808,8 +734,7 @@ func (sb *RPCCon) SamrLookupNamesInDomain(domainHandle *SamrHandle, names []stri
 		return
 	}
 	if len(names) == 0 {
-		err = fmt.Errorf("Must specify atleast one name to lookup in domain")
-		log.Errorln(err)
+		err = fmt.Errorf("SamrLookupNamesInDomain: must specify at least one name to lookup")
 		return
 	}
 	var items []mstypes.RPCUnicodeString
@@ -825,7 +750,6 @@ func (sb *RPCCon) SamrLookupNamesInDomain(domainHandle *SamrHandle, names []stri
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -835,24 +759,15 @@ func (sb *RPCCon) SamrLookupNamesInDomain(domainHandle *SamrHandle, names []stri
 	}
 
 	if len(buffer) < 12 {
-		return nil, fmt.Errorf("Server response to SamrLookupNamesInDomain was too small. Expected at atleast 12 bytes")
+		return nil, fmt.Errorf("server response to SamrLookupNamesInDomain was too small, expected at least 12 bytes")
 	}
 
 	var resp SamrLookupNamesInDomainRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if (resp.ReturnCode > 0) && (resp.ReturnCode != StatusSomeNotMapped) {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrLookupNamesInDomain response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrLookupNamesInDomain", resp.ReturnCode, StatusSomeNotMapped); err != nil {
 		return
 	}
 
@@ -881,7 +796,6 @@ func (sb *RPCCon) SamrLookupIdsInDomain(domainHandle *SamrHandle, ids []uint32) 
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -891,24 +805,15 @@ func (sb *RPCCon) SamrLookupIdsInDomain(domainHandle *SamrHandle, ids []uint32) 
 	}
 
 	if len(buffer) < 20 {
-		return nil, fmt.Errorf("Server response to SamrLookupIdsInDomain was too small. Expected at atleast 20 bytes")
+		return nil, fmt.Errorf("server response to SamrLookupIdsInDomain was too small, expected at least 20 bytes")
 	}
 
 	var resp SamrLookupIdsInDomainRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if (resp.ReturnCode > 0) && (resp.ReturnCode != StatusSomeNotMapped) {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrLookupIdsInDomain response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrLookupIdsInDomain", resp.ReturnCode, StatusSomeNotMapped); err != nil {
 		return
 	}
 
@@ -936,7 +841,7 @@ func (sb *RPCCon) SamrOpenGroup(domainHandle *SamrHandle, desiredAccess, rid uin
 		desiredAccess = MaximumAllowed
 	}
 	if rid == 0 {
-		err = fmt.Errorf("Must specify a RID of group to open. 0 is not a valid RID")
+		err = fmt.Errorf("SamrOpenGroup: must specify a group RID to open, 0 is not a valid RID")
 		return
 	}
 
@@ -948,7 +853,6 @@ func (sb *RPCCon) SamrOpenGroup(domainHandle *SamrHandle, desiredAccess, rid uin
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -958,27 +862,19 @@ func (sb *RPCCon) SamrOpenGroup(domainHandle *SamrHandle, desiredAccess, rid uin
 	}
 
 	if len(buffer) < 24 {
-		return nil, fmt.Errorf("Server response to SamrOpenGroup was too small. Expected at atleast 24 bytes")
+		return nil, fmt.Errorf("server response to SamrOpenGroup was too small, expected at least 24 bytes")
 	}
 
 	var resp SamrOpenGroupRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrOpenGroup response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
+		err = checkReturnCode("SamrOpenGroup", resp.ReturnCode)
+		if errors.Is(err, ResponseCodeMap[StatusNoSuchGroup]) {
+			err = fmt.Errorf("%w in domain %s", err, domainHandle.Name)
 		}
-		err = status
-		if err == ResponseCodeMap[StatusNoSuchGroup] {
-			err = fmt.Errorf("%s in domain %s", err, domainHandle.Name)
-		}
-		log.Errorln(err)
 		return
 	}
 
@@ -996,7 +892,7 @@ func (sb *RPCCon) SamrOpenAlias(domainHandle *SamrHandle, desiredAccess, aliasId
 		desiredAccess = MaximumAllowed
 	}
 	if aliasId == 0 {
-		err = fmt.Errorf("Must specify a RID of alias to open. 0 is not a valid RID")
+		err = fmt.Errorf("SamrOpenAlias: must specify an alias RID to open, 0 is not a valid RID")
 		return
 	}
 
@@ -1008,7 +904,6 @@ func (sb *RPCCon) SamrOpenAlias(domainHandle *SamrHandle, desiredAccess, aliasId
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1018,27 +913,19 @@ func (sb *RPCCon) SamrOpenAlias(domainHandle *SamrHandle, desiredAccess, aliasId
 	}
 
 	if len(buffer) < 24 {
-		return nil, fmt.Errorf("Server response to SamrOpenAlias was too small. Expected at atleast 24 bytes")
+		return nil, fmt.Errorf("server response to SamrOpenAlias was too small, expected at least 24 bytes")
 	}
 
 	var resp SamrOpenAliasRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrOpenAlias response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
+		err = checkReturnCode("SamrOpenAlias", resp.ReturnCode)
+		if errors.Is(err, ResponseCodeMap[StatusNoSuchAlias]) {
+			err = fmt.Errorf("%w in domain %s", err, domainHandle.Name)
 		}
-		err = status
-		if err == ResponseCodeMap[StatusNoSuchAlias] {
-			err = fmt.Errorf("%s in domain %s", err, domainHandle.Name)
-		}
-		log.Errorln(err)
 		return
 	}
 
@@ -1059,7 +946,6 @@ func (sb *RPCCon) SamrGetMembersInAlias(aliasHandle *SamrHandle) (members []msdt
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1069,24 +955,15 @@ func (sb *RPCCon) SamrGetMembersInAlias(aliasHandle *SamrHandle) (members []msdt
 	}
 
 	if len(buffer) < 8 {
-		return nil, fmt.Errorf("Server response to SamrGetMembersInAlias was too small. Expected at atleast 8 bytes")
+		return nil, fmt.Errorf("server response to SamrGetMembersInAlias was too small, expected at least 8 bytes")
 	}
 
 	var resp SamrGetMembersInAliasRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrGetMembersInAlias response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrGetMembersInAlias", resp.ReturnCode); err != nil {
 		return
 	}
 
@@ -1100,7 +977,7 @@ func (sb *RPCCon) SamrGetMembersInAlias(aliasHandle *SamrHandle) (members []msdt
 func (sb *RPCCon) SamrCloseHandle(handle *SamrHandle) (err error) {
 	log.Traceln("In SamrCloseHandle")
 	if handle == nil {
-		return fmt.Errorf("Cannot close a nil SamrHandle")
+		return fmt.Errorf("cannot close a nil SamrHandle")
 	}
 
 	innerReq := SamrCloseHandleReq{
@@ -1109,7 +986,6 @@ func (sb *RPCCon) SamrCloseHandle(handle *SamrHandle) (err error) {
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1119,19 +995,11 @@ func (sb *RPCCon) SamrCloseHandle(handle *SamrHandle) (err error) {
 	}
 
 	if len(buffer) < 24 {
-		return fmt.Errorf("Server response to SamrCloseHandle was too small. Expected at atleast 24 bytes")
+		return fmt.Errorf("server response to SamrCloseHandle was too small, expected at least 24 bytes")
 	}
 
 	returnCode := le.Uint32(buffer[20:])
-	if returnCode > 0 {
-		status, found := ResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrCloseHandle response: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrCloseHandle", returnCode); err != nil {
 		return
 	}
 
@@ -1151,7 +1019,6 @@ func (sb *RPCCon) SamrRidToSid(domainHandle *SamrHandle, rid uint32) (sid *msdty
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1161,24 +1028,15 @@ func (sb *RPCCon) SamrRidToSid(domainHandle *SamrHandle, rid uint32) (sid *msdty
 	}
 
 	if len(buffer) < 8 {
-		return nil, fmt.Errorf("Server response to SamrRidToSid was too small. Expected at atleast 8 bytes")
+		return nil, fmt.Errorf("server response to SamrRidToSid was too small, expected at least 8 bytes")
 	}
 
 	var resp SamrRidToSidRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrRidToSid response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrRidToSid", resp.ReturnCode); err != nil {
 		return
 	}
 	sid = resp.Sid
@@ -1203,7 +1061,6 @@ func (sb *RPCCon) SamrCreateUserInDomain(domainHandle *SamrHandle, name string, 
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1213,13 +1070,12 @@ func (sb *RPCCon) SamrCreateUserInDomain(domainHandle *SamrHandle, name string, 
 	}
 
 	if len(buffer) < 8 {
-		return nil, 0, fmt.Errorf("server response to SamrCreateUserInDomain was too small. Expected at atleast 8 bytes")
+		return nil, 0, fmt.Errorf("server response to SamrCreateUserInDomain was too small, expected at least 8 bytes")
 	}
 
 	var resp SamrCreateUserInDomainRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	if resp.ReturnCode != 0 {
@@ -1251,7 +1107,6 @@ func (sb *RPCCon) SamrEnumDomainUsers(domainHandle *SamrHandle, accountFlags uin
 		var innerBuf []byte
 		innerBuf, err = innerReq.MarshalBinary()
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
@@ -1262,13 +1117,12 @@ func (sb *RPCCon) SamrEnumDomainUsers(domainHandle *SamrHandle, accountFlags uin
 		}
 
 		if len(buffer) < 12 {
-			return nil, fmt.Errorf("Server response to SamrEnumDomainUsers was too small. Expected at atleast 12 bytes")
+			return nil, fmt.Errorf("server response to SamrEnumDomainUsers was too small, expected at least 12 bytes")
 		}
 
 		var resp SamrEnumDomainUsersRes
 		err = resp.UnmarshalBinary(buffer)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
@@ -1298,17 +1152,12 @@ func (sb *RPCCon) SamrEnumDomainUsers(domainHandle *SamrHandle, accountFlags uin
 			if resp.Buffer != nil {
 				users = append(users, resp.Buffer.Buffer...)
 			}
-			log.Errorln(ResponseCodeMap[resp.ReturnCode])
+			log.Warningln(ResponseCodeMap[resp.ReturnCode])
 			return
 		} else {
-			status, found := ResponseCodeMap[resp.ReturnCode]
-			if !found {
-				err = fmt.Errorf("Received unknown Samr return code for SamrEnumDomainUsers response: 0x%x\n", resp.ReturnCode)
-				log.Errorln(err)
+			if err = checkReturnCode("SamrEnumDomainUsers", resp.ReturnCode); err != nil {
 				return
 			}
-			err = status
-			log.Errorln(err)
 			return
 		}
 	}
@@ -1334,7 +1183,6 @@ func (sb *RPCCon) SamrEnumerateGroupsInDomain(domainHandle *SamrHandle, maxLengt
 		var innerBuf []byte
 		innerBuf, err = innerReq.MarshalBinary()
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
@@ -1345,13 +1193,12 @@ func (sb *RPCCon) SamrEnumerateGroupsInDomain(domainHandle *SamrHandle, maxLengt
 		}
 
 		if len(buffer) < 24 {
-			return nil, fmt.Errorf("Server response to SamrEnumerateGroupsInDomain was too small. Expected at atleast 24 bytes")
+			return nil, fmt.Errorf("server response to SamrEnumerateGroupsInDomain was too small, expected at least 24 bytes")
 		}
 
 		var resp SamrEnumerateGroupsInDomainRes
 		err = resp.UnmarshalBinary(buffer)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		if resp.ReturnCode == 0 {
@@ -1380,17 +1227,12 @@ func (sb *RPCCon) SamrEnumerateGroupsInDomain(domainHandle *SamrHandle, maxLengt
 			if resp.Buffer != nil {
 				groups = append(groups, resp.Buffer.Buffer...)
 			}
-			log.Errorln(ResponseCodeMap[resp.ReturnCode])
+			log.Warningln(ResponseCodeMap[resp.ReturnCode])
 			return
 		} else {
-			status, found := ResponseCodeMap[resp.ReturnCode]
-			if !found {
-				err = fmt.Errorf("Received unknown Samr return code for SamrEnumDomaingroups response: 0x%x\n", resp.ReturnCode)
-				log.Errorln(err)
+			if err = checkReturnCode("SamrEnumDomaingroups", resp.ReturnCode); err != nil {
 				return
 			}
-			err = status
-			log.Errorln(err)
 			return
 		}
 	}
@@ -1402,7 +1244,7 @@ func (sb *RPCCon) SamrGetUserInfo2(userHandle *SamrHandle, informationClass uint
 		return
 	}
 	if informationClass != UserAllInformation {
-		err = fmt.Errorf("Currently, only informationClass UserAllInformation (21) is supported")
+		err = fmt.Errorf("currently, only informationClass UserAllInformation (21) is supported")
 		return
 	}
 
@@ -1412,7 +1254,6 @@ func (sb *RPCCon) SamrGetUserInfo2(userHandle *SamrHandle, informationClass uint
 	}
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1424,7 +1265,6 @@ func (sb *RPCCon) SamrGetUserInfo2(userHandle *SamrHandle, informationClass uint
 	var res SamrQueryInformationUser2Res
 	err = res.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	if res.Buffer != nil {
@@ -1439,8 +1279,7 @@ func (sb *RPCCon) SamrCreateUser2InDomain(domainHandle *SamrHandle, name string,
 		return
 	}
 	if (accountType != UserNormalAccount) && (accountType != UserWorkstationTrustAccount) && (accountType != UserServerTrustAccount) {
-		err = fmt.Errorf("Invalid account type. Supported types are: 0x10, 0x80, and 0x100")
-		log.Errorln(err)
+		err = fmt.Errorf("SamrCreateUser2InDomain: invalid account type, supported types are 0x10, 0x80, and 0x100")
 		return
 	}
 	if (accountType == UserWorkstationTrustAccount) || (accountType == UserServerTrustAccount) {
@@ -1461,7 +1300,6 @@ func (sb *RPCCon) SamrCreateUser2InDomain(domainHandle *SamrHandle, name string,
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1471,25 +1309,16 @@ func (sb *RPCCon) SamrCreateUser2InDomain(domainHandle *SamrHandle, name string,
 	}
 
 	if len(buffer) < 8 {
-		return nil, 0, fmt.Errorf("Server response to SamrCreateUser2InDomain was too small. Expected at atleast 8 bytes")
+		return nil, 0, fmt.Errorf("server response to SamrCreateUser2InDomain was too small, expected at least 8 bytes")
 	}
 
 	var resp SamrCreateUser2InDomainRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrCreateUser2InDomain response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrCreateUser2InDomain", resp.ReturnCode); err != nil {
 		return
 	}
 
@@ -1501,7 +1330,7 @@ func (sb *RPCCon) SamrCreateUser2InDomain(domainHandle *SamrHandle, name string,
 func (sb *RPCCon) SamrChangePassword2(username, currPw, newPw string, currNTHash []byte) (err error) {
 	log.Traceln("In SamrChangePassword2")
 	if (currPw == "") && (currNTHash == nil) {
-		err = fmt.Errorf("Have to supply current password or NT hash to change password")
+		err = fmt.Errorf("have to supply current password or NT hash to change password")
 		return
 	}
 	if currNTHash == nil {
@@ -1512,19 +1341,16 @@ func (sb *RPCCon) SamrChangePassword2(username, currPw, newPw string, currNTHash
 	// encrypt old NT hash using the new hash
 	encNTHash, err := encryptHashWithHash(newNTHash, currNTHash)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	var pass *SamprUserPassword
 	pass, err = newUserPassword(newPw)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	var encPassword []byte
 	encPassword, err = pass.EncryptRC4(currNTHash)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1538,7 +1364,6 @@ func (sb *RPCCon) SamrChangePassword2(username, currPw, newPw string, currNTHash
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1547,15 +1372,7 @@ func (sb *RPCCon) SamrChangePassword2(username, currPw, newPw string, currNTHash
 		return
 	}
 	returnCode := le.Uint32(buffer[:4])
-	if returnCode > 0 {
-		status, found := ResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrUnicodeChangePasswordUser2 response: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrUnicodeChangePasswordUser2", returnCode); err != nil {
 		return
 	}
 
@@ -1614,13 +1431,11 @@ func (sb *RPCCon) SamrSetUserInfo2(userHandle *SamrHandle, input *SamrUserInfoIn
 		var pass *SamprUserPassword
 		pass, err = newUserPassword(input.NewPassword)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		var encPassword []byte
 		encPassword, err = pass.EncryptRC4(sb.GetSessionKey())
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		copy(internal4.UserPassword[:], encPassword)
@@ -1641,7 +1456,6 @@ func (sb *RPCCon) SamrSetUserInfo2(userHandle *SamrHandle, input *SamrUserInfoIn
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1651,19 +1465,11 @@ func (sb *RPCCon) SamrSetUserInfo2(userHandle *SamrHandle, input *SamrUserInfoIn
 	}
 
 	if len(buffer) < 4 {
-		return fmt.Errorf("Server response to SamrSetInformationUser2Req was too small. Expected at atleast 4 bytes")
+		return fmt.Errorf("server response to SamrSetInformationUser2Req was too small, expected at least 4 bytes")
 	}
 
 	returnCode := le.Uint32(buffer[:4])
-	if returnCode > 0 {
-		status, found := ResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrSetInformationUser response: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrSetInformationUser", returnCode); err != nil {
 		return
 	}
 
@@ -1690,7 +1496,6 @@ func (sb *RPCCon) SamrEnumAliasesInDomain(domainHandle *SamrHandle, maxLength ui
 		var innerBuf []byte
 		innerBuf, err = innerReq.MarshalBinary()
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 
@@ -1701,13 +1506,12 @@ func (sb *RPCCon) SamrEnumAliasesInDomain(domainHandle *SamrHandle, maxLength ui
 		}
 
 		if len(buffer) < 12 {
-			return nil, fmt.Errorf("Server response to SamrEnumAliasesInDomain was too small. Expected at atleast 12 bytes")
+			return nil, fmt.Errorf("server response to SamrEnumAliasesInDomain was too small, expected at least 12 bytes")
 		}
 
 		var resp SamrEnumAliasesInDomainRes
 		err = resp.UnmarshalBinary(buffer)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		if resp.ReturnCode == 0 {
@@ -1736,17 +1540,12 @@ func (sb *RPCCon) SamrEnumAliasesInDomain(domainHandle *SamrHandle, maxLength ui
 			if resp.Buffer != nil {
 				aliases = append(aliases, resp.Buffer.Buffer...)
 			}
-			log.Errorln(ResponseCodeMap[resp.ReturnCode])
+			log.Warningln(ResponseCodeMap[resp.ReturnCode])
 			return
 		} else {
-			status, found := ResponseCodeMap[resp.ReturnCode]
-			if !found {
-				err = fmt.Errorf("Received unknown Samr return code for SamrEnumAliasesInDomain response: 0x%x\n", resp.ReturnCode)
-				log.Errorln(err)
+			if err = checkReturnCode("SamrEnumAliasesInDomain", resp.ReturnCode); err != nil {
 				return
 			}
-			err = status
-			log.Errorln(err)
 			return
 		}
 	}
@@ -1774,7 +1573,6 @@ func (sb *RPCCon) SamrOpenUser(domainHandle *SamrHandle, desiredAccess, rid uint
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1784,24 +1582,15 @@ func (sb *RPCCon) SamrOpenUser(domainHandle *SamrHandle, desiredAccess, rid uint
 	}
 
 	if len(buffer) < 24 {
-		return nil, fmt.Errorf("Server response to SamrOpenUser was too small. Expected at atleast 24 bytes")
+		return nil, fmt.Errorf("server response to SamrOpenUser was too small, expected at least 24 bytes")
 	}
 
 	var resp SamrOpenUserRes
 	err = resp.UnmarshalBinary(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if resp.ReturnCode > 0 {
-		status, found := ResponseCodeMap[resp.ReturnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrOpenUser response: 0x%x\n", resp.ReturnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrOpenUser", resp.ReturnCode); err != nil {
 		return
 	}
 	userHandle = &SamrHandle{Handle: resp.UserHandle, Type: SamrHandleTypeAccount, Name: fmt.Sprintf("RID: %d", rid)}
@@ -1821,7 +1610,6 @@ func (sb *RPCCon) SamrDeleteUser(userHandle *SamrHandle) (err error) {
 
 	innerBuf, err := innerReq.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1831,18 +1619,10 @@ func (sb *RPCCon) SamrDeleteUser(userHandle *SamrHandle) (err error) {
 	}
 
 	if len(buffer) < 4 {
-		return fmt.Errorf("Server response to SamrDeleteUser was too small. Expected at atleast 4 bytes")
+		return fmt.Errorf("server response to SamrDeleteUser was too small, expected at least 4 bytes")
 	}
 	returnCode := le.Uint32(buffer[:4])
-	if returnCode > 0 {
-		status, found := ResponseCodeMap[returnCode]
-		if !found {
-			err = fmt.Errorf("Received unknown Samr return code for SamrDeleteUser response: 0x%x\n", returnCode)
-			log.Errorln(err)
-			return
-		}
-		err = status
-		log.Errorln(err)
+	if err = checkReturnCode("SamrDeleteUser", returnCode); err != nil {
 		return
 	}
 
@@ -1857,7 +1637,6 @@ func (sb *RPCCon) QueryUserAllInfo(domainHandle *SamrHandle, userRid uint32) (in
 
 	userHandle, err := sb.SamrOpenUser(domainHandle, MaximumAllowed, userRid)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(userHandle)
@@ -1869,14 +1648,13 @@ func (sb *RPCCon) QueryUserAllInfo(domainHandle *SamrHandle, userRid uint32) (in
 
 func (sb *RPCCon) CreateLocalUser(username, password, netbiosComputerName string) (userSID string, err error) {
 	if username == "" {
-		return "", fmt.Errorf("Cannot create a user with an empty username")
+		return "", fmt.Errorf("CreateLocalUser: cannot create a user with an empty username")
 	}
 	if password == "" {
-		return "", fmt.Errorf("Cannot create a user without a password. If that is desired, use SamrCreateUserInDomain instead")
+		return "", fmt.Errorf("CreateLocalUser: cannot create a user without a password; if that is desired, use SamrCreateUserInDomain instead")
 	}
 	handle, err := sb.SamrConnect5("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handle)
@@ -1885,7 +1663,6 @@ func (sb *RPCCon) CreateLocalUser(username, password, netbiosComputerName string
 		var domains []string
 		domains, err = sb.SamrEnumDomains(handle)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		var otherDomains []string
@@ -1895,7 +1672,7 @@ func (sb *RPCCon) CreateLocalUser(username, password, netbiosComputerName string
 			}
 		}
 		if len(otherDomains) != 1 {
-			err = fmt.Errorf("Failed to automatically identity the Netbios domain. Select the correct domain and use it as an argument from the available domains: %v\n", domains)
+			err = fmt.Errorf("failed to automatically identify the NetBIOS domain; select the correct domain and use it as an argument from the available domains: %v", domains)
 			return
 		}
 		netbiosComputerName = otherDomains[0]
@@ -1903,18 +1680,15 @@ func (sb *RPCCon) CreateLocalUser(username, password, netbiosComputerName string
 
 	localDomainId, err := sb.SamrLookupDomain(handle, strings.ToUpper(netbiosComputerName))
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	handleLocalDomain, err := sb.SamrOpenDomain(handle, MaximumAllowed, localDomainId)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handleLocalDomain)
 	userHandle, userRid, err := sb.SamrCreateUserInDomain(handleLocalDomain, username, MaximumAllowed)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	userSID = fmt.Sprintf("%s-%d", localDomainId.ToString(), userRid)
@@ -1926,7 +1700,6 @@ func (sb *RPCCon) CreateLocalUser(username, password, netbiosComputerName string
 	}
 	err = sb.SamrSetUserInfo2(userHandle, input)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	return
@@ -1934,42 +1707,36 @@ func (sb *RPCCon) CreateLocalUser(username, password, netbiosComputerName string
 
 func (sb *RPCCon) AddLocalAdmin(userSID string) (err error) {
 	if userSID == "" {
-		err = fmt.Errorf("Cannot add an empty SID as a local admin")
+		err = fmt.Errorf("AddLocalAdmin: cannot add an empty SID as a local admin")
 		return
 	}
 	sid, err := msdtyp.ConvertStrToSID(userSID)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	handle, err := sb.SamrConnect5("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handle)
 
 	builtinId, err := sb.SamrLookupDomain(handle, "Builtin")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	handleBuiltin, err := sb.SamrOpenDomain(handle, MaximumAllowed, builtinId)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	handleBuiltin.Name = "Builtin"
 	defer sb.SamrCloseHandle(handleBuiltin)
 	handleLocalGroup, err := sb.SamrOpenAlias(handleBuiltin, MaximumAllowed, 544)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handleLocalGroup)
 	err = sb.SamrAddMemberToAlias(handleLocalGroup, sid)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -1981,7 +1748,6 @@ func (sb *RPCCon) ListLocalUsers(netbiosComputerName string, limit uint32) (user
 	maxLength = limit * 39 // based on a rough estimate for the mean size of a user entry being 39 bytes
 	handle, err := sb.SamrConnect5("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handle)
@@ -1990,7 +1756,6 @@ func (sb *RPCCon) ListLocalUsers(netbiosComputerName string, limit uint32) (user
 		var domains []string
 		domains, err = sb.SamrEnumDomains(handle)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		var otherDomains []string
@@ -2000,7 +1765,7 @@ func (sb *RPCCon) ListLocalUsers(netbiosComputerName string, limit uint32) (user
 			}
 		}
 		if len(otherDomains) != 1 {
-			err = fmt.Errorf("Failed to automatically identity the Netbios domain. Select the correct domain and use it as an argument from the available domains: %v\n", domains)
+			err = fmt.Errorf("failed to automatically identify the NetBIOS domain; select the correct domain and use it as an argument from the available domains: %v", domains)
 			return
 		}
 		netbiosComputerName = otherDomains[0]
@@ -2008,12 +1773,10 @@ func (sb *RPCCon) ListLocalUsers(netbiosComputerName string, limit uint32) (user
 
 	localDomainId, err := sb.SamrLookupDomain(handle, strings.ToUpper(netbiosComputerName))
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	handleLocalDomain, err := sb.SamrOpenDomain(handle, MaximumAllowed, localDomainId)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handleLocalDomain)
@@ -2024,7 +1787,6 @@ func (sb *RPCCon) ListLocalUsers(netbiosComputerName string, limit uint32) (user
 func (sb *RPCCon) ListLocalGroups(netbiosComputerName string) (groups []SamprRidEnumeration, err error) {
 	handle, err := sb.SamrConnect5("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handle)
@@ -2033,7 +1795,6 @@ func (sb *RPCCon) ListLocalGroups(netbiosComputerName string) (groups []SamprRid
 		var domains []string
 		domains, err = sb.SamrEnumDomains(handle)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		var otherDomains []string
@@ -2043,7 +1804,7 @@ func (sb *RPCCon) ListLocalGroups(netbiosComputerName string) (groups []SamprRid
 			}
 		}
 		if len(otherDomains) != 1 {
-			err = fmt.Errorf("Failed to automatically identity the Netbios domain. Select the correct domain and use it as an argument from the available domains: %v\n", domains)
+			err = fmt.Errorf("failed to automatically identify the NetBIOS domain; select the correct domain and use it as an argument from the available domains: %v", domains)
 			return
 		}
 		netbiosComputerName = otherDomains[0]
@@ -2051,12 +1812,10 @@ func (sb *RPCCon) ListLocalGroups(netbiosComputerName string) (groups []SamprRid
 
 	localDomainId, err := sb.SamrLookupDomain(handle, strings.ToUpper(netbiosComputerName))
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	handleLocalDomain, err := sb.SamrOpenDomain(handle, MaximumAllowed, localDomainId)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handleLocalDomain)
@@ -2067,7 +1826,6 @@ func (sb *RPCCon) ListLocalGroups(netbiosComputerName string) (groups []SamprRid
 func (sb *RPCCon) ListDomainAliases(netbiosComputerName string) (aliases []SamprRidEnumeration, err error) {
 	handle, err := sb.SamrConnect5("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handle)
@@ -2076,7 +1834,6 @@ func (sb *RPCCon) ListDomainAliases(netbiosComputerName string) (aliases []Sampr
 		var domains []string
 		domains, err = sb.SamrEnumDomains(handle)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		var otherDomains []string
@@ -2086,7 +1843,7 @@ func (sb *RPCCon) ListDomainAliases(netbiosComputerName string) (aliases []Sampr
 			}
 		}
 		if len(otherDomains) != 1 {
-			err = fmt.Errorf("Failed to automatically identity the Netbios domain. Select the correct domain and use it as an argument from the available domains: %v\n", domains)
+			err = fmt.Errorf("failed to automatically identify the NetBIOS domain; select the correct domain and use it as an argument from the available domains: %v", domains)
 			return
 		}
 		netbiosComputerName = otherDomains[0]
@@ -2094,12 +1851,10 @@ func (sb *RPCCon) ListDomainAliases(netbiosComputerName string) (aliases []Sampr
 
 	localDomainId, err := sb.SamrLookupDomain(handle, strings.ToUpper(netbiosComputerName))
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	handleLocalDomain, err := sb.SamrOpenDomain(handle, MaximumAllowed, localDomainId)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handleLocalDomain)
@@ -2110,7 +1865,6 @@ func (sb *RPCCon) ListDomainAliases(netbiosComputerName string) (aliases []Sampr
 func (sb *RPCCon) DeleteLocalUser(userRid uint32, netbiosComputerName string) (err error) {
 	handle, err := sb.SamrConnect5("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handle)
@@ -2119,7 +1873,6 @@ func (sb *RPCCon) DeleteLocalUser(userRid uint32, netbiosComputerName string) (e
 		var domains []string
 		domains, err = sb.SamrEnumDomains(handle)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		var otherDomains []string
@@ -2129,7 +1882,7 @@ func (sb *RPCCon) DeleteLocalUser(userRid uint32, netbiosComputerName string) (e
 			}
 		}
 		if len(otherDomains) != 1 {
-			err = fmt.Errorf("Failed to automatically identity the Netbios domain. Select the correct domain and use it as an argument from the available domains: %v\n", domains)
+			err = fmt.Errorf("failed to automatically identify the NetBIOS domain; select the correct domain and use it as an argument from the available domains: %v", domains)
 			return
 		}
 		netbiosComputerName = otherDomains[0]
@@ -2137,18 +1890,15 @@ func (sb *RPCCon) DeleteLocalUser(userRid uint32, netbiosComputerName string) (e
 
 	localDomainId, err := sb.SamrLookupDomain(handle, strings.ToUpper(netbiosComputerName))
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	handleLocalDomain, err := sb.SamrOpenDomain(handle, MaximumAllowed, localDomainId)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handleLocalDomain)
 	userHandle, err := sb.SamrOpenUser(handleLocalDomain, MaximumAllowed, userRid)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	// No need to close the handle when the object is deleted
@@ -2159,7 +1909,6 @@ func (sb *RPCCon) DeleteLocalUser(userRid uint32, netbiosComputerName string) (e
 func (sb *RPCCon) QueryLocalUserAllInfo(userRid uint32, netbiosComputerName string) (info *SamprUserAllInformation, err error) {
 	handle, err := sb.SamrConnect5("")
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handle)
@@ -2168,7 +1917,6 @@ func (sb *RPCCon) QueryLocalUserAllInfo(userRid uint32, netbiosComputerName stri
 		var domains []string
 		domains, err = sb.SamrEnumDomains(handle)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		var otherDomains []string
@@ -2178,7 +1926,7 @@ func (sb *RPCCon) QueryLocalUserAllInfo(userRid uint32, netbiosComputerName stri
 			}
 		}
 		if len(otherDomains) != 1 {
-			err = fmt.Errorf("Failed to automatically identity the Netbios domain. Select the correct domain and use it as an argument from the available domains: %v\n", domains)
+			err = fmt.Errorf("failed to automatically identify the NetBIOS domain; select the correct domain and use it as an argument from the available domains: %v", domains)
 			return
 		}
 		netbiosComputerName = otherDomains[0]
@@ -2186,12 +1934,10 @@ func (sb *RPCCon) QueryLocalUserAllInfo(userRid uint32, netbiosComputerName stri
 
 	localDomainId, err := sb.SamrLookupDomain(handle, strings.ToUpper(netbiosComputerName))
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	handleLocalDomain, err := sb.SamrOpenDomain(handle, MaximumAllowed, localDomainId)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	defer sb.SamrCloseHandle(handleLocalDomain)

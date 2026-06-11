@@ -184,7 +184,7 @@ func (c *Conn) cleanupSession(sess *Session) {
 	trees := sess.trees
 	sess.trees = nil
 	sess.mu.Unlock()
-	logger := c.Server.Config.logger()
+	logger := c.logger()
 	for _, t := range trees {
 		t.closeOpenHandles(context.Background(), logger)
 	}

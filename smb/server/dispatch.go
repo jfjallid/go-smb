@@ -45,7 +45,7 @@ func (c *Conn) dispatch(raw []byte) error {
 		return fmt.Errorf("packet too short (%d bytes)", len(raw))
 	}
 
-	logger := c.Server.Config.logger()
+	logger := c.logger()
 	protID := string(raw[:4])
 
 	switch protID {
@@ -75,7 +75,7 @@ func (c *Conn) dispatch(raw []byte) error {
 		return c.dispatchSMB2Chain(plain, pduCtx{encrypted: true})
 
 	default:
-		logger.Errorf("unknown protocol id from %s: %x", c.RemoteAddr, raw[:4])
+		logger.Errorf("unknown protocol id: %x", raw[:4])
 		return fmt.Errorf("unknown protocol id %x", raw[:4])
 	}
 }
@@ -160,7 +160,7 @@ func (c *Conn) dispatchSMB2Inner(raw []byte, ctx pduCtx) error {
 		const ignoreMID = uint64(0xFFFFFFFFFFFFFFFF)
 		if h.MessageID != ignoreMID {
 			if _, dup := c.seenMsgIDs.LoadOrStore(h.MessageID, struct{}{}); dup {
-				c.Server.Config.logger().Errorf(
+				c.logger().Errorf(
 					"duplicate MessageId %d from %s (cmd=0x%x); disconnecting",
 					h.MessageID, c.RemoteAddr, h.Command)
 				return fmt.Errorf("duplicate MessageId %d", h.MessageID)
@@ -215,7 +215,7 @@ func (c *Conn) dispatchSMB2Inner(raw []byte, ctx pduCtx) error {
 			// would silently drop the unsigned reject and hang waiting for
 			// a response.
 			if sess.Flags&smb.SessionFlagEncryptData != 0 {
-				c.Server.Config.logger().Errorf("inbound plaintext PDU on encrypted session from %s (cmd=0x%x)", c.RemoteAddr, h.Command)
+				c.logger().Errorf("inbound plaintext PDU on encrypted session (cmd=0x%x)", h.Command)
 				if err := c.writeRawError(ctx, &h, smb.StatusAccessDenied); err != nil {
 					return err
 				}
@@ -223,14 +223,14 @@ func (c *Conn) dispatchSMB2Inner(raw []byte, ctx pduCtx) error {
 			}
 			if h.Flags&smb.SMB2_FLAGS_SIGNED == 0 {
 				if sess.SigningRequired {
-					c.Server.Config.logger().Errorf("inbound PDU from %s not signed (cmd=0x%x)", c.RemoteAddr, h.Command)
+					c.logger().Errorf("inbound PDU not signed (cmd=0x%x)", h.Command)
 					if err := c.writeRawError(ctx, &h, smb.StatusAccessDenied); err != nil {
 						return err
 					}
 					return fmt.Errorf("disconnecting %s: signing required but inbound PDU was unsigned", c.RemoteAddr)
 				}
 			} else if !sess.verifyPDU(raw) {
-				c.Server.Config.logger().Errorf("inbound signature mismatch from %s (cmd=0x%x)", c.RemoteAddr, h.Command)
+				c.logger().Errorf("inbound signature mismatch (cmd=0x%x)", h.Command)
 				if err := c.writeRawError(ctx, &h, smb.StatusAccessDenied); err != nil {
 					return err
 				}
@@ -251,7 +251,7 @@ func (c *Conn) dispatchSMB2Inner(raw []byte, ctx pduCtx) error {
 	if !ctx.encrypted && h.TreeID != 0 && h.Command != smb.CommandTreeConnect {
 		if sess := c.session(h.SessionID); sess != nil {
 			if t := sess.tree(h.TreeID); t != nil && t.Share.EncryptData {
-				c.Server.Config.logger().Errorf("inbound plaintext PDU on encrypted share %q from %s (cmd=0x%x tree=%d)",
+				c.logger().Errorf("inbound plaintext PDU on encrypted share %q from %s (cmd=0x%x tree=%d)",
 					t.Share.Name, c.RemoteAddr, h.Command, h.TreeID)
 				return c.writeRawError(ctx, &h, smb.StatusAccessDenied)
 			}

@@ -90,7 +90,6 @@ func (s *SCMActivator) RemoteCreateInstance(cid [16]byte, clsid, iid [16]byte) (
 
 	result, err := s.MakeRequest(OpRemoteCreateInstance, reqBuf)
 	if err != nil {
-		log.Errorln(err)
 		return nil, err
 	}
 

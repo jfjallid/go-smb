@@ -47,33 +47,32 @@ const (
 //     clients fall back to the local share.
 //   - Everything else is delegated to VFS.Ioctl (default STATUS_NOT_SUPPORTED).
 func (c *Conn) handleIoCtl(ctx pduCtx, raw []byte, h *smb.Header) error {
-	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	sess := c.session(h.SessionID)
 	if sess == nil || !sess.Authenticated {
-		logger.Debugf("IoCtl from %s: session %d not authenticated -> StatusUserSessionDeleted", c.RemoteAddr, h.SessionID)
+		logger.Debugf("IoCtl: session %d not authenticated -> StatusUserSessionDeleted", h.SessionID)
 		return c.writeRawError(ctx, h, smb.StatusUserSessionDeleted)
 	}
 	tree := sess.tree(h.TreeID)
 	if tree == nil {
-		logger.Debugf("IoCtl from %s: unknown TreeID %d -> StatusNetworkNameDeleted", c.RemoteAddr, h.TreeID)
+		logger.Debugf("IoCtl: unknown TreeID %d -> StatusNetworkNameDeleted", h.TreeID)
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 	var req smb.IoCtlReq
 	if err := encoder.Unmarshal(raw, &req); err != nil {
-		logger.Errorf("IoCtl from %s: decode IoCtlReq: %v", c.RemoteAddr, err)
+		logger.Errorf("IoCtl: decode IoCtlReq: %v", err)
 		return formatErr("decode IoCtlReq", err)
 	}
 
-	logger.Debugf("IoCtl from %s: tree=%d ctlCode=0x%08x maxOut=%d", c.RemoteAddr, tree.ID, req.CtlCode, req.MaxOutputResponse)
+	logger.Debugf("IoCtl: tree=%d ctlCode=0x%08x maxOut=%d", tree.ID, req.CtlCode, req.MaxOutputResponse)
 
 	switch req.CtlCode {
 	case FsctlValidateNegotiateInfo:
 		out := buildValidateNegotiateInfoOut(c)
 		return c.writeIoCtlReply(ctx, h, &req, out, smb.StatusOk)
 	case smb.FsctlDfsGetRefferrals:
-		logger.Debugf("IoCtl from %s: FsctlDfsGetReferrals -> statusFsDriverRequired (DFS not served)", c.RemoteAddr)
+		logger.Debugf("IoCtl: FsctlDfsGetReferrals -> statusFsDriverRequired (DFS not served)")
 		return c.writeRawError(ctx, h, statusFsDriverRequired)
 	}
 

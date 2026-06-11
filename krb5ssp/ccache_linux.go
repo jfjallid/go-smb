@@ -22,6 +22,7 @@
 package krb5ssp
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -38,7 +39,6 @@ func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string,
 		fileinfo, err2 := os.Stat(cacheFile)
 		err = err2
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		log.Debugf("Found ccache file: %s\n", cacheFile)
@@ -47,7 +47,6 @@ func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string,
 			// Try loading TGT and TGS from ccache
 			cache, err = credentials.LoadCCache(cacheFile)
 			if err != nil {
-				log.Errorln(err)
 				return
 			}
 			cacheDomain := cache.GetClientRealm()
@@ -85,13 +84,14 @@ func getClientFromCachedTicket(cfg *config.Config, username, domain, spn string,
 			}
 			if c == nil {
 				if err != nil {
-					log.Errorf("error looking for cached ticket for SPN %q: %s", spn, err)
+					err = fmt.Errorf("looking for cached ticket for SPN %q: %w", spn, err)
 				}
 				return
 			}
 			log.Debugln("Created client from ccache")
 		} else if mode.IsDir() {
-			log.Errorln("KRB5CCNAME points to a directory and not a file which is not supported")
+			// Not a failure: the caller falls back to other credential sources.
+			log.Warningln("KRB5CCNAME points to a directory and not a file which is not supported")
 			return
 		}
 		// Check if we created a client or not.

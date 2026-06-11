@@ -547,7 +547,7 @@ func (s *SamrCloseHandleReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrCloseHandleReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrCloseHandleReq: %w", err)
 	}
 	return
 }
@@ -558,7 +558,7 @@ func (s *SamrConnect5Req) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrConnect5Req: %v", err)
+		err = fmt.Errorf("error marshaling SamrConnect5Req: %w", err)
 	}
 	return
 }
@@ -579,7 +579,7 @@ func (s *SamrConnect5Res) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrConnect5Res: %v", err)
+		return fmt.Errorf("error unmarshaling SamrConnect5Res: %w", err)
 	}
 	return
 }
@@ -590,7 +590,7 @@ func (s *SamrQueryInformationUser2Req) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrQueryInformationUser2Req: %v", err)
+		err = fmt.Errorf("error marshaling SamrQueryInformationUser2Req: %w", err)
 	}
 	return
 }
@@ -611,7 +611,7 @@ func (s *SamrQueryInformationUser2Res) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrQueryInformationUser2Res: %v", err)
+		return fmt.Errorf("error unmarshaling SamrQueryInformationUser2Res: %w", err)
 	}
 	return
 }
@@ -622,7 +622,7 @@ func (s *SamrCreateUser2InDomainReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrCreateUser2InDomainReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrCreateUser2InDomainReq: %w", err)
 	}
 	return
 }
@@ -643,7 +643,7 @@ func (s *SamrCreateUser2InDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrCreateUser2InDomainRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrCreateUser2InDomainRes: %w", err)
 	}
 	return
 }
@@ -654,7 +654,7 @@ func (s *SamrUnicodeChangePasswordUser2Req) MarshalBinary() (res []byte, err err
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrUnicodeChangePasswordUser2Req: %v", err)
+		err = fmt.Errorf("error marshaling SamrUnicodeChangePasswordUser2Req: %w", err)
 	}
 	return
 }
@@ -669,7 +669,7 @@ func (s *SamrSetInformationUser2Req) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrSetInformationUser2Req: %v", err)
+		err = fmt.Errorf("error marshaling SamrSetInformationUser2Req: %w", err)
 	}
 	return
 }
@@ -684,7 +684,7 @@ func (s *SamrLookupDomainReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrLookupDomainReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrLookupDomainReq: %w", err)
 	}
 	return
 }
@@ -705,7 +705,7 @@ func (s *SamrLookupDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrLookupDomainRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrLookupDomainRes: %w", err)
 	}
 	return
 }
@@ -716,7 +716,7 @@ func (s *SamrAddMemberToGroupReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrAddMemberToGroupReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrAddMemberToGroupReq: %w", err)
 	}
 	return
 }
@@ -731,7 +731,7 @@ func (s *SamrRemoveMemberFromGroupReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrRemoveMemberFromGroupReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrRemoveMemberFromGroupReq: %w", err)
 	}
 	return
 }
@@ -746,7 +746,7 @@ func (s *SamrOpenDomainReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrOpenDomainReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrOpenDomainReq: %w", err)
 	}
 	return
 }
@@ -767,7 +767,7 @@ func (s *SamrOpenDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrOpenDomainRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrOpenDomainRes: %w", err)
 	}
 	return
 }
@@ -778,7 +778,7 @@ func (s *SamrEnumerateGroupsInDomainReq) MarshalBinary() (res []byte, err error)
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrEnumerateGroupsInDomainReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrEnumerateGroupsInDomainReq: %w", err)
 	}
 	return
 }
@@ -799,7 +799,7 @@ func (s *SamrEnumerateGroupsInDomainRes) UnmarshalBinary(buf []byte) (err error)
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrEnumerateGroupsInDomainRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrEnumerateGroupsInDomainRes: %w", err)
 	}
 	return
 }
@@ -810,7 +810,7 @@ func (s *SamrCreateUserInDomainReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrCreateUserInDomainReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrCreateUserInDomainReq: %w", err)
 	}
 	return
 }
@@ -831,7 +831,7 @@ func (s *SamrCreateUserInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrCreateUserInDomainRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrCreateUserInDomainRes: %w", err)
 	}
 	return
 }
@@ -842,7 +842,7 @@ func (s *SamrEnumDomainUsersReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrEnumDomainUsersReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrEnumDomainUsersReq: %w", err)
 	}
 	return
 }
@@ -863,7 +863,7 @@ func (s *SamrEnumDomainUsersRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrEnumDomainUsersRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrEnumDomainUsersRes: %w", err)
 	}
 	return
 }
@@ -874,7 +874,7 @@ func (s *SamrEnumAliasesInDomainReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrEnumAliasesInDomainReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrEnumAliasesInDomainReq: %w", err)
 	}
 	return
 }
@@ -895,7 +895,7 @@ func (s *SamrEnumAliasesInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrEnumAliasesInDomainRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrEnumAliasesInDomainRes: %w", err)
 	}
 	return
 }
@@ -906,7 +906,7 @@ func (s *SamrAddMemberToAliasReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrAddMemberToAliasReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrAddMemberToAliasReq: %w", err)
 	}
 	return
 }
@@ -921,7 +921,7 @@ func (s *SamrRemoveMemberFromAliasReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrRemoveMemberFromAliasReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrRemoveMemberFromAliasReq: %w", err)
 	}
 	return
 }
@@ -936,7 +936,7 @@ func (s *SamrLookupNamesInDomainReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrLookupNamesInDomainReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrLookupNamesInDomainReq: %w", err)
 	}
 	return
 
@@ -958,7 +958,7 @@ func (s *SamrLookupNamesInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrLookupNamesInDomainRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrLookupNamesInDomainRes: %w", err)
 	}
 	return
 }
@@ -969,7 +969,7 @@ func (s *SamrLookupIdsInDomainReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrLookupIdsInDomainReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrLookupIdsInDomainReq: %w", err)
 		return
 	}
 	return
@@ -991,7 +991,7 @@ func (s *SamrLookupIdsInDomainRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrLookupIdsInDomainRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrLookupIdsInDomainRes: %w", err)
 	}
 	return
 }
@@ -1002,7 +1002,7 @@ func (s *SamrOpenGroupReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrOpenGroupReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrOpenGroupReq: %w", err)
 	}
 	return
 }
@@ -1023,7 +1023,7 @@ func (s *SamrOpenGroupRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrOpenGroupRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrOpenGroupRes: %w", err)
 	}
 	return
 }
@@ -1034,7 +1034,7 @@ func (s *SamrOpenAliasReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrOpenAliasReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrOpenAliasReq: %w", err)
 	}
 	return
 }
@@ -1055,7 +1055,7 @@ func (s *SamrOpenAliasRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrOpenAliasRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrOpenAliasRes: %w", err)
 	}
 	return
 }
@@ -1066,7 +1066,7 @@ func (s *SamrGetMembersInAliasReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrGetMembersInAliasReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrGetMembersInAliasReq: %w", err)
 	}
 	return
 }
@@ -1087,7 +1087,7 @@ func (s *SamrGetMembersInAliasRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrGetMembersInAliasRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrGetMembersInAliasRes: %w", err)
 	}
 	return
 }
@@ -1098,7 +1098,7 @@ func (s *SamrOpenUserReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrOpenUserReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrOpenUserReq: %w", err)
 	}
 	return
 }
@@ -1119,7 +1119,7 @@ func (s *SamrOpenUserRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrOpenUserRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrOpenUserRes: %w", err)
 	}
 	return
 }
@@ -1130,7 +1130,7 @@ func (s *SamrDeleteUserReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrDeleteUserReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrDeleteUserReq: %w", err)
 	}
 	return
 }
@@ -1145,7 +1145,7 @@ func (s *SamrEnumDomainsReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrEnumDomainsReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrEnumDomainsReq: %w", err)
 	}
 	return
 }
@@ -1166,7 +1166,7 @@ func (s *SamrEnumDomainsRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrEnumDomainsRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrEnumDomainsRes: %w", err)
 	}
 	return
 }
@@ -1177,7 +1177,7 @@ func (s *SamrRidToSidReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrRidToSidReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrRidToSidReq: %w", err)
 	}
 	return
 }
@@ -1198,7 +1198,7 @@ func (s *SamrRidToSidRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrRidToSidRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrRidToSidRes: %w", err)
 	}
 	return
 }
@@ -1209,7 +1209,7 @@ func (s *SamrGetMembersInGroupReq) MarshalBinary() (res []byte, err error) {
 	enc.SetEndianness(binary.LittleEndian)
 	res, err = enc.Encode(s)
 	if err != nil {
-		err = fmt.Errorf("error marshaling SamrGetMembersInGroupReq: %v", err)
+		err = fmt.Errorf("error marshaling SamrGetMembersInGroupReq: %w", err)
 	}
 	return
 }
@@ -1230,7 +1230,7 @@ func (s *SamrGetMembersInGroupRes) UnmarshalBinary(buf []byte) (err error) {
 	dec := ndr.NewDecoder(bytes.NewReader(buf), false)
 	err = dec.Decode(s)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling SamrGetMembersInGroupRes: %v", err)
+		return fmt.Errorf("error unmarshaling SamrGetMembersInGroupRes: %w", err)
 	}
 	return
 }

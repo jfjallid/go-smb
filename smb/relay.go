@@ -74,13 +74,11 @@ func (c *Connection) SendSessionSetup1WithToken(token []byte) (responseToken []b
 	log.Debugln("Sending SessionSetup1 request")
 	initBytes, err := gss.NewNegTokenInit([]asn1.ObjectIdentifier{gss.NtLmSSPMechTypeOid}, token)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 	var init gss.NegTokenInit
 	err = encoder.Unmarshal(initBytes, &init)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -108,7 +106,6 @@ func (c *Connection) SendSessionSetup1WithToken(token []byte) (responseToken []b
 
 	ssresbuf, err := c.sendrecv(ssreq)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -120,14 +117,12 @@ func (c *Connection) SendSessionSetup1WithToken(token []byte) (responseToken []b
 	responseToken = ssres.SecurityBlob.ResponseToken
 
 	if ssres.Header.Status != StatusMoreProcessingRequired {
-		status, found := StatusMap[ssres.Header.Status]
-		if !found {
-			err = fmt.Errorf("Received unknown SMB Header status for SessionSetup1 response: 0x%x\n", ssres.Header.Status)
-			log.Errorln(err)
-			return
+		// Even StatusOk is unexpected here: the upstream should always
+		// answer leg 1 with STATUS_MORE_PROCESSING_REQUIRED.
+		err = statusError("SessionSetup1 (relay)", ssres.Header.Status)
+		if err == nil {
+			err = fmt.Errorf("SessionSetup1 (relay): expected STATUS_MORE_PROCESSING_REQUIRED, got 0x%08x", ssres.Header.Status)
 		}
-		log.Debugf("NT Status Error: %v\n", status)
-		err = status
 		return
 	}
 

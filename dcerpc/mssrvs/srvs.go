@@ -120,13 +120,29 @@ var SRVSResponseCodeMap = map[uint32]error{
 	SRVSNERRInvalidComputer:      fmt.Errorf("The computer name is not valid"),
 }
 
+// checkReturnCode maps a non-zero Win32 error from an SRVS response to a
+// *dcerpc.StatusError carrying op, the raw code, and the mapped sentinel
+// from SRVSResponseCodeMap (nil when unmapped). Codes in okCodes are
+// treated as success in addition to ErrorSuccess.
+func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
+	if code == ErrorSuccess {
+		return nil
+	}
+	for _, ok := range okCodes {
+		if code == ok {
+			return nil
+		}
+	}
+	return &dcerpc.StatusError{Op: op, Code: code, Err: SRVSResponseCodeMap[code]}
+}
+
 func NewRPCCon(sb *dcerpc.ServiceBind) *RPCCon {
 	return &RPCCon{ServiceBind: sb}
 }
 
 func NewNetSessionEnumRequest(clientName, userName string, level uint32) *NetSessionEnumRequest {
 	if level != 0 && level != 10 && level != 502 {
-		log.Errorln("Invalid level for NetSessionEnum request. Falling back to level 10")
+		log.Warningln("invalid level for NetSessionEnum request, falling back to level 10")
 		level = 10
 	}
 	resumeHandle := uint32(0)
@@ -157,7 +173,7 @@ Send a NetSessionEnum request to the server. Supported levels: 0, 10, 502
 func (sb *RPCCon) NetSessionEnum(clientName, username string, level int) (res *SessionEnumStruct, err error) {
 	log.Traceln("In NetSessionEnum")
 	if level < 0 {
-		return nil, fmt.Errorf("Only levels 0, 10 and 502 are valid")
+		return nil, fmt.Errorf("NetSessionEnum: only levels 0, 10 and 502 are valid")
 	}
 	netReq := NewNetSessionEnumRequest(clientName, username, uint32(level))
 	netBuf, err := netReq.Marshal()
@@ -176,15 +192,8 @@ func (sb *RPCCon) NetSessionEnum(clientName, username string, level int) (res *S
 		return
 	}
 
-	if response.WindowsError != ErrorSuccess {
-		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
-		if !found {
-			err = fmt.Errorf("NetSessionEnum returned unknown error code: 0x%x\n", response.WindowsError)
-			log.Errorln(err)
-			return
-		}
-		log.Debugf("NetSessionEnum return error: %v\n", responseCode)
-		return nil, responseCode
+	if err = checkReturnCode("NetSessionEnum", response.WindowsError); err != nil {
+		return
 	}
 
 	res = &response.Info
@@ -193,7 +202,7 @@ func (sb *RPCCon) NetSessionEnum(clientName, username string, level int) (res *S
 
 func NewNetServerGetInfoRequest(serverName string, level int) *NetServerGetInfoRequest {
 	if level < 100 || level > 102 {
-		log.Errorln("Invalid level for NetServerGetInfo request. Falling back to level 100")
+		log.Warningln("invalid level for NetServerGetInfo request, falling back to level 100")
 		level = 100
 	}
 	nr := NetServerGetInfoRequest{
@@ -226,15 +235,8 @@ func (sb *RPCCon) NetServerGetInfo(host string, level int) (res *ServerInfoUnion
 		return
 	}
 
-	if response.WindowsError != ErrorSuccess {
-		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
-		if !found {
-			err = fmt.Errorf("NetServerGetInfo returned unknown error code: 0x%x\n", response.WindowsError)
-			log.Errorln(err)
-			return
-		}
-		log.Debugf("NetServerGetInfo return error: %v\n", responseCode)
-		return nil, responseCode
+	if err = checkReturnCode("NetServerGetInfo", response.WindowsError); err != nil {
+		return
 	}
 
 	res = &response.Info
@@ -298,32 +300,22 @@ func (sb *RPCCon) NetShareEnumAllExt(host string, level int) (res []NetShare, er
 	netReq := NewNetShareEnumAllRequestExt(host, uint32(level))
 	netBuf, err := netReq.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := sb.MakeRequest(SrvSvcOpNetShareEnumAll, netBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	var response NetShareEnumAllResponse
 	err = response.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if response.WindowsError != ErrorSuccess {
-		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
-		if !found {
-			err = fmt.Errorf("NetShareEnumAll returned unknown error code: 0x%x\n", response.WindowsError)
-			log.Errorln(err)
-			return
-		}
-		log.Debugf("NetShareEnumAll return error: %v\n", responseCode)
-		return nil, responseCode
+	if err = checkReturnCode("NetShareEnumAll", response.WindowsError); err != nil {
+		return
 	}
 
 	switch response.InfoStruct.Level {
@@ -367,7 +359,7 @@ func (sb *RPCCon) NetShareEnumAllExt(host string, level int) (res []NetShare, er
 			if len(ctr.Buffer[i].SecurityDescriptor) > 0 {
 				var sd msdtyp.SecurityDescriptor
 				if perr := sd.UnmarshalBinary(ctr.Buffer[i].SecurityDescriptor); perr != nil {
-					log.Errorf("failed to parse security descriptor for share %s: %v\n", ctr.Buffer[i].Name, perr)
+					log.Warningf("failed to parse security descriptor for share %s: %v", ctr.Buffer[i].Name, perr)
 				} else {
 					res[i].SecurityDescriptor = &sd
 				}
@@ -427,29 +419,20 @@ func (sb *RPCCon) NetGetFileSecurity(share, path string) (sd *msdtyp.SecurityDes
 	}
 
 	if len(buffer) < 8 {
-		return nil, fmt.Errorf("Server response to NetGetFileSecurity was too small. Expected at atleast 8 bytes")
+		return nil, fmt.Errorf("server response to NetGetFileSecurity was too small, expected at least 8 bytes")
 	}
 	var response NetrpGetFileSecurityRes
 	err = response.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
-	if response.WindowsError != 0 {
-		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
-		if !found {
-			err = fmt.Errorf("NetGetFileSecurity returned unknown error code: 0x%x\n", response.WindowsError)
-			log.Errorln(err)
-			return
-		}
-		log.Debugf("NetGetFileSecurity return error: %v\n", responseCode)
-		return nil, responseCode
+	if err = checkReturnCode("NetGetFileSecurity", response.WindowsError); err != nil {
+		return
 	}
 	var secInfo msdtyp.SecurityDescriptor
 	if response.SecurityDescriptor.Length > 0 {
 		err = secInfo.UnmarshalBinary(response.SecurityDescriptor.Buffer)
 		if err != nil {
-			log.Errorln(err)
 			return
 		}
 		sd = &secInfo
@@ -486,32 +469,22 @@ func (sb *RPCCon) NetShareGetInfoExt(host, share string, level int) (res *NetSha
 	netReq := NewNetShareGetInfoRequest(host, share, uint32(level))
 	netBuf, err := netReq.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := sb.MakeRequest(SrvSvcOpNetrShareGetInfo, netBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	var response NetShareGetInfoResponse
 	err = response.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if response.WindowsError != ErrorSuccess {
-		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
-		if !found {
-			err = fmt.Errorf("NetShareGetInfo returned unknown error code: 0x%x\n", response.WindowsError)
-			log.Errorln(err)
-			return
-		}
-		log.Debugf("NetShareGetInfo return error: %v\n", responseCode)
-		return nil, responseCode
+	if err = checkReturnCode("NetShareGetInfo", response.WindowsError); err != nil {
+		return
 	}
 
 	res = &NetShare{}
@@ -566,7 +539,7 @@ func (sb *RPCCon) NetShareGetInfoExt(host, share string, level int) (res *NetSha
 		if len(info.SecurityDescriptor) > 0 {
 			var sd msdtyp.SecurityDescriptor
 			if perr := sd.UnmarshalBinary(info.SecurityDescriptor); perr != nil {
-				log.Errorf("failed to parse security descriptor for share %s: %v\n", info.Name, perr)
+				log.Warningf("failed to parse security descriptor for share %s: %v", info.Name, perr)
 			} else {
 				res.SecurityDescriptor = &sd
 			}
@@ -593,20 +566,17 @@ func (sb *RPCCon) netShareSetInfo(host, share string, level uint32, info ShareIn
 	}
 	netBuf, err := netReq.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := sb.MakeRequest(SrvSvcOpNetrShareSetInfo, netBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	var response NetShareSetInfoResponse
 	err = response.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
@@ -614,15 +584,10 @@ func (sb *RPCCon) netShareSetInfo(host, share string, level uint32, info ShareIn
 		parmErr = *response.ParmErr
 	}
 
-	if response.WindowsError != ErrorSuccess {
-		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
-		if !found {
-			err = fmt.Errorf("NetShareSetInfo returned unknown error code: 0x%x\n", response.WindowsError)
-			log.Errorln(err)
-			return
+	if err = checkReturnCode("NetShareSetInfo", response.WindowsError); err != nil {
+		if parmErr != 0 {
+			err = fmt.Errorf("%w (parmErr=%d)", err, parmErr)
 		}
-		log.Debugf("NetShareSetInfo return error: %v (parmErr=%d)\n", responseCode, parmErr)
-		err = responseCode
 		return
 	}
 
@@ -688,7 +653,6 @@ func (sb *RPCCon) NetShareSetInfoSecurityDescriptor(host, share string, sd *msdt
 	}
 	sdBytes, err := sd.MarshalBinary()
 	if err != nil {
-		log.Errorln(err)
 		return err
 	}
 	_, err = sb.netShareSetInfo(host, share, 1501, ShareInfoUnion{
@@ -713,32 +677,22 @@ func (sb *RPCCon) NetServerDiskEnum(host string) (res []string, err error) {
 	}
 	netBuf, err := netReq.Marshal()
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	buffer, err := sb.MakeRequest(SrvSvcOpNetrServerDiskEnum, netBuf)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
 	var response NetServerDiskEnumResponse
 	err = response.Unmarshal(buffer)
 	if err != nil {
-		log.Errorln(err)
 		return
 	}
 
-	if response.WindowsError != ErrorSuccess {
-		responseCode, found := SRVSResponseCodeMap[response.WindowsError]
-		if !found {
-			err = fmt.Errorf("NetServerDiskEnum returned unknown error code: 0x%x\n", response.WindowsError)
-			log.Errorln(err)
-			return
-		}
-		log.Debugf("NetServerDiskEnum return error: %v\n", responseCode)
-		return nil, responseCode
+	if err = checkReturnCode("NetServerDiskEnum", response.WindowsError); err != nil {
+		return
 	}
 
 	for _, di := range response.DiskInfo.Buffer {

@@ -48,7 +48,7 @@ func (c *Conn) handleSessionSetup(ctx pduCtx, raw []byte, h *smb.Header) error {
 	// when SMB2_SESSION_FLAG_BINDING is set. Reject before allocating a new
 	// session so the bind attempt doesn't leak state on this Conn.
 	if req.Flags&smb.SMB2_SESSION_FLAG_BINDING != 0 {
-		c.Server.Config.logger().Debugf("SessionSetup BINDING from %s: rejected (multichannel not supported)", c.RemoteAddr)
+		c.logger().Debugf("SessionSetup BINDING: rejected (multichannel not supported)")
 		return c.writeRawError(ctx, h, smb.StatusRequestNotAccepted)
 	}
 	if len(req.SecurityBlob) == 0 {
@@ -67,7 +67,7 @@ func (c *Conn) handleSessionSetup(ctx pduCtx, raw []byte, h *smb.Header) error {
 
 func (c *Conn) handleSessionSetupNegotiate(ctx pduCtx, raw []byte, h *smb.Header, req *smb.SessionSetupReq) error {
 	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	// Allocate a fresh Session keyed by a new SessionID.
 	sess := c.addSession()
@@ -122,11 +122,11 @@ func (c *Conn) handleSessionSetupNegotiate(ctx pduCtx, raw []byte, h *smb.Header
 
 func (c *Conn) handleSessionSetupAuthenticate(ctx pduCtx, raw []byte, h *smb.Header, req *smb.SessionSetupReq) error {
 	cfg := c.Server.Config
-	logger := cfg.logger()
+	logger := c.logger()
 
 	sess := c.session(h.SessionID)
 	if sess == nil || sess.AuthAcceptor == nil {
-		logger.Errorf("SessionSetup2 from %s: unknown SessionID %d", c.RemoteAddr, h.SessionID)
+		logger.Errorf("SessionSetup2: unknown SessionID %d", h.SessionID)
 		return c.writeRawError(ctx, h, smb.StatusUserSessionDeleted)
 	}
 
