@@ -322,6 +322,55 @@ func TestTraversalRejected(t *testing.T) {
 	}
 }
 
+// TestTraversalForwardSlashRejected covers the escape vector where a single
+// "\\"-delimited component embeds forward slashes (and "..") — e.g.
+// "a/../../../etc/evil". Such a string is one component, is not literally "..",
+// and on Unix filepath.Join would honour the slashes and escape the share root.
+// The missing-leaf create path previously returned the escaped host path with
+// StatusOk and let the caller create a file outside root. Both create and mkdir
+// must be rejected, and nothing may appear outside the share root.
+func TestTraversalForwardSlashRejected(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("forward-slash host separators are Unix-specific")
+	}
+	fs, root := newFS(t, false)
+	outside := t.TempDir()
+	sentinel := filepath.Join(outside, "evil")
+
+	rel, err := filepath.Rel(root, sentinel)
+	if err != nil {
+		t.Fatalf("Rel: %v", err)
+	}
+	// rel is like "../<tmp>/evil" using OS separators; feed it as a single SMB
+	// component (no backslashes) so the old code would treat it as one name.
+	smbPath := rel
+
+	for _, tc := range []struct {
+		name string
+		opts uint32
+	}{
+		{"file", smb.FileNonDirectoryFile},
+		{"dir", smb.FileDirectoryFile},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, status, err := fs.Create(context.Background(), nil, server.CreateRequest{
+				Path:              smbPath,
+				CreateOptions:     tc.opts,
+				CreateDisposition: smb.FileCreate,
+			})
+			if err != nil {
+				t.Fatalf("Create: unexpected err %v", err)
+			}
+			if status == smb.StatusOk {
+				t.Fatalf("expected rejection for %q, got StatusOk", smbPath)
+			}
+			if _, err := os.Lstat(sentinel); err == nil {
+				t.Fatalf("file was created outside the share root at %q", sentinel)
+			}
+		})
+	}
+}
+
 func TestSymlinkEscapeRejected(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on Windows")

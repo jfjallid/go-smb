@@ -24,6 +24,7 @@ package msrrp
 import (
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"unicode/utf16"
 
 	"github.com/jfjallid/go-smb/dcerpc"
@@ -199,6 +200,12 @@ var RegValueTypeMap = map[uint32]string{
 	RegQword:          "RegQword",
 }
 
+// maxRegValueLen is a sanity ceiling on the buffer size we will request when a
+// server answers a registry query with ERROR_MORE_DATA and a server-controlled
+// DataLen. DCERPC reassembly already bounds the actual transfer, but we refuse a
+// patently bogus length up front rather than echoing it back to the server.
+const maxRegValueLen uint32 = 16 * 1024 * 1024 // 16 MiB
+
 // MS-RRP Section 2.2.6 Common Error Codes
 const (
 	ErrorSuccess            uint32 = 0x00000000 // Error success
@@ -311,10 +318,8 @@ func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
 	if code == ErrorSuccess {
 		return nil
 	}
-	for _, ok := range okCodes {
-		if code == ok {
-			return nil
-		}
+	if slices.Contains(okCodes, code) {
+		return nil
 	}
 	return &dcerpc.StatusError{Op: op, Code: code, Err: ReturnCodeMap[code]}
 }
@@ -606,6 +611,10 @@ func (r *RPCCon) EnumValue(hKey []byte, index uint32) (value *ValueInfo, err err
 
 	if res.ReturnCode == ErrorMoreData {
 		log.Debugln("EnumValue failed with ERROR_MORE_DATA. Making another request with a larger buffer.")
+		if res.DataLen != nil && *res.DataLen > maxRegValueLen {
+			err = fmt.Errorf("BaseRegEnumValue: server requested an implausible buffer size (%d bytes)", *res.DataLen)
+			return
+		}
 		// Make another request with the correct buffer size
 		req.MaxLen = res.DataLen
 		reqBuf, err = req.Marshal()
@@ -812,8 +821,10 @@ func (r *RPCCon) QueryValueExt(hKey []byte, name string) (result any, dataType u
 		if err != nil {
 			return
 		}
-		// Optionally remove null terminator
-		if s[len(s)-1] == 0x00 {
+		// Optionally remove null terminator. The decoded length is
+		// server-controlled, so guard against an empty string (a RegSz/RegExpandSz
+		// value that decodes to "") before indexing s[len(s)-1].
+		if len(s) > 0 && s[len(s)-1] == 0x00 {
 			s = s[:len(s)-1]
 		}
 		result = s
@@ -888,6 +899,10 @@ func (r *RPCCon) QueryValue2(hKey []byte, name string) (result []byte, dataType 
 
 	if res.ReturnCode == ErrorMoreData {
 		log.Debugln("EnumValue failed with ERROR_MORE_DATA. Making another request with a larger buffer.")
+		if res.DataLen != nil && *res.DataLen > maxRegValueLen {
+			err = fmt.Errorf("BaseRegQueryValue: server requested an implausible buffer size (%d bytes)", *res.DataLen)
+			return
+		}
 		// Make another request with the correct buffer size
 		req.MaxLen = res.DataLen
 		reqBuf, err = req.Marshal()
@@ -946,7 +961,12 @@ func (r *RPCCon) QueryValueString(hKey []byte, name string) (result string, err 
 	}
 
 	// All strings in the registry should be null terminated
-	// but not necessarily Unicode so this could be problematic
+	// but not necessarily Unicode so this could be problematic.
+	// The data length is server-controlled; a 0- or 1-byte RegSz value would
+	// make len(data)-2 negative and panic the slice, so handle it explicitly.
+	if len(data) < 2 {
+		return "", nil
+	}
 	return msdtyp.FromUnicodeString(data[:len(data)-2])
 }
 

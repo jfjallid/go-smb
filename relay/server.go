@@ -948,6 +948,7 @@ func (rs *RelayServer) logger() server.Logger {
 //     entry SelectPoolEntry returns.
 //   - user != "", domain == "" → match Username only (any captured domain).
 //   - user != "", domain != "" → match both Username and Domain.
+//
 // Matching is case-insensitive. The SOCKS listener performs no auth at the
 // SOCKS layer, so this is the only point at which an asserted identity is
 // compared against captured credentials on the SMB path.

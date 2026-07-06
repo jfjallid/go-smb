@@ -62,7 +62,7 @@ type AuthVerifier struct {
 	AuthType      uint8
 	AuthLevel     uint8
 	AuthPadLength uint8
-	AuthReserved  uint8  // Must be 0
+	AuthReserved  uint8 // Must be 0
 	AuthContextId uint32
 	AuthValue     []byte
 }
@@ -192,8 +192,8 @@ type BindReq struct {
 	Header          // 16 Bytes
 	MaxSendFragSize uint16
 	MaxRecvFragSize uint16
-	Association     uint32      // A value of 0 means a request for a new Association group
-	ContextList     ContextList // p_cont_list_t
+	Association     uint32        // A value of 0 means a request for a new Association group
+	ContextList     ContextList   // p_cont_list_t
 	AuthVerifier    *AuthVerifier // Optional, present when AuthLength != 0
 }
 
@@ -551,8 +551,7 @@ func (s *BindReq) MarshalBinary() (ret []byte, err error) {
 		return
 	}
 	// Encode Context Item list
-	contextBuf := []byte{}
-	contextBuf, err = s.ContextList.MarshalBinary()
+	contextBuf, err := s.ContextList.MarshalBinary()
 	if err != nil {
 		return
 	}
@@ -964,6 +963,14 @@ func (s *RequestRes) UnmarshalBinary(buf []byte) (err error) {
 	err = s.Header.UnmarshalBinary(buf)
 	if err != nil {
 		return
+	}
+	// FragLength must cover at least the 16-byte common header + the 8-byte
+	// response fields. Reject a smaller value before the FragLength-24
+	// arithmetic below underflows the uint16 to ~65 K (which would otherwise
+	// pass the buffer check and over-allocate a mostly-zero Buffer). Mirrors
+	// the guard in RequestReq.UnmarshalBinary.
+	if s.Header.FragLength < 24 {
+		return fmt.Errorf("invalid RequestRes FragLength %d (minimum 24)", s.Header.FragLength)
 	}
 	if len(buf[16:]) < (int(s.Header.FragLength) - 24) {
 		return fmt.Errorf("provided buffer is too small to unmarshal a RequestRes")

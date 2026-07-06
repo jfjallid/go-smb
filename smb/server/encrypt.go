@@ -214,4 +214,3 @@ func (c *Conn) decryptInbound(raw []byte) ([]byte, *Session, error) {
 	}
 	return plaintext, sess, nil
 }
-

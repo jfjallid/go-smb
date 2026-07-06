@@ -25,6 +25,7 @@ package msscmr
 import (
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -337,10 +338,8 @@ func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
 	if code == ErrorSuccess {
 		return nil
 	}
-	for _, ok := range okCodes {
-		if code == ok {
-			return nil
-		}
+	if slices.Contains(okCodes, code) {
+		return nil
 	}
 	return &dcerpc.StatusError{Op: op, Code: code, Err: ServiceResponseCodeMap[code]}
 }
@@ -415,10 +414,6 @@ func (sb *RPCCon) ChangeServiceConfigExt(serviceName string, config *ServiceConf
 		return
 	}
 	errorControl = ErrorControlMap[config.ErrorControl]
-	if err != nil {
-		err = fmt.Errorf("decode service config: %w", err)
-		return
-	}
 
 	binaryPathName = config.BinaryPathName
 	serviceStartName = config.ServiceStartName

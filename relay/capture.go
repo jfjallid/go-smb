@@ -43,10 +43,10 @@ type CapturedAuth struct {
 
 // CaptureStatus values surfaced on CapturedAuth.Status.
 const (
-	CaptureStatusInFlight        = "captured"
-	CaptureStatusRelayed         = "relayed"
+	CaptureStatusInFlight         = "captured"
+	CaptureStatusRelayed          = "relayed"
 	CaptureStatusUpstreamRejected = "upstream_rejected"
-	CaptureStatusRelayFailed     = "relay_failed"
+	CaptureStatusRelayFailed      = "relay_failed"
 )
 
 // defaultCaptureBufferSize is the default ring-buffer capacity for

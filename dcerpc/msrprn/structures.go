@@ -49,7 +49,7 @@ type splClientContainerNDR struct {
 }
 
 // SwitchFunc implements the ndr.Union interface for SPLCLIENT_CONTAINER.
-func (s splClientContainerNDR) SwitchFunc(t interface{}) string {
+func (s splClientContainerNDR) SwitchFunc(t any) string {
 	level, ok := t.(uint32)
 	if !ok {
 		return ""

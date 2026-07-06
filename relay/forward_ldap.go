@@ -48,7 +48,7 @@ const (
 
 // LDAP result codes.
 const (
-	ldapResultSuccess           = 0
+	ldapResultSuccess            = 0
 	ldapResultSaslBindInProgress = 14
 )
 

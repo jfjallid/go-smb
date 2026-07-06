@@ -108,8 +108,8 @@ func New(opts Options) (*FS, error) {
 // handle is the in-tree implementation of server.Handle.
 type handle struct {
 	fs      *FS
-	smbPath string   // case-corrected, share-relative ("\"-separated)
-	osPath  string   // absolute host path
+	smbPath string // case-corrected, share-relative ("\"-separated)
+	osPath  string // absolute host path
 	isDir   bool
 	file    *os.File // nil for directories
 
@@ -194,6 +194,15 @@ func (fs *FS) resolveSMB(smbPath string) (resolved, uint32, error) {
 			log.Debugf("resolveSMB %q: contains empty or '..' component -> StatusObjectNameInvalid", smbPath)
 			return resolved{}, smb.StatusObjectNameInvalid, nil
 		}
+		// An SMB path component must not embed a host path separator or NUL byte.
+		// strings.Split on "\\" can't leave a backslash inside a component, but a
+		// forward slash survives, and filepath.Join honours it on Unix — so a
+		// single "component" like "a/../../../etc" is not literally ".." yet still
+		// escapes the share root once joined. Reject it up front.
+		if strings.ContainsAny(p, "/\\\x00") {
+			log.Debugf("resolveSMB %q: component %q embeds a separator or NUL -> StatusObjectNameInvalid", smbPath, p)
+			return resolved{}, smb.StatusObjectNameInvalid, nil
+		}
 	}
 
 	currentOS := fs.root
@@ -247,6 +256,16 @@ func (fs *FS) resolveSMB(smbPath string) (resolved, uint32, error) {
 						log.Debugf("resolveSMB %q: parent %q failed containment check status=0x%08x err=%v",
 							smbPath, currentOS, status, err)
 						return resolved{}, status, err
+					}
+					// Defense in depth: the leaf does not exist yet (so it can't be
+					// symlink-evaluated by checkContained), but it must be a direct
+					// child of the already-contained parent. The separator rejection
+					// above guarantees this; assert it so a future change can't
+					// silently reintroduce an escaping candidate.
+					if filepath.Dir(candidate) != currentOS {
+						log.Debugf("resolveSMB %q: missing-leaf candidate %q is not a direct child of %q -> StatusObjectNameInvalid",
+							smbPath, candidate, currentOS)
+						return resolved{}, smb.StatusObjectNameInvalid, nil
 					}
 					return resolved{
 						osPath:      candidate,
@@ -590,7 +609,7 @@ func (fs *FS) Flush(ctx context.Context, h server.Handle) (uint32, error) {
 }
 
 // QueryFileInfo defers to the server's default Stat()-driven path.
-func (fs *FS) QueryFileInfo(ctx context.Context, h server.Handle, infoClass byte) (interface{}, uint32, error) {
+func (fs *FS) QueryFileInfo(ctx context.Context, h server.Handle, infoClass byte) (any, uint32, error) {
 	return nil, smb.StatusNotSupported, nil
 }
 
@@ -790,7 +809,7 @@ func matchesPattern(name, pattern string) bool {
 }
 
 // QueryFSInfo defers to the server's default.
-func (fs *FS) QueryFSInfo(ctx context.Context, infoClass byte) (interface{}, uint32, error) {
+func (fs *FS) QueryFSInfo(ctx context.Context, infoClass byte) (any, uint32, error) {
 	return nil, smb.StatusNotSupported, nil
 }
 

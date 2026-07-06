@@ -40,11 +40,23 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-
-	"github.com/jfjallid/golog"
 )
 
-var log = golog.Get("github.com/jfjallid/go-smb/smb/encoder").SetDisplayName("encoder")
+// checkVarBounds validates that a variable-length field of count*elemSize bytes
+// starting at offset fits within a buffer of bufLen bytes. The comparison is
+// performed in uint64 so a wire-controlled offset/count cannot overflow and
+// wrap past the guard; it returns an error instead of letting the subsequent
+// slice expression panic the (recover-less) decode goroutine.
+func checkVarBounds(bufLen, offset, count, elemSize int) error {
+	if offset < 0 || count < 0 || elemSize < 0 {
+		return fmt.Errorf("variable-length field has negative offset (%d), count (%d) or element size (%d)", offset, count, elemSize)
+	}
+	end := uint64(offset) + uint64(count)*uint64(elemSize)
+	if uint64(offset) > uint64(bufLen) || end > uint64(bufLen) {
+		return fmt.Errorf("variable-length field at offset %d (%d bytes) exceeds buffer of %d bytes", offset, count*elemSize, bufLen)
+	}
+	return nil
+}
 
 type BinaryMarshallable interface {
 	MarshalBinary(*Metadata) ([]byte, error)
@@ -56,14 +68,14 @@ type Metadata struct {
 	Lens       map[string]uint64
 	Offsets    map[string]uint64
 	Counts     map[string]uint64
-	Parent     interface{}
+	Parent     any
 	ParentBuf  []byte
 	CurrOffset uint64
 	CurrField  string
 }
 
 type TagMap struct {
-	m   map[string]interface{}
+	m   map[string]any
 	has map[string]bool
 }
 
@@ -71,12 +83,12 @@ func (t TagMap) Has(key string) bool {
 	return t.has[key]
 }
 
-func (t TagMap) Set(key string, val interface{}) {
+func (t TagMap) Set(key string, val any) {
 	t.m[key] = val
 	t.has[key] = true
 }
 
-func (t TagMap) Get(key string) interface{} {
+func (t TagMap) Get(key string) any {
 	return t.m[key]
 }
 
@@ -96,7 +108,7 @@ func (t TagMap) GetString(key string) (string, error) {
 
 func parseTags(sf reflect.StructField) (*TagMap, error) {
 	ret := &TagMap{
-		m:   make(map[string]interface{}),
+		m:   make(map[string]any),
 		has: make(map[string]bool),
 	}
 	tag := sf.Tag.Get("smb")
@@ -217,7 +229,7 @@ func getFieldLengthByName(fieldName string, meta *Metadata) (uint64, error) {
 	bm, ok := field.Interface().(BinaryMarshallable)
 	if ok {
 		// Custom marshallable interface found.
-		buf, err := bm.(BinaryMarshallable).MarshalBinary(meta)
+		buf, err := bm.MarshalBinary(meta)
 		if err != nil {
 			return 0, err
 		}
@@ -261,11 +273,11 @@ func getFieldLengthByName(fieldName string, meta *Metadata) (uint64, error) {
 	return ret, nil
 }
 
-func Marshal(v interface{}) ([]byte, error) {
+func Marshal(v any) ([]byte, error) {
 	return marshal(v, nil)
 }
 
-func marshal(v interface{}, meta *Metadata) ([]byte, error) {
+func marshal(v any, meta *Metadata) ([]byte, error) {
 	var ret []byte
 	typev := reflect.TypeOf(v)
 	valuev := reflect.ValueOf(v)
@@ -468,7 +480,7 @@ func marshal(v interface{}, meta *Metadata) ([]byte, error) {
 	return w.Bytes(), nil
 }
 
-func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
+func unmarshal(buf []byte, v any, meta *Metadata) (any, error) {
 	typev := reflect.TypeOf(v)
 	valuev := reflect.ValueOf(v)
 
@@ -522,7 +534,7 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 				return nil, err
 			}
 			m.Tags = tags
-			var data interface{}
+			var data any
 			switch typev.Field(i).Type.Kind() {
 			case reflect.Struct:
 				data, err = unmarshal(buf[m.CurrOffset:], valuev.Field(i).Addr().Interface(), m)
@@ -674,6 +686,9 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 				}
 				if offset != int(meta.CurrOffset) {
 					// Variable length data is relative to parent/outer struct. Reset reader to point to beginning of data
+					if err := checkVarBounds(len(meta.ParentBuf), offset, length, 1); err != nil {
+						return nil, err
+					}
 					r = bytes.NewBuffer(meta.ParentBuf[offset : offset+length])
 					// Variable length data fields do NOT advance current offset.
 				} else {
@@ -712,6 +727,9 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 					}
 					if offset != int(meta.CurrOffset) {
 						// Variable length data is relative to parent/outer struct. Reset reader to point to beginning of data
+						if err := checkVarBounds(len(meta.ParentBuf), offset, length, 2); err != nil {
+							return nil, err
+						}
 						r = bytes.NewBuffer(meta.ParentBuf[offset : offset+length*2]) //TODO Should this be x2? Was originally only length
 						// Variable length data fields do NOT advance current offset.
 					} else {
@@ -785,7 +803,7 @@ func unmarshal(buf []byte, v interface{}, meta *Metadata) (interface{}, error) {
 	}
 }
 
-func Unmarshal(buf []byte, v interface{}) error {
+func Unmarshal(buf []byte, v any) error {
 	_, err := unmarshal(buf, v, nil)
 	return err
 }

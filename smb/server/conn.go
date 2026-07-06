@@ -46,15 +46,15 @@ type Conn struct {
 
 	// Negotiated parameters (filled by the Negotiate handler; per-session
 	// signing/cipher state is held on each Session).
-	Dialect              uint16
-	SigningRequired      bool   // server-side policy from cfg, echoed in NegotiateRes.SecurityMode
-	ClientSecurityMode   uint16 // raw SecurityMode from the inbound NegotiateReq (drives Session.SigningRequired)
-	SupportsEncryption   bool
-	ClientWantsEncrypt   bool // client offered GlobalCapEncryption in NegotiateReq
-	CipherID             uint16
-	SigningID            uint16
-	PreauthHashID        uint16
-	ClientGUID           [16]byte
+	Dialect            uint16
+	SigningRequired    bool   // server-side policy from cfg, echoed in NegotiateRes.SecurityMode
+	ClientSecurityMode uint16 // raw SecurityMode from the inbound NegotiateReq (drives Session.SigningRequired)
+	SupportsEncryption bool
+	ClientWantsEncrypt bool // client offered GlobalCapEncryption in NegotiateReq
+	CipherID           uint16
+	SigningID          uint16
+	PreauthHashID      uint16
+	ClientGUID         [16]byte
 
 	// NegotiatedCapabilities and NegotiatedSecurityMode capture the exact
 	// values emitted in NegotiateRes (post-OnNegotiate-hook). They are the
@@ -80,19 +80,65 @@ type Conn struct {
 	sessions      map[uint64]*Session
 	nextSessionID uint64
 
-	// seenMsgIDs records every MessageID we've already accepted on this
+	// seenMsgIDs records the MessageIDs we've already accepted on this
 	// connection. MS-SMB2 §3.3.5.2.3 requires the server to reject a
 	// duplicate MessageId — clients that reuse one (or stay at the same
 	// value across requests, e.g. when they forget to advance the counter
 	// for a CreditCharge=0 Negotiate) are sequence-violators and a strict
-	// server disconnects. Kept as a sync.Map keyed by MessageID; the entry
-	// value is unused. Bounded in practice by Connection.SequenceWindow.
-	seenMsgIDs sync.Map
+	// server disconnects. The tracker bounds its memory (see msgIDTracker)
+	// so a client that holds the connection open and keeps incrementing the
+	// counter cannot grow it without limit.
+	seenMsgIDs msgIDTracker
 
 	// log is the per-connection logger, lazily derived from the configured
 	// Logger with the remote address baked in as a prefix. Access through
 	// c.logger().
 	log Logger
+}
+
+// maxTrackedMsgIDs caps a single generation of the MessageId dedup set. Two
+// generations are retained at most (see msgIDTracker), so worst-case memory is
+// ~2*maxTrackedMsgIDs entries. The value is far larger than any realistic
+// outstanding-request window (the server grants a tiny credit window), so a
+// well-behaved client never trips the rotation, while a misbehaving one is
+// capped instead of growing the set without bound.
+const maxTrackedMsgIDs = 4096
+
+// msgIDTracker is a memory-bounded set for MessageId duplicate detection. A
+// naive "remember every MessageId forever" map grows without limit for a
+// client that holds the connection open and keeps incrementing the counter
+// (slow memory-exhaustion DoS, finding #3). Instead it keeps at most two
+// generations: once cur fills to maxTrackedMsgIDs it is demoted to prev and a
+// fresh cur is started, so retained entries never exceed 2*maxTrackedMsgIDs
+// while any duplicate within at least the last maxTrackedMsgIDs distinct IDs
+// is still detected — well beyond the sequence/credit window that legitimately
+// bounds in-flight MessageIds. The mutex guards against any future concurrent
+// dispatch; today serve() drives a single goroutine per connection.
+type msgIDTracker struct {
+	mu   sync.Mutex
+	cur  map[uint64]struct{}
+	prev map[uint64]struct{}
+}
+
+// seen reports whether id was already accepted on this connection, recording
+// it as seen when it was not.
+func (t *msgIDTracker) seen(id uint64) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, ok := t.cur[id]; ok {
+		return true
+	}
+	if _, ok := t.prev[id]; ok {
+		return true
+	}
+	if t.cur == nil {
+		t.cur = make(map[uint64]struct{})
+	} else if len(t.cur) >= maxTrackedMsgIDs {
+		t.prev = t.cur
+		t.cur = make(map[uint64]struct{}, maxTrackedMsgIDs)
+	}
+	t.cur[id] = struct{}{}
+	return false
 }
 
 // connLogger derives a per-connection logger that carries the remote address
@@ -206,6 +252,12 @@ func (c *Conn) close() {
 func (c *Conn) serve() {
 	logger := c.logger()
 	defer func() {
+		// A malformed PDU can drive a hand-rolled parser into a panic (e.g. an
+		// out-of-range slice). Recover here so a single bad connection cannot
+		// take down the whole server; the connection is still torn down below.
+		if r := recover(); r != nil {
+			logger.Errorf("recovered from panic while serving connection: %v", r)
+		}
 		c.cleanupSessions()
 		if cb := c.Server.Config.OnDisconnect; cb != nil {
 			cb(c)
@@ -376,7 +428,7 @@ func (c *Conn) maybeEncrypt(ctx pduCtx, buf []byte) ([]byte, bool, error) {
 // the reply can mirror its signed/encrypted state. When ctx.chain is set
 // (the normal dispatch path) the bytes are queued for compound-aware flush
 // instead of sent immediately.
-func (c *Conn) writeReply(ctx pduCtx, res interface{}) error {
+func (c *Conn) writeReply(ctx pduCtx, res any) error {
 	buf, err := encoder.Marshal(res)
 	if err != nil {
 		return err
@@ -398,7 +450,7 @@ func (c *Conn) writeReply(ctx pduCtx, res interface{}) error {
 // is the signer; we don't look it up by SessionID because the SessionSetup2
 // completion path runs before any subsequent inbound has a chance to
 // reference the session via the connection table.
-func (c *Conn) writeSignedReply(res interface{}, sess *Session) error {
+func (c *Conn) writeSignedReply(res any, sess *Session) error {
 	buf, err := encoder.Marshal(res)
 	if err != nil {
 		return err

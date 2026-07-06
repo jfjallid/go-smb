@@ -142,16 +142,19 @@ func decryptSecretAES(sessionKey, payload []byte) ([]byte, error) {
 		}
 	}
 
-	// Verify checksum (HMAC-SHA256 truncated to 16 bytes)
+	// Verify checksum (HMAC-SHA256 truncated to 16 bytes). Fail closed: the
+	// decrypted blob carries no other integrity protection, so a checksum
+	// mismatch means tampering or a wrong key and the plaintext must not be
+	// handed back to the caller.
 	checksumKey := sp800108KDFHMACSHA256(sessionKey, salt, 256)
 	h := hmacSHA256(checksumKey, plaintext)
-	if !bytes.Equal(h[:16], expectedChecksum) {
-		// Some implementations use MD5 checksum instead
+	if !hmac.Equal(h[:16], expectedChecksum) {
+		// Some implementations use an MD5 checksum instead.
 		h2 := md5.New()
 		h2.Write(sessionKey)
 		h2.Write(plaintext)
-		if !bytes.Equal(h2.Sum(nil), expectedChecksum) {
-			log.Warningf("AES checksum verification failed, proceeding anyway")
+		if !hmac.Equal(h2.Sum(nil), expectedChecksum) {
+			return nil, fmt.Errorf("AES ENCRYPTED_PAYLOAD checksum verification failed (tampered data or wrong session key)")
 		}
 	}
 
@@ -323,62 +326,52 @@ func ParseSupplementalCredentials(data []byte) (*SupplementalCredentials, error)
 
 	r := bytes.NewReader(data)
 
-	// Reserved1 (4 bytes)
-	var reserved1 uint32
-	binary.Read(r, le, &reserved1)
-
-	// Length (4 bytes) - total length of the USER_PROPERTIES
-	var length uint32
-	binary.Read(r, le, &length)
-
-	// Reserved2 (2 bytes)
-	var reserved2 uint16
-	binary.Read(r, le, &reserved2)
-
-	// Reserved3 (2 bytes)
-	var reserved3 uint16
-	binary.Read(r, le, &reserved3)
-
-	// Reserved4 (96 bytes)
-	reserved4 := make([]byte, 96)
-	r.Read(reserved4)
-
-	// PropertySignature (2 bytes, must be 0x50)
-	var propSig uint16
-	binary.Read(r, le, &propSig)
-	if propSig != 0x50 {
-		return nil, fmt.Errorf("invalid PropertySignature: 0x%x (expected 0x50)", propSig)
+	// Fixed-size USER_PROPERTIES header: Reserved1(4) + Length(4) + Reserved2(2) +
+	// Reserved3(2) + Reserved4(96) + PropertySignature(2) + PropertyCount(2). Read
+	// it in one shot and check the count so a truncated blob errors out instead of
+	// yielding zero-padded fields.
+	var header struct {
+		Reserved1 uint32
+		Length    uint32
+		Reserved2 uint16
+		Reserved3 uint16
+		Reserved4 [96]byte
+		PropSig   uint16
+		PropCount uint16
+	}
+	if err := binary.Read(r, le, &header); err != nil {
+		return nil, fmt.Errorf("failed to read USER_PROPERTIES header: %w", err)
 	}
 
-	// PropertyCount (2 bytes)
-	var propCount uint16
-	binary.Read(r, le, &propCount)
+	if header.PropSig != 0x50 {
+		return nil, fmt.Errorf("invalid PropertySignature: 0x%x (expected 0x50)", header.PropSig)
+	}
 
 	sc := &SupplementalCredentials{}
 
-	for i := uint16(0); i < propCount; i++ {
-		// NameLength (2 bytes) - in bytes
-		var nameLen uint16
-		if err := binary.Read(r, le, &nameLen); err != nil {
-			break
+	for i := uint16(0); i < header.PropCount; i++ {
+		// NameLength(2) + ValueLength(2) + Reserved(2)
+		var prop struct {
+			NameLen      uint16
+			ValueLen     uint16
+			PropReserved uint16
+		}
+		if err := binary.Read(r, le, &prop); err != nil {
+			return nil, fmt.Errorf("failed to read USER_PROPERTY %d header: %w", i, err)
 		}
 
-		// ValueLength (2 bytes) - in bytes
-		var valueLen uint16
-		binary.Read(r, le, &valueLen)
-
-		// Reserved (2 bytes)
-		var propReserved uint16
-		binary.Read(r, le, &propReserved)
-
 		// PropertyName (NameLength bytes, UTF-16LE)
-		nameBytes := make([]byte, nameLen)
-		r.Read(nameBytes)
+		nameBytes := make([]byte, prop.NameLen)
+		if _, err := io.ReadFull(r, nameBytes); err != nil {
+			return nil, fmt.Errorf("failed to read USER_PROPERTY %d name: %w", i, err)
+		}
 		propName := decodeUTF16LE(nameBytes)
 
 		// PropertyValue (ValueLength bytes, hex-encoded ASCII)
-		valueBytes := make([]byte, valueLen)
-		r.Read(valueBytes)
+		valueBytes := make([]byte, prop.ValueLen)
+		if _, err := io.ReadFull(r, valueBytes); err != nil {
+			return nil, fmt.Errorf("failed to read USER_PROPERTY %d (%q) value: %w", i, propName, err)
+		}
 
 		// Decode hex-encoded value
 		hexStr := string(valueBytes)

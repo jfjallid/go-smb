@@ -22,8 +22,8 @@
 package msdcom
 
 import (
-	"encoding/binary"
 	"bytes"
+	"encoding/binary"
 	"testing"
 )
 

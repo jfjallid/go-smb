@@ -63,14 +63,14 @@ var ErrServerClosed = fmt.Errorf("server closed")
 // Logger is the small subset of golog used by the server. Override
 // ServerConfig.Logger to integrate with custom logging (e.g. SIEM forwarders).
 type Logger interface {
-	Errorf(format string, v ...interface{})
-	Errorln(v ...interface{})
-	Noticef(format string, v ...interface{})
-	Noticeln(v ...interface{})
-	Infof(format string, v ...interface{})
-	Infoln(v ...interface{})
-	Debugf(format string, v ...interface{})
-	Debugln(v ...interface{})
+	Errorf(format string, v ...any)
+	Errorln(v ...any)
+	Noticef(format string, v ...any)
+	Noticeln(v ...any)
+	Infof(format string, v ...any)
+	Infoln(v ...any)
+	Debugf(format string, v ...any)
+	Debugln(v ...any)
 }
 
 // Status is returned by hooks to short-circuit the default handler with a
@@ -410,6 +410,14 @@ func (s *Server) Serve(l net.Listener) error {
 		c := newConn(s, nc)
 		s.trackConn(c, true)
 		go func() {
+			// Defense in depth: c.serve recovers its own panics, but guard the
+			// goroutine body too so a panic outside serve's recover scope can
+			// never tear down the accept loop / process.
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Errorf("recovered from panic in connection goroutine: %v", r)
+				}
+			}()
 			defer s.trackConn(c, false)
 			c.serve()
 		}()

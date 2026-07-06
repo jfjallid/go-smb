@@ -130,7 +130,6 @@ func (i *KRB5Initiator) Client() (*krb5ssp.Client, error) {
 func (i *KRB5Initiator) Logoff() {
 	i.client.Destroy()
 	i.client = nil
-	return
 }
 
 func (i *KRB5Initiator) initKerberosClient() error {

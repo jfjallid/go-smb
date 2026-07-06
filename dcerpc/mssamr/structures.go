@@ -318,7 +318,7 @@ type SamrSetInformationUser2Req struct {
 	Internal4Information SamprUserInternal4Information `ndr:"unionField"`
 }
 
-func (u SamrSetInformationUser2Req) SwitchFunc(t interface{}) string {
+func (u SamrSetInformationUser2Req) SwitchFunc(t any) string {
 	switch t.(uint16) {
 	case UserAllInformation:
 		return "AllInformation"
@@ -372,7 +372,7 @@ type SamprRevisionInfo struct {
 	V1  SamprRevisionInfoV1 `ndr:"unionField"`
 }
 
-func (u SamprRevisionInfo) SwitchFunc(t interface{}) string {
+func (u SamprRevisionInfo) SwitchFunc(t any) string {
 	switch t.(uint32) {
 	case 1:
 		return "V1"
@@ -503,7 +503,7 @@ type SamprUserInfoBuffer struct {
 	Internal4Information SamprUserInternal4Information `ndr:"unionField"`
 }
 
-func (u SamprUserInfoBuffer) SwitchFunc(t interface{}) string {
+func (u SamprUserInfoBuffer) SwitchFunc(t any) string {
 	switch t.(uint16) {
 	case UserAllInformation:
 		return "AllInformation"

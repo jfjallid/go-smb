@@ -607,7 +607,7 @@ func TestDRSGetNCChangesResRgValuesRoundTrip(t *testing.T) {
 	// top-level Decode calls, so the encoder must also emit each struct
 	// starting from its own pos=0.
 	buf := bytes.NewBuffer([]byte{})
-	for _, item := range []interface{}{&wrap, &replValInfV1Array{Values: linked}, &struct{ ReturnCode uint32 }{ReturnCode: 0}} {
+	for _, item := range []any{&wrap, &replValInfV1Array{Values: linked}, &struct{ ReturnCode uint32 }{ReturnCode: 0}} {
 		sub := bytes.NewBuffer([]byte{})
 		enc := ndr.NewEncoder(sub, false)
 		enc.SetEndianness(binary.LittleEndian)

@@ -391,6 +391,9 @@ func (s *SecurityDescriptor) UnmarshalBinary(buf []byte) (err error) {
 
 	if s.OffsetOwner != 0 {
 		_, err = r.Seek(int64(s.OffsetOwner), io.SeekStart)
+		if err != nil {
+			return
+		}
 		s.OwnerSid, err = ReadSID(r)
 		if err != nil {
 			return

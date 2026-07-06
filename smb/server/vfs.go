@@ -90,10 +90,10 @@ type VFS interface {
 	Read(ctx context.Context, h Handle, offset int64, buf []byte) (n int, status uint32, err error)
 	Write(ctx context.Context, h Handle, offset int64, data []byte) (n int, status uint32, err error)
 	Flush(ctx context.Context, h Handle) (uint32, error)
-	QueryFileInfo(ctx context.Context, h Handle, infoClass byte) (interface{}, uint32, error)
+	QueryFileInfo(ctx context.Context, h Handle, infoClass byte) (any, uint32, error)
 	SetFileInfo(ctx context.Context, h Handle, infoClass byte, raw []byte) (uint32, error)
 	QueryDirectory(ctx context.Context, h Handle, pattern string, restart bool) ([]DirEntry, uint32, error)
-	QueryFSInfo(ctx context.Context, infoClass byte) (interface{}, uint32, error)
+	QueryFSInfo(ctx context.Context, infoClass byte) (any, uint32, error)
 	QuerySecurity(ctx context.Context, h Handle, addInfo uint32) ([]byte, uint32, error)
 	Ioctl(ctx context.Context, h Handle, code uint32, in []byte, maxOut uint32) ([]byte, uint32, error)
 }

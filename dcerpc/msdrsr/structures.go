@@ -27,6 +27,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"strings"
 	"unicode/utf16"
 
@@ -80,23 +81,39 @@ func (e *DRSExtensionsInt) Marshal() ([]byte, error) {
 
 func (e *DRSExtensionsInt) Unmarshal(data []byte) error {
 	r := bytes.NewReader(data)
+	// DRS_EXTENSIONS_INT is variable-length: cb governs which trailing fields are
+	// present, so a short blob legitimately omits later fields (they stay zero).
+	// Each read is gated by a cumulative length check, so the reads below cannot
+	// short-read; the error checks are defensive against future reordering.
 	if len(data) >= 4 {
-		binary.Read(r, le, &e.Flags)
+		if err := binary.Read(r, le, &e.Flags); err != nil {
+			return err
+		}
 	}
 	if len(data) >= 20 {
-		r.Read(e.SiteObjGuid[:])
+		if _, err := io.ReadFull(r, e.SiteObjGuid[:]); err != nil {
+			return err
+		}
 	}
 	if len(data) >= 24 {
-		binary.Read(r, le, &e.Pid)
+		if err := binary.Read(r, le, &e.Pid); err != nil {
+			return err
+		}
 	}
 	if len(data) >= 28 {
-		binary.Read(r, le, &e.ReplicationEpoch)
+		if err := binary.Read(r, le, &e.ReplicationEpoch); err != nil {
+			return err
+		}
 	}
 	if len(data) >= 32 {
-		binary.Read(r, le, &e.FlagsExt)
+		if err := binary.Read(r, le, &e.FlagsExt); err != nil {
+			return err
+		}
 	}
 	if len(data) >= 48 {
-		r.Read(e.ConfigObjGuid[:])
+		if _, err := io.ReadFull(r, e.ConfigObjGuid[:]); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -443,7 +460,7 @@ func buildPrefixTableAndConvertAttrs(attrs []ATTRTYP) (SchemaPrefixTable, []ATTR
 
 	for i, att := range attrs {
 		oid := oidForAttTyp(att)
-		if oid == nil || len(oid) < 2 {
+		if len(oid) < 2 {
 			// Unknown ATTRTYP — pass through unchanged
 			convertedAttrs[i] = att
 			continue
@@ -642,7 +659,7 @@ type DRSMsgCrackReqUnion struct {
 	Level1 DRSMsgCrackReqV1 `ndr:"unionField"`
 }
 
-func (u DRSMsgCrackReqUnion) SwitchFunc(tag interface{}) string {
+func (u DRSMsgCrackReqUnion) SwitchFunc(tag any) string {
 	if tag.(uint32) == 1 {
 		return "Level1"
 	}
@@ -674,7 +691,7 @@ type DRSMsgCrackReplyUnion struct {
 	Level1 DRSMsgCrackReplyV1 `ndr:"unionField"`
 }
 
-func (u DRSMsgCrackReplyUnion) SwitchFunc(tag interface{}) string {
+func (u DRSMsgCrackReplyUnion) SwitchFunc(tag any) string {
 	if tag.(uint32) == 1 {
 		return "Level1"
 	}
@@ -713,7 +730,7 @@ type DRSMsgDCInfoReqUnion struct {
 	Level1 DRSMsgDCInfoReqV1 `ndr:"unionField"`
 }
 
-func (u DRSMsgDCInfoReqUnion) SwitchFunc(tag interface{}) string {
+func (u DRSMsgDCInfoReqUnion) SwitchFunc(tag any) string {
 	if tag.(uint32) == 1 {
 		return "Level1"
 	}
@@ -741,7 +758,7 @@ type DRSMsgDCInfoReplyUnion struct {
 	Level3 DRSMsgDCInfoReplyV3 `ndr:"unionField"`
 }
 
-func (u DRSMsgDCInfoReplyUnion) SwitchFunc(tag interface{}) string {
+func (u DRSMsgDCInfoReplyUnion) SwitchFunc(tag any) string {
 	switch tag.(uint32) {
 	case 1:
 		return "Level1"
@@ -836,7 +853,7 @@ type DRSGetNCChangesReq struct {
 }
 
 // SwitchFunc implements ndr.Union; selects the arm based on Version.
-func (r DRSGetNCChangesReq) SwitchFunc(tag interface{}) string {
+func (r DRSGetNCChangesReq) SwitchFunc(tag any) string {
 	switch tag.(uint32) {
 	case 8:
 		return "V8"
@@ -1057,7 +1074,7 @@ type DRSMsgGetChgReplyUnion struct {
 	Level6 DRSMsgGetChgReplyV6 `ndr:"unionField"`
 }
 
-func (u DRSMsgGetChgReplyUnion) SwitchFunc(tag interface{}) string {
+func (u DRSMsgGetChgReplyUnion) SwitchFunc(tag any) string {
 	switch tag.(uint32) {
 	case 1:
 		return "Level1"

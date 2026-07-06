@@ -162,13 +162,31 @@ packet down the recv channel.
 func (c *Connection) runReceiver() {
 	var err error
 	var encrypted bool
+	defer func() {
+		// A malformed packet from a malicious or buggy server could drive a
+		// parser into a panic (e.g. an out-of-range slice). Recover here so a
+		// single bad packet cannot crash the whole client process, and tear
+		// the connection down cleanly so callers blocked on a response are
+		// released rather than hanging forever.
+		if r := recover(); r != nil {
+			log.Errorf("runReceiver: recovered from panic: %v\n", r)
+			perr := fmt.Errorf("runReceiver panic: %v", r)
+			c.m.Lock()
+			c.outstandingRequests.shutdown(perr)
+			c.err = perr
+			c.m.Unlock()
+			close(c.wdone)
+		}
+	}()
 	for {
 		data, err := readPacket(c.conn)
 		if err != nil {
 			// Error is handled at the end of the method.
 			break
 		}
-		if len(data) == 0 {
+		// A frame must carry at least the 4-byte protocol id; anything
+		// shorter (including an empty keep-alive) cannot be a valid SMB PDU.
+		if len(data) < 4 {
 			continue
 		}
 
@@ -189,6 +207,10 @@ func (c *Connection) runReceiver() {
 		if hasSession {
 			switch string(protID) {
 			case ProtocolTransformHdr:
+				if len(data) < 52 {
+					log.Errorln("Skip: Packet too short to contain a transform header")
+					continue
+				}
 				tHdr := NewTransformHeader()
 				if err = encoder.Unmarshal(data[:52], &tHdr); err != nil {
 					log.Errorln("Skip: Failed to decode transform header of packet")
@@ -214,6 +236,10 @@ func (c *Connection) runReceiver() {
 
 				fallthrough
 			case ProtocolSmb2:
+				if len(data) < 64 {
+					log.Errorln("Skip: Packet too short to contain an SMB2 header")
+					continue
+				}
 				if err = encoder.Unmarshal(data[:64], &h); err != nil {
 					log.Errorln("Skip: Failed to decode header of packet")
 					continue
@@ -259,6 +285,10 @@ func (c *Connection) runReceiver() {
 				// So we don't care about unmarshalling the packet into a SMBv1 header and only pop MessageID 0
 				// from outstandingRequests
 			} else {
+				if len(data) < 64 {
+					log.Errorln("Skip: Packet too short to contain an SMB2 header")
+					continue
+				}
 				if err = encoder.Unmarshal(data[:64], &h); err != nil {
 					log.Errorln("Skip: Failed to decode header of packet")
 					continue
@@ -515,7 +545,7 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 	return
 }
 
-func (c *Connection) sendrecv(req interface{}) (buf []byte, err error) {
+func (c *Connection) sendrecv(req any) (buf []byte, err error) {
 	// Debug breadcrumb at the layer seam: every smb session operation
 	// passes through here, so a single hook shows where errors originate
 	// without duplicate Error logging at each call site.
@@ -598,7 +628,7 @@ func (c *Connection) sendRawBytes(buf []byte) (*requestResponse, error) {
 	return rr, nil
 }
 
-func (c *Connection) send(req interface{}) (rr *requestResponse, err error) {
+func (c *Connection) send(req any) (rr *requestResponse, err error) {
 
 	c.m.Lock()
 	defer c.m.Unlock()

@@ -214,7 +214,7 @@ func (c *Conn) handleNegotiate(ctx pduCtx, raw []byte, h *smb.Header) error {
 // chain in practice (clients send Negotiate/SessionSetup standalone), so we
 // bypass the chain accumulator and write immediately — folding the same
 // bytes into the preauth hash that go onto the wire.
-func (c *Conn) writeReplyPreauth(ctx pduCtx, res interface{}, chain *[64]byte) error {
+func (c *Conn) writeReplyPreauth(ctx pduCtx, res any, chain *[64]byte) error {
 	buf, err := encodeForWire(res)
 	if err != nil {
 		return err
@@ -238,7 +238,7 @@ func (c *Conn) writeReplyPreauth(ctx pduCtx, res interface{}, chain *[64]byte) e
 
 // encodeForWire is a tiny indirection so handlers can share the marshal call
 // even when they need to inspect the bytes (preauth hash, signing).
-func encodeForWire(res interface{}) ([]byte, error) {
+func encodeForWire(res any) ([]byte, error) {
 	return encoder.Marshal(res)
 }
 
@@ -348,7 +348,7 @@ search:
 // marshalLen returns the marshaled byte length of v without retaining the
 // buffer. Used for offset/alignment calculations against variable-length
 // fields like SecurityBlob.
-func marshalLen(v interface{}) (int, error) {
+func marshalLen(v any) (int, error) {
 	buf, err := encoder.Marshal(v)
 	if err != nil {
 		return 0, err

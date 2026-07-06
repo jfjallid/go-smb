@@ -29,6 +29,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jfjallid/go-smb/dcerpc"
@@ -309,10 +310,8 @@ func checkReturnCode(op string, code uint32, okCodes ...uint32) error {
 	if code == 0 {
 		return nil
 	}
-	for _, ok := range okCodes {
-		if code == ok {
-			return nil
-		}
+	if slices.Contains(okCodes, code) {
+		return nil
 	}
 	return &dcerpc.StatusError{Op: op, Code: code, Err: ResponseCodeMap[code]}
 }
@@ -611,6 +610,12 @@ func (sb *RPCCon) SamrGetMembersInGroup(groupHandle *SamrHandle) (members []Samr
 		return
 	}
 	if res.Members != nil {
+		// MemberCount is server-controlled and the Members/Attributes arrays are
+		// decoded independently; refuse to index past either one (a rogue DC must
+		// not crash the client by claiming more members than it returned).
+		if int(res.Members.MemberCount) > len(res.Members.Members) || int(res.Members.MemberCount) > len(res.Members.Attributes) {
+			return nil, fmt.Errorf("SamrGetMembersInGroup: server MemberCount %d exceeds returned arrays (members=%d, attributes=%d)", res.Members.MemberCount, len(res.Members.Members), len(res.Members.Attributes))
+		}
 		for i := 0; i < int(res.Members.MemberCount); i++ {
 			members = append(members, SamrGroupMember{RID: res.Members.Members[i], Attributes: res.Members.Attributes[i]})
 		}
@@ -771,9 +776,15 @@ func (sb *RPCCon) SamrLookupNamesInDomain(domainHandle *SamrHandle, names []stri
 		return
 	}
 
-	// Either it was a complete or a partial success.
-	result = make([]SamrRidMapping, resp.RelativeIds.Count)
-	for i := 0; i < len(result); i++ {
+	// Either it was a complete or a partial success. Count is server-controlled
+	// and indexes both the server's parallel arrays and the client's request
+	// slice; bound it by all three so a rogue DC can't over-allocate or panic.
+	n := int(resp.RelativeIds.Count)
+	if n > len(resp.RelativeIds.Elements) || n > len(resp.Use.Elements) || n > len(names) {
+		return nil, fmt.Errorf("SamrLookupNamesInDomain: server Count %d exceeds arrays (rids=%d, use=%d, names=%d)", resp.RelativeIds.Count, len(resp.RelativeIds.Elements), len(resp.Use.Elements), len(names))
+	}
+	result = make([]SamrRidMapping, n)
+	for i := 0; i < n; i++ {
 		result[i].RID = resp.RelativeIds.Elements[i]
 		result[i].Use = resp.Use.Elements[i]
 		result[i].Name = names[i]
@@ -817,9 +828,15 @@ func (sb *RPCCon) SamrLookupIdsInDomain(domainHandle *SamrHandle, ids []uint32) 
 		return
 	}
 
-	// Either it was a complete or a partial success.
-	names = make([]SamrRidMapping, resp.Names.Count)
-	for i := 0; i < len(names); i++ {
+	// Either it was a complete or a partial success. Count is server-controlled
+	// and indexes both the server's parallel arrays and the client's request
+	// slice; bound it by all three so a rogue DC can't over-allocate or panic.
+	n := int(resp.Names.Count)
+	if n > len(resp.Names.Elements) || n > len(resp.Use.Elements) || n > len(ids) {
+		return nil, fmt.Errorf("SamrLookupIdsInDomain: server Count %d exceeds arrays (names=%d, use=%d, ids=%d)", resp.Names.Count, len(resp.Names.Elements), len(resp.Use.Elements), len(ids))
+	}
+	names = make([]SamrRidMapping, n)
+	for i := 0; i < n; i++ {
 		if resp.Names.Elements[i].Value != "" {
 			names[i].Name = resp.Names.Elements[i].Value
 		} else {
@@ -967,7 +984,16 @@ func (sb *RPCCon) SamrGetMembersInAlias(aliasHandle *SamrHandle) (members []msdt
 		return
 	}
 
+	// Count is server-controlled; bound it by the actual Sids array and nil-check
+	// each SidPointer (a fullpointer can be NULL) before dereferencing, so a rogue
+	// DC can't crash the client with an over-long count or a null SID.
+	if int(resp.Members.Count) > len(resp.Members.Sids) {
+		return nil, fmt.Errorf("SamrGetMembersInAlias: server Count %d exceeds returned SID array (%d)", resp.Members.Count, len(resp.Members.Sids))
+	}
 	for i := 0; i < int(resp.Members.Count); i++ {
+		if resp.Members.Sids[i].SidPointer == nil {
+			return nil, fmt.Errorf("SamrGetMembersInAlias: server returned a NULL SID at index %d", i)
+		}
 		members = append(members, *resp.Members.Sids[i].SidPointer)
 	}
 
@@ -1744,8 +1770,7 @@ func (sb *RPCCon) AddLocalAdmin(userSID string) (err error) {
 }
 
 func (sb *RPCCon) ListLocalUsers(netbiosComputerName string, limit uint32) (users []SamprRidEnumeration, err error) {
-	var maxLength uint32
-	maxLength = limit * 39 // based on a rough estimate for the mean size of a user entry being 39 bytes
+	maxLength := limit * 39 // based on a rough estimate for the mean size of a user entry being 39 bytes
 	handle, err := sb.SamrConnect5("")
 	if err != nil {
 		return

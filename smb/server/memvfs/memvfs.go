@@ -244,7 +244,7 @@ func (fs *FS) Create(ctx context.Context, sess *server.Session, req server.Creat
 		default:
 			action = smb.FileOpened
 		}
-		if req.CreateOptions & smb.FileDeleteOnClose == smb.FileDeleteOnClose {
+		if req.CreateOptions&smb.FileDeleteOnClose == smb.FileDeleteOnClose {
 			existing.deletePending = true
 		}
 		h := &handle{fs: fs, key: key, display: display, dir: existing.isDir}
@@ -372,7 +372,7 @@ func (fs *FS) Flush(ctx context.Context, h server.Handle) (uint32, error) {
 
 // QueryFileInfo defers to the server's default Stat()-driven path for the
 // classes the server understands.
-func (fs *FS) QueryFileInfo(ctx context.Context, h server.Handle, infoClass byte) (interface{}, uint32, error) {
+func (fs *FS) QueryFileInfo(ctx context.Context, h server.Handle, infoClass byte) (any, uint32, error) {
 	return nil, smb.StatusNotSupported, nil
 }
 
@@ -605,7 +605,7 @@ func matchesPattern(name, pattern string) bool {
 }
 
 // QueryFSInfo defers to the server's default for now.
-func (fs *FS) QueryFSInfo(ctx context.Context, infoClass byte) (interface{}, uint32, error) {
+func (fs *FS) QueryFSInfo(ctx context.Context, infoClass byte) (any, uint32, error) {
 	return nil, smb.StatusNotSupported, nil
 }
 

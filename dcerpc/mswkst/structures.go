@@ -63,7 +63,7 @@ type WkstaUserEnum struct {
 	Level1 *WkstaUserInfo1Container `ndr:"unionField,pointer"`
 }
 
-func (u WkstaUserEnum) SwitchFunc(tag interface{}) string {
+func (u WkstaUserEnum) SwitchFunc(tag any) string {
 	t := tag.(uint32)
 	switch t {
 	case 0:

@@ -282,14 +282,14 @@ func wrapTS1(data []byte) []byte {
 	buf := make([]byte, 0, ts1HeaderSize+len(data)+8)
 
 	// CommonHeader (8 bytes)
-	buf = append(buf, 0x01)              // Version
-	buf = append(buf, 0x10)              // Endianness (little-endian)
-	buf = binary.LittleEndian.AppendUint16(buf, 8)           // CommonHeaderLength
-	buf = binary.LittleEndian.AppendUint32(buf, 0xCCCCCCCC)  // Filler
+	buf = append(buf, 0x01)                                 // Version
+	buf = append(buf, 0x10)                                 // Endianness (little-endian)
+	buf = binary.LittleEndian.AppendUint16(buf, 8)          // CommonHeaderLength
+	buf = binary.LittleEndian.AppendUint32(buf, 0xCCCCCCCC) // Filler
 
 	// PrivateHeader (8 bytes)
-	buf = binary.LittleEndian.AppendUint32(buf, rawSize)     // ObjectBufferLength
-	buf = binary.LittleEndian.AppendUint32(buf, 0xCCCCCCCC)  // Filler
+	buf = binary.LittleEndian.AppendUint32(buf, rawSize)    // ObjectBufferLength
+	buf = binary.LittleEndian.AppendUint32(buf, 0xCCCCCCCC) // Filler
 
 	// Data
 	buf = append(buf, data...)
@@ -317,14 +317,14 @@ func buildCustomHeader(totalSize uint32, clsids [][16]byte, sizes []uint32) []by
 	cIfs := uint32(len(clsids))
 
 	buf := make([]byte, 0, 140)
-	buf = binary.LittleEndian.AppendUint32(buf, totalSize) // totalSize (patched later)
-	buf = binary.LittleEndian.AppendUint32(buf, 0)         // headerSize (patched later)
-	buf = binary.LittleEndian.AppendUint32(buf, 0)         // dwReserved
-	buf = binary.LittleEndian.AppendUint32(buf, 2)         // destCtx = MSHCTX_DIFFERENTMACHINE
-	buf = binary.LittleEndian.AppendUint32(buf, cIfs)      // cIfs
-	buf = append(buf, make([]byte, 16)...) // classInfoClsid (zeros)
-	buf = binary.LittleEndian.AppendUint32(buf, 0x00020000)    // pclsid referent ID
-	buf = binary.LittleEndian.AppendUint32(buf, 0x00040000)    // pSizes referent ID
+	buf = binary.LittleEndian.AppendUint32(buf, totalSize)  // totalSize (patched later)
+	buf = binary.LittleEndian.AppendUint32(buf, 0)          // headerSize (patched later)
+	buf = binary.LittleEndian.AppendUint32(buf, 0)          // dwReserved
+	buf = binary.LittleEndian.AppendUint32(buf, 2)          // destCtx = MSHCTX_DIFFERENTMACHINE
+	buf = binary.LittleEndian.AppendUint32(buf, cIfs)       // cIfs
+	buf = append(buf, make([]byte, 16)...)                  // classInfoClsid (zeros)
+	buf = binary.LittleEndian.AppendUint32(buf, 0x00020000) // pclsid referent ID
+	buf = binary.LittleEndian.AppendUint32(buf, 0x00040000) // pSizes referent ID
 
 	// NDR alignment padding to 8-byte boundary before deferred data
 	// (44 bytes of inline fields → pad to 48)
@@ -351,20 +351,20 @@ func buildCustomHeader(totalSize uint32, clsids [][16]byte, sizes []uint32) []by
 func buildInstantiationInfo(clsid, iid [16]byte) []byte {
 	buf := make([]byte, 0, 72)
 
-	buf = append(buf, clsid[:]...)     // classId (16)
-	buf = binary.LittleEndian.AppendUint32(buf, 0x04)      // classCtx = CLSCTX_LOCAL_SERVER
-	buf = binary.LittleEndian.AppendUint32(buf, 0)         // actvflags
-	buf = binary.LittleEndian.AppendUint32(buf, 0)         // fIsSurrogate
-	buf = binary.LittleEndian.AppendUint32(buf, 1)         // cIID = 1
-	buf = binary.LittleEndian.AppendUint32(buf, 0)         // instFlag
+	buf = append(buf, clsid[:]...)                          // classId (16)
+	buf = binary.LittleEndian.AppendUint32(buf, 0x04)       // classCtx = CLSCTX_LOCAL_SERVER
+	buf = binary.LittleEndian.AppendUint32(buf, 0)          // actvflags
+	buf = binary.LittleEndian.AppendUint32(buf, 0)          // fIsSurrogate
+	buf = binary.LittleEndian.AppendUint32(buf, 1)          // cIID = 1
+	buf = binary.LittleEndian.AppendUint32(buf, 0)          // instFlag
 	buf = binary.LittleEndian.AppendUint32(buf, 0x00020000) // pIID referent ID
-	buf = binary.LittleEndian.AppendUint32(buf, 0)         // thisSize
-	buf = binary.LittleEndian.AppendUint16(buf, 5)         // clientCOM.MajorVersion
-	buf = binary.LittleEndian.AppendUint16(buf, 7)         // clientCOM.MinorVersion
+	buf = binary.LittleEndian.AppendUint32(buf, 0)          // thisSize
+	buf = binary.LittleEndian.AppendUint16(buf, 5)          // clientCOM.MajorVersion
+	buf = binary.LittleEndian.AppendUint16(buf, 7)          // clientCOM.MinorVersion
 
 	// Deferred: pIID conformant array
-	buf = binary.LittleEndian.AppendUint32(buf, 1)        // maxCount = 1
-	buf = append(buf, iid[:]...)      // IID
+	buf = binary.LittleEndian.AppendUint32(buf, 1) // maxCount = 1
+	buf = append(buf, iid[:]...)                   // IID
 
 	return buf
 }
@@ -704,6 +704,13 @@ func parsePropsOutInfo(buf []byte, result *ActivationResult) error {
 		offset += 4
 		_ = maxCount
 
+		// cIfs is server-controlled; each referent ID that follows is 4 bytes, so
+		// reject a count that can't fit in the remaining buffer before allocating
+		// (a bogus cIfs like 0xFFFFFFFF would otherwise panic make() / over-allocate).
+		if int(cIfs) > (len(buf)-offset)/4 {
+			return fmt.Errorf("buffer too short for %d ppIntfData referent IDs", cIfs)
+		}
+
 		// Read referent IDs
 		refIds := make([]uint32, cIfs)
 		for i := uint32(0); i < cIfs; i++ {
@@ -757,4 +764,3 @@ func parsePropsOutInfo(buf []byte, result *ActivationResult) error {
 
 	return nil
 }
-

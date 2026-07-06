@@ -65,7 +65,7 @@ func TestReadEncodedStringASCII(t *testing.T) {
 func TestReadEncodedStringUnicode(t *testing.T) {
 	// UTF-16LE encoded string: flag(0x01) + "Hi" + null
 	heap := []byte{
-		0x01,       // Unicode flag
+		0x01,      // Unicode flag
 		'H', 0x00, // 'H'
 		'i', 0x00, // 'i'
 		0x00, 0x00, // null terminator
@@ -217,8 +217,8 @@ func buildSyntheticClassPart(className string, propNames []string) []byte {
 	// ClassHeader (13 bytes)
 	b := make([]byte, 13)
 	le.PutUint32(b[0:4], uint32(classPartLen)) // EncodingLength (includes itself)
-	b[4] = 0                                    // ReservedOctet
-	le.PutUint32(b[5:9], classNameRef)          // ClassNameRef
+	b[4] = 0                                   // ReservedOctet
+	le.PutUint32(b[5:9], classNameRef)         // ClassNameRef
 	le.PutUint32(b[9:13], uint32(ndTableValueLength))
 	buf = append(buf, b...)
 
@@ -272,9 +272,9 @@ func buildSyntheticMethodsPart(methodName string, inParamsClassPart []byte) []by
 	// CurrentClass ClassAndMethodsPart = ClassPart + empty MethodsPart
 	// Empty MethodsPart: EncodingLength(4)=8, MethodCount(2)=0, Padding(2)=0, HeapLen(4)=0|MSB
 	emptyMethods := make([]byte, 12)
-	le.PutUint32(emptyMethods[0:4], 12) // EncodingLength includes itself
-	le.PutUint16(emptyMethods[4:6], 0)  // MethodCount = 0
-	le.PutUint16(emptyMethods[6:8], 0)  // MethodCountPadding
+	le.PutUint32(emptyMethods[0:4], 12)          // EncodingLength includes itself
+	le.PutUint16(emptyMethods[4:6], 0)           // MethodCount = 0
+	le.PutUint16(emptyMethods[6:8], 0)           // MethodCountPadding
 	le.PutUint32(emptyMethods[8:12], 0x80000000) // Empty MethodHeap
 
 	emptyParent := make([]byte, 4)
@@ -302,8 +302,8 @@ func buildSyntheticMethodsPart(methodName string, inParamsClassPart []byte) []by
 	// MethodDescription: 24 bytes fixed
 	// MethodName(4) + Flags(1) + Padding(3) + Origin(4) + Qualifiers(4) + InSig(4) + OutSig(4)
 	methodDesc := make([]byte, 24)
-	le.PutUint32(methodDesc[0:4], nameRef)       // MethodName (HeapRef)
-	methodDesc[4] = 0                            // MethodFlags (1 byte)
+	le.PutUint32(methodDesc[0:4], nameRef) // MethodName (HeapRef)
+	methodDesc[4] = 0                      // MethodFlags (1 byte)
 	// methodDesc[5:8] = padding (3 bytes, zero)
 	le.PutUint32(methodDesc[8:12], 0)            // MethodOrigin
 	le.PutUint32(methodDesc[12:16], 0xFFFFFFFF)  // MethodQualifiers (none)
@@ -314,9 +314,9 @@ func buildSyntheticMethodsPart(methodName string, inParamsClassPart []byte) []by
 	totalLen := 4 + 2 + 2 + len(methodDesc) + len(heapBuf) // 4 for EncodingLength itself
 	result := make([]byte, 0, totalLen)
 	le.PutUint32(b4[:], uint32(totalLen))
-	result = append(result, b4[:]...)           // EncodingLength
-	result = append(result, 0x01, 0x00)         // MethodCount = 1
-	result = append(result, 0x00, 0x00)         // MethodCountPadding
+	result = append(result, b4[:]...)   // EncodingLength
+	result = append(result, 0x01, 0x00) // MethodCount = 1
+	result = append(result, 0x00, 0x00) // MethodCountPadding
 	result = append(result, methodDesc...)
 	result = append(result, heapBuf...)
 
@@ -403,9 +403,9 @@ func TestBuildCIMInstance(t *testing.T) {
 	classPart := buildSyntheticClassPart("TestInput", []string{"CommandLine", "WorkDir"})
 
 	classDef := &cimClassDef{
-		className:          "TestInput",
-		classPartRaw: classPart,
-		valueTableSize:     8, // 2 * 4 bytes
+		className:      "TestInput",
+		classPartRaw:   classPart,
+		valueTableSize: 8, // 2 * 4 bytes
 		properties: []cimPropDef{
 			{name: "CommandLine", cimType: cimTypeString, offset: 0},
 			{name: "WorkDir", cimType: cimTypeString, offset: 4},
@@ -556,8 +556,8 @@ func TestGetMethodInParamsClass(t *testing.T) {
 
 	// Build ParentClass ClassAndMethodsPart (empty parent with no methods)
 	parentClassPart := buildSyntheticClassPart("CIM_Process", nil)
-	emptyMethodsPart := make([]byte, 12) // EncodingLength(4)=12 + MethodCount(2)=0 + Padding(2)=0 + HeapLen(4)=0|MSB
-	le.PutUint32(emptyMethodsPart[0:4], 12)         // EncodingLength includes itself
+	emptyMethodsPart := make([]byte, 12)             // EncodingLength(4)=12 + MethodCount(2)=0 + Padding(2)=0 + HeapLen(4)=0|MSB
+	le.PutUint32(emptyMethodsPart[0:4], 12)          // EncodingLength includes itself
 	le.PutUint16(emptyMethodsPart[4:6], 0)           // MethodCount = 0
 	le.PutUint16(emptyMethodsPart[6:8], 0)           // MethodCountPadding
 	le.PutUint32(emptyMethodsPart[8:12], 0x80000000) // empty heap
@@ -615,8 +615,8 @@ func TestGetMethodInParamsClass(t *testing.T) {
 type syntheticProp struct {
 	name    string
 	cimType uint32
-	value   []byte  // raw bytes for value table slot (nil = null)
-	strVal  string  // for cimTypeString: the string value
+	value   []byte // raw bytes for value table slot (nil = null)
+	strVal  string // for cimTypeString: the string value
 }
 
 func buildSyntheticEncodingUnit(className string, props []syntheticProp) []byte {
@@ -874,7 +874,7 @@ func TestBuildAndParseCIMInstance(t *testing.T) {
 	le.PutUint32(heapBuf[0:4], heapLen)
 	copy(heapBuf[4:], heap)
 
-	ndTableSize := 1 // ceil(2/8)
+	ndTableSize := 1    // ceil(2/8)
 	valueTableSize := 8 // 2 * 4
 	ndTableValueLength := ndTableSize + valueTableSize
 	derivListLen := 4
@@ -924,7 +924,7 @@ func TestBuildAndParseCIMInstance(t *testing.T) {
 	instNdTableSize := 1 // ceil(2/4)
 
 	// Instance data: ReturnValue=0, ProcessId=1234
-	instData := make([]byte, 8) // 2 * 4 bytes
+	instData := make([]byte, 8)       // 2 * 4 bytes
 	le.PutUint32(instData[0:4], 0)    // ReturnValue = 0
 	le.PutUint32(instData[4:8], 1234) // ProcessId = 1234
 
@@ -942,7 +942,7 @@ func TestBuildAndParseCIMInstance(t *testing.T) {
 	currentInstanceLen := 1 + 4 + instNdTableSize + len(instData) + len(instQualSet)
 	currentInstance := make([]byte, 0, currentInstanceLen)
 	currentInstance = append(currentInstance, 0x00) // InstanceFlags
-	le.PutUint32(b4[:], 0)                         // ClassNameRef
+	le.PutUint32(b4[:], 0)                          // ClassNameRef
 	currentInstance = append(currentInstance, b4[:]...)
 	currentInstance = append(currentInstance, 0x00) // NdTable: all non-null
 	currentInstance = append(currentInstance, instData...)

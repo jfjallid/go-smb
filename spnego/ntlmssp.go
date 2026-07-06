@@ -47,7 +47,7 @@ type NTLMInitiator struct {
 	Workstation string
 	TargetSPN   string
 
-	ntlm   *ntlmssp.Client
+	ntlm      *ntlmssp.Client
 	micSeqNum uint32
 
 	sealSeqNum   uint32
@@ -59,7 +59,6 @@ func (i *NTLMInitiator) Oid() asn1.ObjectIdentifier {
 }
 
 func (i *NTLMInitiator) Logoff() {
-	return
 }
 
 func (i *NTLMInitiator) InitSecContext(inputToken []byte) ([]byte, error) {

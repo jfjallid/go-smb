@@ -32,18 +32,18 @@ import (
 // caller — see the Authenticator interface in smb/server.
 type Server struct {
 	// Configuration set by the caller before the first Accept call.
-	TargetName       string // NTLMSSP TargetName (NetBIOS server name, default empty)
-	NetBIOSName      string // for MsvAvNbComputerName AVPair
-	NetBIOSDomain    string // for MsvAvNbDomainName  AVPair
-	DnsComputerName  string // for MsvAvDnsComputerName AVPair
-	DnsDomainName    string // for MsvAvDnsDomainName AVPair
+	TargetName      string // NTLMSSP TargetName (NetBIOS server name, default empty)
+	NetBIOSName     string // for MsvAvNbComputerName AVPair
+	NetBIOSDomain   string // for MsvAvNbDomainName  AVPair
+	DnsComputerName string // for MsvAvDnsComputerName AVPair
+	DnsDomainName   string // for MsvAvDnsDomainName AVPair
 
 	// Server-side state populated as the exchange progresses.
-	Challenge       [8]byte
-	Negotiate       *Negotiate
-	Authenticate    *Authenticate
-	NegotiateFlags  uint32 // flags chosen for the Challenge
-	rawChallenge    []byte // serialized Challenge bytes (for downstream MIC validation)
+	Challenge      [8]byte
+	Negotiate      *Negotiate
+	Authenticate   *Authenticate
+	NegotiateFlags uint32 // flags chosen for the Challenge
+	rawChallenge   []byte // serialized Challenge bytes (for downstream MIC validation)
 }
 
 // AcceptNegotiate parses an inbound NTLMSSP NEGOTIATE message and produces

@@ -227,9 +227,9 @@ func TestServiceUnsupportedOpnumFaults(t *testing.T) {
 func TestFromConfig(t *testing.T) {
 	cfg := &smbserver.ServerConfig{
 		Shares: map[string]smbserver.Share{
-			"public":  {Name: "public", Type: smb.ShareTypeDisk, Remark: "Pub"},
-			"alias":   {Name: "alias", Type: smb.ShareTypeDisk, Remark: ""},
-			"ipc$":    {Name: "IPC$", Type: smb.ShareTypePipe},  // duplicate IPC$ ignored
+			"public": {Name: "public", Type: smb.ShareTypeDisk, Remark: "Pub"},
+			"alias":  {Name: "alias", Type: smb.ShareTypeDisk, Remark: ""},
+			"ipc$":   {Name: "IPC$", Type: smb.ShareTypePipe}, // duplicate IPC$ ignored
 		},
 	}
 	got := FromConfig(cfg)

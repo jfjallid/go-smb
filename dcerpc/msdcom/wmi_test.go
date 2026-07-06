@@ -22,8 +22,8 @@
 package msdcom
 
 import (
-	"encoding/binary"
 	"bytes"
+	"encoding/binary"
 	"testing"
 )
 
@@ -179,7 +179,7 @@ func TestUnmarshalWbemObjectResponse(t *testing.T) {
 	resp := make([]byte, 0, 12+len(mip))
 	resp = binary.LittleEndian.AppendUint32(resp, 0x00020000) // ppObject referent ID (non-null)
 	resp = binary.LittleEndian.AppendUint32(resp, 0)          // ppCallResult = NULL
-	resp = append(resp, mip...)           // deferred MInterfacePointer
+	resp = append(resp, mip...)                               // deferred MInterfacePointer
 	resp = binary.LittleEndian.AppendUint32(resp, 0)          // HRESULT = S_OK
 
 	result, err := unmarshalWbemObjectResponse(resp)
@@ -194,8 +194,8 @@ func TestUnmarshalWbemObjectResponse(t *testing.T) {
 
 func TestUnmarshalWbemObjectResponseNull(t *testing.T) {
 	resp := make([]byte, 12)
-	le.PutUint32(resp[0:4], 0) // ppObject = NULL
-	le.PutUint32(resp[4:8], 0) // ppCallResult = NULL
+	le.PutUint32(resp[0:4], 0)  // ppObject = NULL
+	le.PutUint32(resp[4:8], 0)  // ppCallResult = NULL
 	le.PutUint32(resp[8:12], 0) // HRESULT = S_OK
 
 	_, err := unmarshalWbemObjectResponse(resp)

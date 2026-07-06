@@ -479,8 +479,8 @@ func (client *Client) ParseAPRep(encpart types.EncryptedData) error {
 // struct has Cusec (tag 1) as the last field which produces non-standard DER,
 // so we also fix the field order here.
 type encAPRepPartNoSubkey struct {
-	CTime          time.Time `asn1:"generalized,explicit,tag:0"`
-	Cusec          int       `asn1:"explicit,tag:1"`
+	CTime time.Time `asn1:"generalized,explicit,tag:0"`
+	Cusec int       `asn1:"explicit,tag:1"`
 	// Subkey (tag 2) intentionally omitted — Impacket clears it entirely
 	SequenceNumber int64 `asn1:"optional,explicit,tag:3"`
 }

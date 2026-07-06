@@ -53,10 +53,10 @@ var upstreamReadTimeout = 30 * time.Second
 // "more responses follow for this messageID"; everything else terminates the
 // per-request exchange.
 const (
-	ldapAppUnbindRequest         ber.Tag = 2
-	ldapAppSearchResEntry        ber.Tag = 4
-	ldapAppSearchResRef          ber.Tag = 19
-	ldapAppIntermediateResponse  ber.Tag = 25
+	ldapAppUnbindRequest        ber.Tag = 2
+	ldapAppSearchResEntry       ber.Tag = 4
+	ldapAppSearchResRef         ber.Tag = 19
+	ldapAppIntermediateResponse ber.Tag = 25
 )
 
 // LDAPPassthrough bridges a SOCKS-side LDAP client onto a pre-bound upstream

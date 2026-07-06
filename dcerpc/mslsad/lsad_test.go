@@ -86,16 +86,14 @@ func TestLsarQueryInformationPolicyRes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var info *LsaprPolicyPrimaryDomInfo
 	//info = resp.PolicyInformation.(*LsaprPolicyPrimaryDomInfo)
-	info = &resp.PolicyInformation.PolicyPrimaryDomainInfo
+	info := &resp.PolicyInformation.PolicyPrimaryDomainInfo
 	if info.Name.String() != "SKYNET" {
 		t.Fatalf("expected info.Name==SKYNET, got %v", info.Name)
 	}
 	if info.Sid.ToString() != "S-1-5-21-1023064509-695355555-2046574917" {
 		t.Fatalf("expected info.Sid.ToString()==S-1-5-21-1023064509-695355555-2046574917, got %v", info.Sid.ToString())
 	}
-	return
 }
 
 //func TestLsarCreateAccountReq(t *testing.T) {

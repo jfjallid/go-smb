@@ -295,7 +295,7 @@ func TestPACL(t *testing.T) {
 			standardAce,
 			standardAce,
 			standardAce,
-			msdtyp.ACE{
+			{
 				Header: msdtyp.ACEHeader{
 					Type:  0,
 					Flags: 0x12,
@@ -304,7 +304,7 @@ func TestPACL(t *testing.T) {
 				Mask: 0x00060000,
 				Sid:  standardAce.Sid,
 			},
-			msdtyp.ACE{
+			{
 				Header: msdtyp.ACEHeader{
 					Type:  0,
 					Flags: 0x12,

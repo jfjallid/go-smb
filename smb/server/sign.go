@@ -23,7 +23,6 @@
 package server
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -290,7 +289,10 @@ func (s *Session) verifyPDU(pkt []byte) bool {
 	if len(sig) >= 16 {
 		sig = sig[:16]
 	}
-	return bytes.Equal(saved[:len(sig)], sig)
+	// Constant-time compare: a data-dependent early-exit on MAC verification
+	// is a timing side-channel against signature forgery. hmac.Equal is
+	// subtle.ConstantTimeCompare under the hood.
+	return hmac.Equal(saved[:len(sig)], sig)
 }
 
 // shouldSign reports whether the response to the currently-dispatching PDU

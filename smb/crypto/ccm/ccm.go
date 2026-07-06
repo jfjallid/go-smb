@@ -240,8 +240,9 @@ func (s *ccm) Open(dst, nonce, ciphertext, additionalData []byte) (result []byte
 
 	subtle.XORBytes(mac, mac, s0)
 
-	// Check if calculated tag matches provided tag
-	if bytes.Compare(mac, ciphertext[len(plaintext):]) != 0 {
+	// Check if calculated tag matches provided tag. Constant-time to avoid a
+	// timing side-channel that could aid AEAD tag forgery.
+	if subtle.ConstantTimeCompare(mac, ciphertext[len(plaintext):]) != 1 {
 		err := fmt.Errorf("invalid authentication tag on ciphertext")
 		return nil, err
 	}

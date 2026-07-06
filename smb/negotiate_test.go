@@ -18,10 +18,10 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/jfjallid/gofork/encoding/asn1"
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/spnego"
+	"github.com/jfjallid/gofork/encoding/asn1"
 )
 
 // TestNegotiateResContextOffsetZeroFor2_0_2 locks in the encoder fix: when a
@@ -185,9 +185,9 @@ func TestSessionSetupSecurityModeRequired(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name           string
+		name            string
 		signingRequired bool
-		wantMode       byte
+		wantMode        byte
 	}{
 		{"signing_required", true, byte(SecurityModeSigningEnabled | SecurityModeSigningRequired)},
 		{"signing_optional", false, byte(SecurityModeSigningEnabled)},

@@ -125,6 +125,13 @@ func ReadConformantVaryingString(r *bytes.Reader, nullTerminated bool) (s string
 	}
 
 	if actualCount > 0 {
+		// actualCount is server-controlled; guard the *2 against uint32 overflow
+		// and refuse a count larger than the remaining buffer before allocating, so
+		// a bogus value can't trigger a multi-GB makeslice panic / OOM.
+		if uint64(actualCount)*2 > uint64(r.Len()) {
+			err = fmt.Errorf("ReadConformantVaryingString: actual count %d exceeds remaining buffer (%d bytes)", actualCount, r.Len())
+			return
+		}
 		// Read the unicode string
 		unc := make([]byte, actualCount*2)
 		err = binary.Read(r, le, unc)
@@ -136,7 +143,7 @@ func ReadConformantVaryingString(r *bytes.Reader, nullTerminated bool) (s string
 		if nullTerminated {
 			// Check for terminating null byte
 			lastIndex := len(unc) - 2
-			if bytes.Compare(unc[lastIndex:], []byte{0, 0}) == 0 {
+			if bytes.Equal(unc[lastIndex:], []byte{0, 0}) {
 				unc = unc[:lastIndex]
 			}
 		}
@@ -316,6 +323,13 @@ func ReadConformantVaryingArray(r *bytes.Reader) (data []byte, maxLength uint32,
 	}
 
 	if actualCount > 0 {
+		// actualCount is server-controlled; refuse a count larger than the
+		// remaining buffer before allocating so a bogus value can't trigger a
+		// multi-GB makeslice panic / OOM.
+		if uint64(actualCount) > uint64(r.Len()) {
+			err = fmt.Errorf("ReadConformantVaryingArray: actual count %d exceeds remaining buffer (%d bytes)", actualCount, r.Len())
+			return
+		}
 		data = make([]byte, actualCount)
 		err = binary.Read(r, le, &data)
 		if err != nil {
@@ -397,7 +411,11 @@ func ConvertSIDtoStr(sid *SID) (s string) {
 	s = fmt.Sprintf("S-%d-%d", sid.Revision, auth)
 	//NOTE Seems that perhaps the sid.NumAuth (count) does not always accurately specify number of
 	// Sub Authoritys but rather number of DWORDS. E.g., a SubAuthority could take more than 1 DWORD?
-	for i := 0; i < int(sid.NumAuth); i++ {
+	// NumAuth is server-controlled and, for an ndr-decoded SID, is an independent
+	// wire field from the conformant SubAuthorities array length. Iterate over the
+	// actual slice so a mismatched count can't index out of bounds and crash the
+	// client on a malicious-server SID.
+	for i := 0; i < len(sid.SubAuthorities); i++ {
 		s = fmt.Sprintf("%s-%d", s, sid.SubAuthorities[i])
 	}
 	return

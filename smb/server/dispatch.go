@@ -159,7 +159,7 @@ func (c *Conn) dispatchSMB2Inner(raw []byte, ctx pduCtx) error {
 	if !ctx.encrypted {
 		const ignoreMID = uint64(0xFFFFFFFFFFFFFFFF)
 		if h.MessageID != ignoreMID {
-			if _, dup := c.seenMsgIDs.LoadOrStore(h.MessageID, struct{}{}); dup {
+			if c.seenMsgIDs.seen(h.MessageID) {
 				c.logger().Errorf(
 					"duplicate MessageId %d from %s (cmd=0x%x); disconnecting",
 					h.MessageID, c.RemoteAddr, h.Command)

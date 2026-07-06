@@ -25,8 +25,8 @@ type fakeService struct {
 	lastBuffer []byte
 }
 
-func (s *fakeService) InterfaceUUID() string                  { return s.uuid }
-func (s *fakeService) InterfaceVersion() (uint16, uint16)     { return s.major, s.minor }
+func (s *fakeService) InterfaceUUID() string              { return s.uuid }
+func (s *fakeService) InterfaceVersion() (uint16, uint16) { return s.major, s.minor }
 func (s *fakeService) Dispatch(_ context.Context, op uint16, in []byte) ([]byte, error) {
 	s.lastOpnum = op
 	s.lastBuffer = append([]byte(nil), in...)

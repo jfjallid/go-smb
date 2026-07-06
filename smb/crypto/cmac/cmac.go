@@ -190,7 +190,7 @@ func aesCmac(k, m []byte, length int) ([]byte, error) {
 		}
 	}
 
-	m_last := []byte{}
+	var m_last []byte
 	m_n := m[(n-1)*Bsize:]
 	if flag {
 		m_last = xor128(m_n, k1)

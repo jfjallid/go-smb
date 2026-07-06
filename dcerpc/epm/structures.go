@@ -26,6 +26,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 
 	"github.com/jfjallid/go-smb/dcerpc"
@@ -347,7 +348,7 @@ func UnmarshalTowerOctets(data []byte) (*Tower, error) {
 				return nil, fmt.Errorf("UUID floor %d LHS too short: %d", i, lhsLen)
 			}
 			t.Floors[i].UUID = make([]byte, 16)
-			if _, err := r.Read(t.Floors[i].UUID); err != nil {
+			if _, err := io.ReadFull(r, t.Floors[i].UUID); err != nil {
 				return nil, fmt.Errorf("failed to read UUID for floor %d: %w", i, err)
 			}
 			if err := binary.Read(r, le, &t.Floors[i].UUIDVersion); err != nil {
@@ -358,7 +359,7 @@ func UnmarshalTowerOctets(data []byte) (*Tower, error) {
 			remaining := int(lhsLen) - 1
 			if remaining > 0 {
 				skip := make([]byte, remaining)
-				if _, err := r.Read(skip); err != nil {
+				if _, err := io.ReadFull(r, skip); err != nil {
 					return nil, fmt.Errorf("failed to skip LHS data for floor %d: %w", i, err)
 				}
 			}
@@ -371,7 +372,7 @@ func UnmarshalTowerOctets(data []byte) (*Tower, error) {
 
 		t.Floors[i].RHSData = make([]byte, rhsLen)
 		if rhsLen > 0 {
-			if _, err := r.Read(t.Floors[i].RHSData); err != nil {
+			if _, err := io.ReadFull(r, t.Floors[i].RHSData); err != nil {
 				return nil, fmt.Errorf("failed to read RHS data for floor %d: %w", i, err)
 			}
 		}

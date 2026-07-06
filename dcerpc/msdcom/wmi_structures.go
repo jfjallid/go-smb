@@ -44,19 +44,19 @@ const (
 	cimFlagDecoration byte = 0x04
 
 	// CIM types (MS-WMIO 2.2.62)
-	cimTypeSint16  uint32 = 2
-	cimTypeSint32  uint32 = 3
-	cimTypeReal32  uint32 = 4
-	cimTypeReal64  uint32 = 5
-	cimTypeString  uint32 = 8
-	cimTypeBoolean uint32 = 11
-	cimTypeObject  uint32 = 13
-	cimTypeSint8   uint32 = 16
-	cimTypeUint8   uint32 = 17
-	cimTypeUint16  uint32 = 18
-	cimTypeUint32  uint32 = 19
-	cimTypeSint64  uint32 = 20
-	cimTypeUint64  uint32 = 21
+	cimTypeSint16   uint32 = 2
+	cimTypeSint32   uint32 = 3
+	cimTypeReal32   uint32 = 4
+	cimTypeReal64   uint32 = 5
+	cimTypeString   uint32 = 8
+	cimTypeBoolean  uint32 = 11
+	cimTypeObject   uint32 = 13
+	cimTypeSint8    uint32 = 16
+	cimTypeUint8    uint32 = 17
+	cimTypeUint16   uint32 = 18
+	cimTypeUint32   uint32 = 19
+	cimTypeSint64   uint32 = 20
+	cimTypeUint64   uint32 = 21
 	cimTypeDatetime uint32 = 0x65
 	cimTypeArray    uint32 = 0x2000
 
@@ -70,17 +70,17 @@ const (
 // cimClassDef holds a parsed CIM class definition with enough information
 // to create instances and read property values.
 type cimClassDef struct {
-	className          string
-	properties         []cimPropDef
-	valueTableSize     int    // size of property value table in bytes
-	classPartRaw []byte // raw ClassPart bytes for instance CurrentClass (no MethodsPart)
+	className      string
+	properties     []cimPropDef
+	valueTableSize int    // size of property value table in bytes
+	classPartRaw   []byte // raw ClassPart bytes for instance CurrentClass (no MethodsPart)
 }
 
 // cimPropDef describes a property in a CIM class.
 type cimPropDef struct {
-	name   string
+	name    string
 	cimType uint32
-	offset int // offset in value table
+	offset  int // offset in value table
 }
 
 // cimValueSize returns the fixed serialized size of a CIM property value slot.
@@ -366,6 +366,12 @@ func parseClassPart(data []byte) (*cimClassDef, error) {
 		nameRef uint32
 		infoRef uint32
 	}
+	// propCount is server-controlled; each lookup entry is 8 bytes and must fit
+	// within ClassPart. Validate before allocating so a bogus count can't trigger
+	// a multi-GB makeslice panic.
+	if propCount < 0 || offset+propCount*8 > classPartLen {
+		return nil, fmt.Errorf("ClassPart: PropertyLookupTable count %d out of bounds", propCount)
+	}
 	lookups := make([]propLookup, propCount)
 	for i := 0; i < propCount; i++ {
 		if offset+8 > classPartLen {
@@ -382,8 +388,13 @@ func parseClassPart(data []byte) (*cimClassDef, error) {
 	ndTableSize := (propCount + 3) / 4
 	offset += ndTableSize
 
-	// PropertyValueList: ndTableValueLength - ndTableSize bytes
+	// PropertyValueList: ndTableValueLength - ndTableSize bytes. Both operands are
+	// server-influenced; a negative result would later panic make([]byte, ...) in
+	// buildCIMInstance and move offset backwards here, so reject it.
 	valueTableSize := ndTableValueLength - ndTableSize
+	if valueTableSize < 0 {
+		return nil, fmt.Errorf("ClassPart: negative PropertyValueList size (ndTableValueLength=%d, ndTableSize=%d)", ndTableValueLength, ndTableSize)
+	}
 	offset += valueTableSize
 
 	// ClassHeap: remaining bytes within ClassPart
@@ -433,18 +444,19 @@ func parseClassPart(data []byte) (*cimClassDef, error) {
 // returns the raw ObjectBlock bytes for its InputSignature.
 //
 // MethodsPart layout (MS-WMIO 2.2.38):
-//   EncodingLength (4) — includes itself
-//   MethodCount (2)
-//   MethodCountPadding (2)
-//   MethodDescription[MethodCount] — each is 24 bytes fixed:
-//     MethodName (4) — HeapRef
-//     MethodFlags (1)
-//     MethodPadding (3)
-//     MethodOrigin (4)
-//     MethodQualifiers (4) — HeapRef
-//     InputSignature (4) — HeapRef (0xFFFFFFFF if none)
-//     OutputSignature (4) — HeapRef (0xFFFFFFFF if none)
-//   MethodHeap — contains actual signature data
+//
+//	EncodingLength (4) — includes itself
+//	MethodCount (2)
+//	MethodCountPadding (2)
+//	MethodDescription[MethodCount] — each is 24 bytes fixed:
+//	  MethodName (4) — HeapRef
+//	  MethodFlags (1)
+//	  MethodPadding (3)
+//	  MethodOrigin (4)
+//	  MethodQualifiers (4) — HeapRef
+//	  InputSignature (4) — HeapRef (0xFFFFFFFF if none)
+//	  OutputSignature (4) — HeapRef (0xFFFFFFFF if none)
+//	MethodHeap — contains actual signature data
 func findMethodInParams(data []byte, methodName string) ([]byte, error) {
 	if len(data) < 8 {
 		return nil, fmt.Errorf("MethodsPart too short")
@@ -824,7 +836,7 @@ func ParseCIMInstanceValues(data []byte) (map[string]uint32, error) {
 // ParseCIMInstanceAllValues parses a CIM EncodingUnit containing an instance
 // and returns all property values by name. Supports all scalar CIM types.
 // Array types and cimTypeObject are returned as nil with a debug log.
-func ParseCIMInstanceAllValues(data []byte) (map[string]interface{}, error) {
+func ParseCIMInstanceAllValues(data []byte) (map[string]any, error) {
 	// Parse EncodingUnit header
 	if len(data) < 8 {
 		return nil, fmt.Errorf("EncodingUnit too short")
@@ -904,7 +916,7 @@ func ParseCIMInstanceAllValues(data []byte) (map[string]interface{}, error) {
 	afterValueTable := instPos + classDef.valueTableSize
 	instHeapData := parseInstanceHeap(instTypeRest, afterValueTable, propCount)
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 	for i, prop := range classDef.properties {
 		byteIdx := i / 4
 		bitOffset := uint((i % 4) * 2)
@@ -1054,7 +1066,7 @@ func parseInstanceHeap(instTypeRest []byte, afterValueTable int, propCount int) 
 // offset. Array layout: numItems(uint32) + [for string arrays: numItems DWORD
 // heap pointers + numItems ENCODED_STRINGs] [for scalar arrays: numItems
 // values of the element type].
-func readArrayFromHeap(heap []byte, offset uint32, baseType uint32) interface{} {
+func readArrayFromHeap(heap []byte, offset uint32, baseType uint32) any {
 	off := int(offset)
 	if off+4 > len(heap) {
 		return nil

@@ -8,12 +8,12 @@ import "testing"
 
 func TestParseTarget(t *testing.T) {
 	cases := []struct {
-		in       string
+		in        string
 		wantProto Protocol
-		wantHost string
-		wantTLS  bool
-		wantPath string
-		wantErr  bool
+		wantHost  string
+		wantTLS   bool
+		wantPath  string
+		wantErr   bool
 	}{
 		// SMB
 		{"smb://host", ProtoSMB, "host:445", false, "", false},
@@ -35,15 +35,15 @@ func TestParseTarget(t *testing.T) {
 		{"SMB://host", ProtoSMB, "host:445", false, "", false},
 		{"HTTPS://host:8443/x", ProtoHTTPS, "host:8443", true, "/x", false},
 		// Rejections
-		{"host:445", "", "", false, "", true},          // bare host:port
-		{"", "", "", false, "", true},                  // empty
-		{"ftp://host:21", "", "", false, "", true},     // unsupported scheme
-		{"smb://", "", "", false, "", true},            // missing host
-		{"://host", "", "", false, "", true},           // empty scheme
-		{"smb://host:0", "", "", false, "", true},      // port = 0
-		{"smb://host:65536", "", "", false, "", true},  // port > 65535
-		{"smb://host:99999", "", "", false, "", true},  // 5-digit garbage
-		{"smb://host:abc", "", "", false, "", true},    // non-numeric port (caught by url.Parse)
+		{"host:445", "", "", false, "", true},         // bare host:port
+		{"", "", "", false, "", true},                 // empty
+		{"ftp://host:21", "", "", false, "", true},    // unsupported scheme
+		{"smb://", "", "", false, "", true},           // missing host
+		{"://host", "", "", false, "", true},          // empty scheme
+		{"smb://host:0", "", "", false, "", true},     // port = 0
+		{"smb://host:65536", "", "", false, "", true}, // port > 65535
+		{"smb://host:99999", "", "", false, "", true}, // 5-digit garbage
+		{"smb://host:abc", "", "", false, "", true},   // non-numeric port (caught by url.Parse)
 	}
 	for _, tc := range cases {
 		got, err := ParseTarget(tc.in)

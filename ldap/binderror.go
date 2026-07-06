@@ -61,37 +61,37 @@ const (
 	SubStatusAccountLocked       = goldap.SubStatusAccountLocked
 )
 
-var SubStatusMap = map[uint32]string {
-	SubStatusBadBindings         : "bad channel bindings",
-	SubStatusInvalidToken        : "invalid token",
-	SubStatusTargetUnknown       : "target unknown",
-	SubStatusLogonDenied         : "logon denied",
-	SubStatusUserNotFound        : "user not found",
-	SubStatusInvalidCredentials  : "invalid credentials",
-	SubStatusNotPermittedToLogon : "not permitted to logon",
-	SubStatusPasswordExpired     : "password expired",
-	SubStatusAccountDisabled     : "account disabled",
-	SubStatusAccountExpired      : "account expired",
-	SubStatusMustResetPassword   : "must reset password",
-	SubStatusAccountLocked       : "account locked",
+var SubStatusMap = map[uint32]string{
+	SubStatusBadBindings:         "bad channel bindings",
+	SubStatusInvalidToken:        "invalid token",
+	SubStatusTargetUnknown:       "target unknown",
+	SubStatusLogonDenied:         "logon denied",
+	SubStatusUserNotFound:        "user not found",
+	SubStatusInvalidCredentials:  "invalid credentials",
+	SubStatusNotPermittedToLogon: "not permitted to logon",
+	SubStatusPasswordExpired:     "password expired",
+	SubStatusAccountDisabled:     "account disabled",
+	SubStatusAccountExpired:      "account expired",
+	SubStatusMustResetPassword:   "must reset password",
+	SubStatusAccountLocked:       "account locked",
 }
 
 // BindError is returned by Client.Bind when the underlying LDAP bind fails.
 // Inspect Kind via errors.AsType to decide whether to retry with different
 // options:
 //
-//  if be, found := errors.AsType[*ldap.BindError](err); found {
-//	    switch be.Kind {
-//	    case ldap.BindFailureChannelBinding:
-//	        // retry with BindOptions.ChannelBinding = true (over TLS)
-//	    case ldap.BindFailureSigning:
-//	        // retry with BindOptions.SASLMode = SASLSign or SASLSeal
-//	    case ldap.BindFailureConfidentialityRequired:
-//	        // retry with ClientOptions.UseTLS or UseStartTLS
-//	    case ldap.BindFailureCredentials:
-//	        // be.SubStatus may carry the AD reason (locked, expired, ...)
-//	    }
-//	}
+//	 if be, found := errors.AsType[*ldap.BindError](err); found {
+//		    switch be.Kind {
+//		    case ldap.BindFailureChannelBinding:
+//		        // retry with BindOptions.ChannelBinding = true (over TLS)
+//		    case ldap.BindFailureSigning:
+//		        // retry with BindOptions.SASLMode = SASLSign or SASLSeal
+//		    case ldap.BindFailureConfidentialityRequired:
+//		        // retry with ClientOptions.UseTLS or UseStartTLS
+//		    case ldap.BindFailureCredentials:
+//		        // be.SubStatus may carry the AD reason (locked, expired, ...)
+//		    }
+//		}
 //
 // Kind is BindFailureUnclassified for non-AD servers or rejections that don't
 // match a known signal; in that case Error() prints the raw underlying error.

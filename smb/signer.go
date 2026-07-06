@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2026 Jimmy Fjällid
+// # Copyright (c) 2026 Jimmy Fjällid
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -22,9 +22,9 @@
 package smb
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"encoding/binary"
 	"hash"
 )
@@ -58,7 +58,10 @@ type hashVerifier struct{ h hash.Hash }
 func (v *hashVerifier) Verify(pkt, sig []byte) bool {
 	v.h.Reset()
 	v.h.Write(pkt)
-	return bytes.Equal(v.h.Sum(nil)[:16], sig)
+	// Constant-time compare: a data-dependent early-exit (bytes.Equal) on a
+	// MAC verification is a timing side-channel against signature forgery.
+	// hmac.Equal is subtle.ConstantTimeCompare under the hood.
+	return hmac.Equal(v.h.Sum(nil)[:16], sig)
 }
 
 // gmacSigner / gmacVerifier implement AES-GMAC signing (MS-SMB2 §3.1.4.1 /

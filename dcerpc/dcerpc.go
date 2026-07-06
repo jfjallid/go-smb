@@ -244,7 +244,7 @@ func newHeader() Header {
 		// At some point it might be worth to implement support for other
 		// representations such as Big-Endian
 		Representation: 0x00000010, // 0x10000000, // Little-endian, char = ASCII, float = IEEE
-		FragLength:     0, // Set after marshal to actual PDU size
+		FragLength:     0,          // Set after marshal to actual PDU size
 		AuthLength:     0,
 		CallId:         0,
 	}
@@ -367,9 +367,17 @@ func newRequestReq(callId uint32, op uint16, objectUUID []byte) (*RequestReq, er
 
 	return req, nil
 }
+
 // parseAndValidateCommonHeader validates a BindAck or AlterContext response PDU Common Header.
 // It checks the CallId and the packet type
 func parseAndValidateCommonHeader(response []byte, expectedCallId uint32) error {
+	// Guard the fixed-size slices below: the TCP transport guarantees >= 16
+	// bytes, but the SMB transport path does not, and a malicious server can
+	// return a short PDU. Without this, response[:16] (and the BindNak
+	// response[16:18] below) would panic the caller's goroutine (no recover).
+	if len(response) < 16 {
+		return fmt.Errorf("bind response of %d bytes is shorter than the 16-byte common header", len(response))
+	}
 	var h Header
 	err := h.UnmarshalBinary(response[:16])
 	if err != nil {
@@ -380,6 +388,9 @@ func parseAndValidateCommonHeader(response []byte, expectedCallId uint32) error 
 	}
 	switch h.Type {
 	case PacketTypeBindNak:
+		if len(response) < 18 {
+			return fmt.Errorf("BindNak response of %d bytes is too short to contain the reject reason", len(response))
+		}
 		return &BindNakError{Reason: le.Uint16(response[16:18])}
 	case PacketTypeBindAck, PacketTypeAlterContextResp:
 	default:
@@ -535,7 +546,7 @@ func unmarshalSPNEGOResp(data []byte) (gss.NegTokenResp, error) {
 
 // marshalSPNEGOResp encodes a SPNEGO NegTokenResp.
 func marshalSPNEGOResp(resp gss.NegTokenResp) ([]byte, error) {
-	wrapped := struct{ G interface{} }{resp}
+	wrapped := struct{ G any }{resp}
 	buf, err := asn1.Marshal(wrapped)
 	if err != nil {
 		return nil, err
@@ -1137,6 +1148,14 @@ func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, er
 		return nil, fmt.Errorf("unmarshal response AuthVerifier: %w", err)
 	}
 
+	// The auth trailer must belong to this binding: a server (or MitM) must
+	// not be able to swap in a verifier for a different auth type/level or a
+	// different security context. Reject a mismatch before verifying the MAC.
+	if av.AuthType != sb.authType || av.AuthLevel != sb.authLevel || av.AuthContextId != sb.authContextId {
+		return nil, fmt.Errorf("response auth verifier mismatch: got type=%d level=%d ctxId=%d, expected type=%d level=%d ctxId=%d",
+			av.AuthType, av.AuthLevel, av.AuthContextId, sb.authType, sb.authLevel, sb.authContextId)
+	}
+
 	// Data between response header and sec_trailer
 	bodyData := pdu[ResponseHeaderSize:authStart]
 
@@ -1177,10 +1196,27 @@ func (sb *ServiceBind) unsealResponsePDU(pdu []byte, header *Header) ([]byte, er
 	return cleanPDU, nil
 }
 
+// Caps on receive-side response reassembly. A malicious server can stream
+// fragments indefinitely without ever setting PfcLastFrag (growing the
+// reassembly buffer without bound → OOM) or flood many tiny/empty fragments
+// (spinning the receive loop forever). These ceilings bound both: the total
+// reassembled stub size and the number of fragments accepted per response.
+// The limits are far above any legitimate RPC response this library issues.
+const (
+	maxReassembledResponseSize = 64 << 20 // 64 MiB of reassembled stub data
+	maxResponseFragments       = 1 << 20  // 1,048,576 fragments per response
+)
+
 // processResponse handles the receive-side reassembly of a DCERPC response,
 // which may arrive as multiple fragments.
 func (sb *ServiceBind) processResponse(callId uint32, responseBuffer []byte) (result []byte, err error) {
+	fragCount := 0
 	for {
+		fragCount++
+		if fragCount > maxResponseFragments {
+			err = fmt.Errorf("DCERPC response exceeded the %d-fragment reassembly limit; aborting", maxResponseFragments)
+			return
+		}
 		if len(responseBuffer) < PDUHeaderCommonSize {
 			err = fmt.Errorf("DCERPC response fragment of %d bytes is smaller than the %d byte header", len(responseBuffer), PDUHeaderCommonSize)
 			return
@@ -1215,13 +1251,36 @@ func (sb *ServiceBind) processResponse(callId uint32, responseBuffer []byte) (re
 			return
 		}
 
-		// Unseal response if per-PDU auth is active
-		if resHeader.AuthLength > 0 && sb.sealer != nil {
+		// Unseal response if per-PDU auth is active. When the binding
+		// negotiated PktIntegrity/PktPrivacy (sb.sealer != nil) the caller
+		// explicitly opted into integrity (and, for PktPrivacy,
+		// confidentiality) of every response. A malicious or MitM server can
+		// try to strip that protection by returning a Response PDU with
+		// AuthLength == 0; were we to skip unsealing we'd silently accept the
+		// stub as plaintext, defeating the guarantee. Fail closed: require an
+		// auth trailer on every fragment once protection is active.
+		if sb.sealer != nil && sb.authLevel >= RpcAuthnLevelPktIntegrity {
+			if resHeader.AuthLength == 0 {
+				err = fmt.Errorf("DCERPC response fragment carries no auth trailer but auth level %d was negotiated; refusing to accept an unprotected response", sb.authLevel)
+				return
+			}
 			responseBuffer, err = sb.unsealResponsePDU(responseBuffer, &resHeader)
 			if err != nil {
 				return
 			}
 			// Re-parse header since we rebuilt the buffer
+			err = resHeader.UnmarshalBinary(responseBuffer[:PDUHeaderCommonSize])
+			if err != nil {
+				return
+			}
+		} else if resHeader.AuthLength > 0 && sb.sealer != nil {
+			// Defensive: sealer present but auth level below PktIntegrity
+			// (should not happen — sealer is only set for >= PktIntegrity).
+			// Still unseal so we never accept an auth trailer we can't verify.
+			responseBuffer, err = sb.unsealResponsePDU(responseBuffer, &resHeader)
+			if err != nil {
+				return
+			}
 			err = resHeader.UnmarshalBinary(responseBuffer[:PDUHeaderCommonSize])
 			if err != nil {
 				return
@@ -1235,6 +1294,10 @@ func (sb *ServiceBind) processResponse(callId uint32, responseBuffer []byte) (re
 			return
 		}
 		result = append(result, reqRes.Buffer...)
+		if len(result) > maxReassembledResponseSize {
+			err = fmt.Errorf("DCERPC reassembled response exceeded the %d-byte limit; aborting", maxReassembledResponseSize)
+			return
+		}
 		if (reqRes.Flags & PfcLastFrag) == PfcLastFrag {
 			break
 		}

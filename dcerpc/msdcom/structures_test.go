@@ -144,7 +144,7 @@ func TestDUALSTRINGARRAYParse(t *testing.T) {
 	// Final null terminator for security section: 0
 
 	strBindings := []uint16{
-		7, // TowerId for TCP
+		7,                                         // TowerId for TCP
 		'1', '0', '.', '0', '.', '0', '.', '1', 0, // "10.0.0.1" + null
 		0, // end of string bindings
 	}

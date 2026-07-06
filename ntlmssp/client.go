@@ -194,10 +194,9 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 
 	clientChallenge := make([]byte, 8)
 	rand.Reader.Read(clientChallenge)
-	serverChallenge := make([]byte, 8)
 	w := bytes.NewBuffer(make([]byte, 0))
 	binary.Write(w, binary.LittleEndian, chall.ServerChallenge)
-	serverChallenge = w.Bytes()
+	serverChallenge := w.Bytes()
 	w = bytes.NewBuffer(make([]byte, 0))
 
 	flagsFound := false

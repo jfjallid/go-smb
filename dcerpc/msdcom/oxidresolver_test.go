@@ -232,7 +232,7 @@ func TestUnmarshalResolveOxid2ResponseWithTCPBindings(t *testing.T) {
 	offset += 16
 	le.PutUint32(buf[offset:], 10) // authnHint
 	offset += 4
-	le.PutUint16(buf[offset:], 5) // major
+	le.PutUint16(buf[offset:], 5)   // major
 	le.PutUint16(buf[offset+2:], 7) // minor
 	offset += 4
 	le.PutUint32(buf[offset:], 0) // status

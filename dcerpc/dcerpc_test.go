@@ -223,3 +223,72 @@ func TestRequestReqInvalidObjectUUID(t *testing.T) {
 		t.Fatal("expected error for invalid ObjectUUID length")
 	}
 }
+
+// makeCommonHeader builds a 16-byte DCERPC common header with the given PDU
+// type, FragLength and CallId. Field offsets per MS-RPCE: Type@2, FragLength@8,
+// CallId@12.
+func makeCommonHeader(pduType uint8, fragLength uint16, callId uint32) []byte {
+	h := make([]byte, 16)
+	h[0] = 5 // MajorVersion
+	h[1] = 0 // MinorVersion
+	h[2] = pduType
+	h[3] = 0x03 // Flags (first+last frag)
+	binary.LittleEndian.PutUint16(h[8:10], fragLength)
+	binary.LittleEndian.PutUint32(h[12:16], callId)
+	return h
+}
+
+// TestParseCommonHeaderShortResponse is the regression guard for finding D3: a
+// malicious server returning a PDU shorter than the 16-byte common header (or a
+// 16-byte BindNak, so response[16:18] is out of range) must return an error,
+// not panic the caller's goroutine.
+func TestParseCommonHeaderShortResponse(t *testing.T) {
+	const callId = 0x11223344
+
+	t.Run("shorter than common header", func(t *testing.T) {
+		for n := 0; n < 16; n++ {
+			if err := parseAndValidateCommonHeader(make([]byte, n), callId); err == nil {
+				t.Fatalf("len=%d: expected error, got nil", n)
+			}
+		}
+	})
+
+	t.Run("16-byte BindNak (no reason bytes)", func(t *testing.T) {
+		// A BindNak whose buffer ends exactly at the common header: the reason
+		// code at response[16:18] is absent and must be rejected, not sliced.
+		hdr := makeCommonHeader(PacketTypeBindNak, 18, callId)
+		if err := parseAndValidateCommonHeader(hdr, callId); err == nil {
+			t.Fatal("expected error for truncated BindNak, got nil")
+		}
+	})
+
+	t.Run("valid BindNak with reason", func(t *testing.T) {
+		// 18-byte BindNak with a reason code parses (and returns a BindNakError).
+		buf := append(makeCommonHeader(PacketTypeBindNak, 18, callId), 0x00, 0x00)
+		err := parseAndValidateCommonHeader(buf, callId)
+		if err == nil {
+			t.Fatal("expected BindNakError, got nil")
+		}
+		if _, ok := err.(*BindNakError); !ok {
+			t.Fatalf("expected *BindNakError, got %T: %v", err, err)
+		}
+	})
+}
+
+// TestRequestResFragLengthUnderflow is the regression guard for finding D4: a
+// Response PDU with FragLength < 24 must be rejected, not pass the buffer check
+// (the FragLength-24 subtraction underflows the uint16 to ~65 K) and trigger a
+// 64 KiB over-allocation handed back to callers as a mostly-zero Buffer.
+func TestRequestResFragLengthUnderflow(t *testing.T) {
+	for _, fragLen := range []uint16{0, 1, 16, 23} {
+		buf := makeCommonHeader(PacketTypeResponse, fragLen, 1)
+		var res RequestRes
+		err := res.UnmarshalBinary(buf)
+		if err == nil {
+			t.Fatalf("FragLength=%d: expected error, got nil (Buffer len=%d)", fragLen, len(res.Buffer))
+		}
+		if len(res.Buffer) > 0 {
+			t.Fatalf("FragLength=%d: over-allocated Buffer of %d bytes", fragLen, len(res.Buffer))
+		}
+	}
+}

@@ -176,7 +176,7 @@ func (c *Conn) writeQueryInfoReply(ctx pduCtx, reqHdr *smb.Header, buf []byte) e
 
 // serializeOpaqueOrInfo accepts either a []byte (already-serialized) or one
 // of the typed Information structs and returns its wire bytes.
-func serializeOpaqueOrInfo(v interface{}) ([]byte, error) {
+func serializeOpaqueOrInfo(v any) ([]byte, error) {
 	if b, ok := v.([]byte); ok {
 		return b, nil
 	}
@@ -304,10 +304,10 @@ func defaultFsInfo(class byte, label string) ([]byte, uint32) {
 		// TotalAllocationUnits(8) + AvailableAllocationUnits(8)
 		// + SectorsPerAllocationUnit(4) + BytesPerSector(4)
 		buf := make([]byte, 24)
-		binary.LittleEndian.PutUint64(buf[0:], 1<<24)  // 16M units
-		binary.LittleEndian.PutUint64(buf[8:], 1<<23)  // half free
-		binary.LittleEndian.PutUint32(buf[16:], 8)     // 8 sectors/unit
-		binary.LittleEndian.PutUint32(buf[20:], 512)   // 512B/sector
+		binary.LittleEndian.PutUint64(buf[0:], 1<<24) // 16M units
+		binary.LittleEndian.PutUint64(buf[8:], 1<<23) // half free
+		binary.LittleEndian.PutUint32(buf[16:], 8)    // 8 sectors/unit
+		binary.LittleEndian.PutUint32(buf[20:], 512)  // 512B/sector
 		return buf, smb.StatusOk
 
 	case 0x05: // FileFsAttributeInformation
@@ -333,7 +333,7 @@ func worldReadableSecurityDescriptor() []byte {
 	// + Group(4) + Sacl(4) + Dacl(4) = 20 bytes header. Owner/Group offsets
 	// point at SIDs of "S-1-1-0" (Everyone). Each "Everyone" SID is 12 bytes.
 	header := make([]byte, 20)
-	header[0] = 0x01 // Revision
+	header[0] = 0x01                                  // Revision
 	binary.LittleEndian.PutUint16(header[2:], 0x8000) // SE_SELF_RELATIVE
 	binary.LittleEndian.PutUint32(header[4:], 20)     // Owner offset
 	binary.LittleEndian.PutUint32(header[8:], 32)     // Group offset

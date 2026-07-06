@@ -174,7 +174,7 @@ type ShareInfoUnion struct {
 	Level1501 *ShareInfo1501 `ndr:"unionField,pointer"`
 }
 
-func (u ShareInfoUnion) SwitchFunc(tag interface{}) string {
+func (u ShareInfoUnion) SwitchFunc(tag any) string {
 	switch tag.(uint32) {
 	case 0:
 		return "Level0"
@@ -205,7 +205,7 @@ type ShareEnumStruct struct {
 	Level502 *ShareInfoContainer502 `ndr:"unionField,pointer"`
 }
 
-func (u ShareEnumStruct) SwitchFunc(tag interface{}) string {
+func (u ShareEnumStruct) SwitchFunc(tag any) string {
 	t := tag.(uint32)
 	switch t {
 	case 1:
@@ -321,7 +321,7 @@ type SessionEnumStruct struct {
 	Level502 *SessionInfoContainer502 `ndr:"unionField,pointer"`
 }
 
-func (u SessionEnumStruct) SwitchFunc(tag interface{}) string {
+func (u SessionEnumStruct) SwitchFunc(tag any) string {
 	t := tag.(uint32)
 	switch t {
 	case 0:
@@ -401,7 +401,7 @@ type ServerInfoUnion struct {
 	Level102 *NetServerInfo102 `ndr:"unionField,pointer"`
 }
 
-func (u ServerInfoUnion) SwitchFunc(tag interface{}) string {
+func (u ServerInfoUnion) SwitchFunc(tag any) string {
 	t := tag.(uint32)
 	switch t {
 	case 100:

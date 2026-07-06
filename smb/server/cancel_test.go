@@ -36,9 +36,9 @@ func TestCancel(t *testing.T) {
 	copy(body[0:4], []byte(smb.ProtocolSmb2))
 	binary.LittleEndian.PutUint16(body[4:6], 64) // header StructureSize
 	binary.LittleEndian.PutUint16(body[12:14], smb.CommandCancel)
-	binary.LittleEndian.PutUint16(body[14:16], 1)             // credits
-	binary.LittleEndian.PutUint64(body[24:32], 0x42)          // MessageID
-	binary.LittleEndian.PutUint16(body[64:66], 4)             // body StructureSize
+	binary.LittleEndian.PutUint16(body[14:16], 1)    // credits
+	binary.LittleEndian.PutUint64(body[24:32], 0x42) // MessageID
+	binary.LittleEndian.PutUint16(body[64:66], 4)    // body StructureSize
 
 	frame := make([]byte, 4+len(body))
 	binary.BigEndian.PutUint32(frame[:4], uint32(len(body)))

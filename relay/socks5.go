@@ -80,6 +80,15 @@ func (s *socksServer) serve(ln net.Listener) {
 		go func(c net.Conn) {
 			defer s.rs.wg.Done()
 			defer c.Close()
+			// Isolate panics to this connection: a parser panic on a single
+			// (untrusted) SOCKS/passthrough stream must not crash the whole relay
+			// process and drop every other session. Mirrors the recover() in the
+			// SMB server's per-connection goroutine.
+			defer func() {
+				if r := recover(); r != nil {
+					s.logger.Errorf("socks: recovered from panic on %s: %v", c.RemoteAddr(), r)
+				}
+			}()
 			s.handle(c)
 		}(nc)
 	}

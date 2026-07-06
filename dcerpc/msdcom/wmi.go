@@ -100,13 +100,13 @@ func NewWMIClient(conn *DCOMConnection, namespace string) (*WMIClient, error) {
 
 // Query executes a WQL query and returns all result rows as maps of
 // property name to value.
-func (w *WMIClient) Query(wql string) ([]map[string]interface{}, error) {
+func (w *WMIClient) Query(wql string) ([]map[string]any, error) {
 	enumObj, err := wbemExecQuery(w.svc, wql)
 	if err != nil {
 		return nil, fmt.Errorf("ExecQuery: %w", err)
 	}
 
-	var results []map[string]interface{}
+	var results []map[string]any
 	var enumErr error
 	for {
 		blobs, done, err := enumNext(enumObj, 10, -1)
@@ -159,7 +159,7 @@ func (w *WMIClient) Close() {
 // wbemNTLMLogin calls IWbemLevel1Login::NTLMLogin (Opnum 6) to connect
 // to a WMI namespace and obtain an IWbemServices interface.
 //
-// MS-WMI 3.1.4.4.8
+// # MS-WMI 3.1.4.4.8
 //
 // NDR top-level unique pointers serialize their referent_id followed
 // immediately by the pointed-to data, before the next parameter.
@@ -495,4 +495,3 @@ func unmarshalWbemObjectResponse(data []byte) ([]byte, error) {
 
 	return objref.Custom.Data, nil
 }
-

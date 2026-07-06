@@ -253,4 +253,3 @@ func buildUnbindRequestEnvelope(messageID int64) []byte {
 	env.AppendChild(req)
 	return env.Bytes()
 }
-

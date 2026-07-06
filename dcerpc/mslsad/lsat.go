@@ -174,6 +174,12 @@ func (sb *RPCCon) LsarLookupSids2(level LsapLookupLevel, sids []string) (res Sid
 			res.ReferencedDomains = append(res.ReferencedDomains, DomainTranslation{Name: item.Name.Value, Sid: item.Sid.String()})
 		}
 		for i, item := range resp.TranslatedNames.Names {
+			// The translated-name count is server-controlled; refuse to index the
+			// client's request slice out of bounds (a rogue LSA server returning
+			// more names than we sent must not crash the client).
+			if i >= len(sids) {
+				return res, fmt.Errorf("LsarLookupSids2: server returned %d translated names for %d requested SIDs", len(resp.TranslatedNames.Names), len(sids))
+			}
 			res.TranslatedNames = append(res.TranslatedNames, SidNameTranslation{Use: item.Use, Name: item.Name.Value, Sid: sids[i], DomainIndex: item.DomainIndex, Flags: item.Flags})
 		}
 	}
@@ -238,6 +244,12 @@ func (sb *RPCCon) LsarLookupNames3(level LsapLookupLevel, names []string) (res N
 			res.ReferencedDomains = append(res.ReferencedDomains, DomainTranslation{Name: item.Name.Value, Sid: item.Sid.String()})
 		}
 		for i, item := range resp.TranslatedSids.Sids {
+			// The translated-SID count is server-controlled; refuse to index the
+			// client's request slice out of bounds (a rogue LSA server returning
+			// more SIDs than we sent names must not crash the client).
+			if i >= len(names) {
+				return res, fmt.Errorf("LsarLookupNames3: server returned %d translated SIDs for %d requested names", len(resp.TranslatedSids.Sids), len(names))
+			}
 			res.TranslatedSids = append(res.TranslatedSids, SidNameTranslation{Use: item.Use, Name: names[i], Sid: item.Sid.String(), DomainIndex: item.DomainIndex, Flags: item.Flags})
 		}
 	}

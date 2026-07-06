@@ -93,7 +93,7 @@ func (h *pipeHandle) Stat() (FileInfo, error) {
 	return FileInfo{Attributes: FileAttributeNormal}, nil
 }
 
-func (h *pipeHandle) Path() Path { return h.name }
+func (h *pipeHandle) Path() Path  { return h.name }
 func (h *pipeHandle) IsDir() bool { return false }
 
 // closeOnce ensures Close is only delegated to the backend once even if the

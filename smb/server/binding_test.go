@@ -53,14 +53,14 @@ func TestSessionBindingRejected(t *testing.T) {
 	// before rejecting.
 	body := make([]byte, 64+24+4) // header(64) + body fixed(24) + minimal blob(4)
 	copy(body[0:4], []byte(smb.ProtocolSmb2))
-	binary.LittleEndian.PutUint16(body[4:6], 64)            // StructureSize
+	binary.LittleEndian.PutUint16(body[4:6], 64) // StructureSize
 	binary.LittleEndian.PutUint16(body[12:14], smb.CommandSessionSetup)
-	binary.LittleEndian.PutUint16(body[14:16], 1)           // credits
-	binary.LittleEndian.PutUint64(body[24:32], 1)           // MessageID = 1
+	binary.LittleEndian.PutUint16(body[14:16], 1) // credits
+	binary.LittleEndian.PutUint64(body[24:32], 1) // MessageID = 1
 	// body offset 0..2: StructureSize=25
 	binary.LittleEndian.PutUint16(body[64:66], 25)
 	body[66] = smb.SMB2_SESSION_FLAG_BINDING // Flags
-	body[67] = 0                              // SecurityMode
+	body[67] = 0                             // SecurityMode
 	// Capabilities(4) at body+4, Channel(4) at body+8
 	binary.LittleEndian.PutUint16(body[64+12:64+14], 88) // SecurityBufferOffset (== header+body fixed)
 	binary.LittleEndian.PutUint16(body[64+14:64+16], 4)  // SecurityBufferLength

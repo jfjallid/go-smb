@@ -87,9 +87,9 @@ const (
 // ORPCTHIS (MS-DCOM 2.2.13) — prepended to every DCOM request stub.
 // When extensions is NULL (the common case), this is 32 bytes.
 type ORPCTHIS struct {
-	Version    COMVERSION // {5, 7}
-	Flags      uint32
-	Reserved1  uint32
+	Version     COMVERSION // {5, 7}
+	Flags       uint32
+	Reserved1   uint32
 	CausalityId [16]byte // Random, constant per DCOM session
 }
 
@@ -399,9 +399,9 @@ type OBJREF struct {
 	IID       [16]byte
 
 	// Only one of the following is set, depending on Flags:
-	Std     *STDOBJREF       // OBJREF_STANDARD
-	StdDSA  *DUALSTRINGARRAY // OBJREF_STANDARD: resolver string bindings
-	Custom  *OBJREFCustomData // OBJREF_CUSTOM
+	Std    *STDOBJREF        // OBJREF_STANDARD
+	StdDSA *DUALSTRINGARRAY  // OBJREF_STANDARD: resolver string bindings
+	Custom *OBJREFCustomData // OBJREF_CUSTOM
 }
 
 // OBJREFCustomData holds the fields for an OBJREF with OBJREF_CUSTOM flag.
@@ -566,8 +566,8 @@ const REMQIRESULTSize = 4 + STDOBJREFSize
 
 // REMINTERFACEREF (MS-DCOM 2.2.24) — used in RemRelease.
 type REMINTERFACEREF struct {
-	IPID        [16]byte
-	CPublicRefs uint32
+	IPID         [16]byte
+	CPublicRefs  uint32
 	CPrivateRefs uint32
 }
 
@@ -600,13 +600,13 @@ func mustGUID(s string) [16]byte {
 func MarshalOBJREFCustom(iid, clsid [16]byte, data []byte) []byte {
 	buf := make([]byte, 0, 48+len(data))
 
-	buf = binary.LittleEndian.AppendUint32(buf, OBJREFSignature) // "MEOW"
-	buf = binary.LittleEndian.AppendUint32(buf, OBJREFCustom)    // flags
-	buf = append(buf, iid[:]...)             // IID
-	buf = append(buf, clsid[:]...)           // CLSID
-	buf = binary.LittleEndian.AppendUint32(buf, 0)               // cbExtension
+	buf = binary.LittleEndian.AppendUint32(buf, OBJREFSignature)   // "MEOW"
+	buf = binary.LittleEndian.AppendUint32(buf, OBJREFCustom)      // flags
+	buf = append(buf, iid[:]...)                                   // IID
+	buf = append(buf, clsid[:]...)                                 // CLSID
+	buf = binary.LittleEndian.AppendUint32(buf, 0)                 // cbExtension
 	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(data))) // size
-	buf = append(buf, data...)               // data
+	buf = append(buf, data...)                                     // data
 
 	return buf
 }
@@ -668,7 +668,6 @@ func MarshalLPWSTRBody(s string) []byte {
 	buf = binary.LittleEndian.AppendUint16(buf, 0) // null terminator
 	return buf
 }
-
 
 func padTo4(data []byte) []byte {
 	remainder := len(data) % 4

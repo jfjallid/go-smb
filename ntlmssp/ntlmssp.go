@@ -451,6 +451,18 @@ func (s *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	return w.Bytes(), nil
 }
 
+// withinBuf reports whether a variable-length field of length bytes starting
+// at offset fits entirely within a buffer of bufLen bytes. The comparison is
+// done in uint64 so a wire-controlled uint32 offset added to a uint16 length
+// cannot overflow and wrap past the guard (e.g. offset=0xFFFFFFFF, length=2
+// would wrap to 1 in uint32 arithmetic and falsely pass).
+func withinBuf(bufLen int, offset uint32, length uint16) bool {
+	if bufLen < 0 {
+		return false
+	}
+	return uint64(offset)+uint64(length) <= uint64(bufLen)
+}
+
 func (s *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	log.Traceln("In UnmarshalBinary for Authenticate")
 	baseSize := 64
@@ -484,37 +496,38 @@ func (s *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 
 	offset := 64
 
-	extraBytes := int(s.LmChallengeResponseLen +
-		s.NtChallengeResponseLen +
-		s.DomainNameLen +
-		s.UserNameLen +
-		s.WorkstationLen +
-		s.EncryptedRandomSessionKeyLen)
+	// Sum the field lengths in int (not uint16) so the running total cannot
+	// wrap: each field is a uint16, so the sum of six of them plus the version
+	// is well within int range, and the "at least N bytes" guard below stays
+	// reliable.
+	extraBytes := int(s.LmChallengeResponseLen) +
+		int(s.NtChallengeResponseLen) +
+		int(s.DomainNameLen) +
+		int(s.UserNameLen) +
+		int(s.WorkstationLen) +
+		int(s.EncryptedRandomSessionKeyLen)
 
-	// Sanity check that none of the offsets + lengths points outside buffer
-	if (s.LmChallengeResponseBufferOffset + uint32(s.LmChallengeResponseLen)) > uint32(bufLen) {
-		err := fmt.Errorf("custom length field offset is outside buffer")
-		return err
+	// Sanity check that none of the offsets + lengths points outside the buffer.
+	// withinBuf computes offset+length in uint64 so a wire-controlled offset
+	// (e.g. 0xFFFFFFFF) cannot overflow uint32 and wrap past the comparison,
+	// which would otherwise let the slices below panic on an OOB read.
+	if !withinBuf(bufLen, s.LmChallengeResponseBufferOffset, s.LmChallengeResponseLen) {
+		return fmt.Errorf("LmChallengeResponse field offset/length is outside buffer")
 	}
-	if (s.NtChallengResponseBufferOffset + uint32(s.NtChallengeResponseLen)) > uint32(bufLen) {
-		err := fmt.Errorf("custom length field offset is outside buffer")
-		return err
+	if !withinBuf(bufLen, s.NtChallengResponseBufferOffset, s.NtChallengeResponseLen) {
+		return fmt.Errorf("NtChallengeResponse field offset/length is outside buffer")
 	}
-	if (s.DomainNameBufferOffset + uint32(s.DomainNameLen)) > uint32(bufLen) {
-		err := fmt.Errorf("custom length field offset is outside buffer")
-		return err
+	if !withinBuf(bufLen, s.DomainNameBufferOffset, s.DomainNameLen) {
+		return fmt.Errorf("DomainName field offset/length is outside buffer")
 	}
-	if (s.UserNameBufferOffset + uint32(s.UserNameLen)) > uint32(bufLen) {
-		err := fmt.Errorf("custom length field offset is outside buffer")
-		return err
+	if !withinBuf(bufLen, s.UserNameBufferOffset, s.UserNameLen) {
+		return fmt.Errorf("UserName field offset/length is outside buffer")
 	}
-	if (s.WorkstationBufferOffset + uint32(s.WorkstationLen)) > uint32(bufLen) {
-		err := fmt.Errorf("custom length field offset is outside buffer")
-		return err
+	if !withinBuf(bufLen, s.WorkstationBufferOffset, s.WorkstationLen) {
+		return fmt.Errorf("Workstation field offset/length is outside buffer")
 	}
-	if (s.EncryptedRandomSessionKeyBufferOffset + uint32(s.EncryptedRandomSessionKeyLen)) > uint32(bufLen) {
-		err := fmt.Errorf("custom length field offset is outside buffer")
-		return err
+	if !withinBuf(bufLen, s.EncryptedRandomSessionKeyBufferOffset, s.EncryptedRandomSessionKeyLen) {
+		return fmt.Errorf("EncryptedRandomSessionKey field offset/length is outside buffer")
 	}
 
 	unmarshalVersion := false
@@ -626,6 +639,14 @@ func (s *AvPairSlice) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error 
 	if !ok {
 		return fmt.Errorf("cannot unmarshal field '%s', missing offset", meta.CurrField)
 	}
+	// o and l derive from the server-controlled TargetInfo offset/length fields in
+	// the CHALLENGE message; validate them against the parent buffer before
+	// slicing so a malicious server cannot drive an out-of-bounds slice (panic)
+	// here. This path is reached on every NTLM authentication (SMB, LDAP, DCERPC).
+	bufLen := uint64(len(meta.ParentBuf))
+	if o > bufLen || l > bufLen-o {
+		return fmt.Errorf("cannot unmarshal field '%s': offset %d/length %d out of bounds for %d-byte buffer", meta.CurrField, o, l, bufLen)
+	}
 	for i := l; i > 0; {
 		var avPair AvPair
 		err := encoder.Unmarshal(meta.ParentBuf[o:o+i], &avPair)
@@ -634,6 +655,11 @@ func (s *AvPairSlice) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error 
 		}
 		slice = append(slice, avPair)
 		size := avPair.Size()
+		// A zero-size pair would loop forever; a pair larger than the remaining
+		// window would underflow i (uint64) and walk o past the buffer.
+		if size == 0 || size > i {
+			return fmt.Errorf("cannot unmarshal field '%s': malformed AvPair (size %d, remaining %d)", meta.CurrField, size, i)
+		}
 		o += size
 		i -= size
 	}

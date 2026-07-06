@@ -2,6 +2,7 @@ package encoder
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 )
 
@@ -78,6 +79,82 @@ func TestOffsetTagZeroForNilPointer(t *testing.T) {
 	if co != 0 {
 		t.Fatalf("ContextListOffset = %d, want 0", co)
 	}
+}
+
+// varLenSubject mirrors the shape of request structs whose variable-length
+// field is located via wire-controlled offset:/len: header fields (e.g.
+// SessionSetupReq.SecurityBufferOffset/Length). Layout in bytes:
+//
+//	StructureSize uint16 (2)
+//	DataLen       uint16 (2, len:Data)
+//	DataOffset    uint16 (2, offset:Data)
+//	Data          []byte (variable, located at DataOffset)
+type varLenSubject struct {
+	StructureSize uint16
+	DataLen       uint16 `smb:"len:Data"`
+	DataOffset    uint16 `smb:"offset:Data"`
+	Data          []byte
+}
+
+// makeVarLenPacket builds a 6-byte header for varLenSubject with the given
+// wire-controlled offset and length values.
+func makeVarLenPacket(offset, length uint16) []byte {
+	buf := make([]byte, 6)
+	binary.LittleEndian.PutUint16(buf[0:2], 6) // StructureSize
+	binary.LittleEndian.PutUint16(buf[2:4], length)
+	binary.LittleEndian.PutUint16(buf[4:6], offset)
+	return buf
+}
+
+// TestUnmarshalOutOfBoundsOffsetReturnsError is the regression guard for the
+// CRITICAL encoder finding: an attacker-controlled offset:/len: pair that
+// points past the end of the buffer must produce an error, not a
+// slice-bounds-out-of-range panic that would crash the whole process.
+func TestUnmarshalOutOfBoundsOffsetReturnsError(t *testing.T) {
+	cases := []struct {
+		name           string
+		offset, length uint16
+	}{
+		{"offset past end", 0xFFFF, 2},
+		{"length past end", 4, 0xFFFF},
+		{"offset at boundary plus length", 6, 4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pkt := makeVarLenPacket(tc.offset, tc.length)
+			var s varLenSubject
+			// Must not panic; must return a non-nil error.
+			if err := Unmarshal(pkt, &s); err == nil {
+				t.Fatalf("Unmarshal accepted out-of-bounds offset=%d length=%d, want error", tc.offset, tc.length)
+			}
+		})
+	}
+}
+
+// TestUnmarshalInBoundsOffsetSucceeds verifies the bounds check does not
+// reject a legitimate in-bounds variable-length field.
+func TestUnmarshalInBoundsOffsetSucceeds(t *testing.T) {
+	pkt := append(makeVarLenPacket(6, 3), 0xAA, 0xBB, 0xCC)
+	var s varLenSubject
+	if err := Unmarshal(pkt, &s); err != nil {
+		t.Fatalf("Unmarshal of valid packet failed: %v", err)
+	}
+	if !bytes.Equal(s.Data, []byte{0xAA, 0xBB, 0xCC}) {
+		t.Fatalf("Data = % x, want AA BB CC", s.Data)
+	}
+}
+
+// FuzzUnmarshalVarLen fuzzes the decoder over the offset:/len: trust boundary.
+// The decode must always return (never panic) regardless of the wire bytes.
+func FuzzUnmarshalVarLen(f *testing.F) {
+	f.Add(makeVarLenPacket(6, 3))
+	f.Add(makeVarLenPacket(0xFFFF, 2))
+	f.Add(makeVarLenPacket(0, 0xFFFF))
+	f.Add([]byte{0x06, 0x00})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var s varLenSubject
+		_ = Unmarshal(data, &s) // must not panic
+	})
 }
 
 // TestOffsetTagPopulatedWhenNonEmpty verifies the offset is computed normally

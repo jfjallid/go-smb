@@ -275,4 +275,3 @@ func (l *httpListener) pickTarget(remote net.Addr) (Target, bool) {
 	}
 	return t, true
 }
-

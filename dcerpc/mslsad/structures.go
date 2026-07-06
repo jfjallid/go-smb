@@ -175,7 +175,7 @@ type LsaprPolicyInformation struct {
 	PolicyPrimaryDomainInfo LsaprPolicyPrimaryDomInfo `ndr:"unionField"`
 }
 
-func (u LsaprPolicyInformation) SwitchFunc(tag interface{}) string {
+func (u LsaprPolicyInformation) SwitchFunc(tag any) string {
 	t := tag.(uint16)
 	switch t {
 	case 3: // PolicyPrimaryDomainInformation

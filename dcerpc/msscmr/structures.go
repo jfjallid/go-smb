@@ -109,6 +109,13 @@ type RQueryServiceStatusReq struct {
 	ContextHandle [20]byte
 }
 
+// minEnumServiceRecordSize is the fixed-size portion of one ENUM_SERVICE_STATUSW
+// record in an REnumServicesStatusW response buffer: two uint32 name offsets plus
+// the seven uint32 fields of SERVICE_STATUS (the variable-length name strings live
+// elsewhere in the buffer at the offsets). Used to bound the capacity hint when
+// pre-allocating the result slice from a server-controlled count.
+const minEnumServiceRecordSize = 8 + 7*4
+
 type ServiceStatus struct {
 	ServiceType             uint32
 	CurrentState            uint32
@@ -161,7 +168,7 @@ type ConfigInfoW struct {
 	PreferredNodeInfo      *ServicePreferredNodeInfoW      `ndr:"unionField,pointer"`
 }
 
-func (u ConfigInfoW) SwitchFunc(tag interface{}) string {
+func (u ConfigInfoW) SwitchFunc(tag any) string {
 	t := tag.(uint32)
 	switch t {
 	case ServiceConfigDescription:
@@ -727,7 +734,16 @@ func (s *REnumServicesStatusWRes) Unmarshal(buf []byte) (err error) {
 
 	lpBuffer := envelope.Buffer
 	r := bytes.NewReader(lpBuffer)
-	s.Services = make([]EnumServiceStatusW, 0, s.ServicesReturned)
+	// ServicesReturned is server-controlled; a bogus value (e.g. 0xFFFFFFFF)
+	// would panic make() with "cap out of range". Each record is at least
+	// minEnumServiceRecordSize bytes, so clamp the capacity hint to what the
+	// returned buffer could actually hold. The per-record loop below is the real
+	// bound (binary.Read errors out when the buffer is exhausted).
+	servicesCap := int(s.ServicesReturned)
+	if maxRecords := len(lpBuffer) / minEnumServiceRecordSize; servicesCap > maxRecords {
+		servicesCap = maxRecords
+	}
+	s.Services = make([]EnumServiceStatusW, 0, servicesCap)
 
 	for i := 0; i < int(s.ServicesReturned); i++ {
 		service := EnumServiceStatusW{ServiceStatus: &ServiceStatus{}}

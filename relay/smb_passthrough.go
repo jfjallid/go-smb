@@ -112,8 +112,13 @@ func (p *SMBPassthrough) Run(ctx context.Context) error {
 				return fmt.Errorf("read second Negotiate: %w", err)
 			}
 		} else {
-			return fmt.Errorf("expected SMB2 Negotiate, got % x", pkt[:4])
+			return fmt.Errorf("expected SMB2 Negotiate, got % x", pkt)
 		}
+	}
+	// The local client is operator-coerced but its framing is still untrusted;
+	// a short packet must not reach the SMB2 header/body parsers in reply*.
+	if len(pkt) < 64 {
+		return fmt.Errorf("short Negotiate PDU (%d bytes)", len(pkt))
 	}
 	if cmdOf(pkt) != smb.CommandNegotiate {
 		return fmt.Errorf("expected Negotiate, got command 0x%04x", cmdOf(pkt))
@@ -127,6 +132,9 @@ func (p *SMBPassthrough) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read SessionSetup1: %w", err)
 	}
+	if len(pkt) < 64 {
+		return fmt.Errorf("short SessionSetup1 PDU (%d bytes)", len(pkt))
+	}
 	if cmdOf(pkt) != smb.CommandSessionSetup {
 		return fmt.Errorf("expected SessionSetup1, got command 0x%04x", cmdOf(pkt))
 	}
@@ -138,6 +146,9 @@ func (p *SMBPassthrough) Run(ctx context.Context) error {
 	pkt, err = readNetBIOSPacket(p.Local)
 	if err != nil {
 		return fmt.Errorf("read SessionSetup2: %w", err)
+	}
+	if len(pkt) < 64 {
+		return fmt.Errorf("short SessionSetup2 PDU (%d bytes)", len(pkt))
 	}
 	if cmdOf(pkt) != smb.CommandSessionSetup {
 		return fmt.Errorf("expected SessionSetup2, got command 0x%04x", cmdOf(pkt))

@@ -34,7 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -104,7 +104,6 @@ type Session struct {
 	verifier       smbVerifier
 	encrypter      cipher.AEAD
 	decrypter      cipher.AEAD
-	conn           net.Conn
 	dialect        uint16
 	options        Options
 	trees          map[string]uint32
@@ -340,13 +339,7 @@ func (c *Connection) NegotiateProtocol() (err error) {
 	// Validate the server-selected dialect against the dialects we offered
 	// (MS-SMB2 §3.2.5.2). Reject anything else to avoid silent downgrade.
 	if len(c.offeredDialects) > 0 {
-		allowed := false
-		for _, d := range c.offeredDialects {
-			if d == c.dialect {
-				allowed = true
-				break
-			}
-		}
+		allowed := slices.Contains(c.offeredDialects, c.dialect)
 		if !allowed {
 			err = fmt.Errorf("server selected dialect 0x%x which the client did not offer", c.dialect)
 			return err
@@ -631,6 +624,12 @@ func (c *Connection) SessionSetup() (err error) {
 
 	var ss2req SessionSetup2Req
 
+	// finalSSResbuf holds the raw bytes of the last SESSION_SETUP response in
+	// the exchange. Its signature is verified once the signing key is derived
+	// (see below) — MS-SMB2 §3.2.5.3.1. In the common multi-leg flow this is
+	// the SessionSetup2 response; in a single-leg flow it is the first one.
+	finalSSResbuf := ssresbuf
+
 	// Retrieve the full username used in the authentication attempt
 	// <domain\username> or just <username> if domain component is empty
 	c.Session.authUsername = c.options.Initiator.GetUsername()
@@ -653,6 +652,7 @@ func (c *Connection) SessionSetup() (err error) {
 		if err != nil {
 			return err
 		}
+		finalSSResbuf = ss2resbuf
 		log.Traceln("Unmarshalling SessionSetup2 response header")
 
 		var authResp Header
@@ -807,11 +807,17 @@ func (c *Connection) SessionSetup() (err error) {
 						return err
 					}
 					c.Session.encrypter, err = ccm.NewCCMWithNonceAndTagSizes(ciph, 11, 16)
+					if err != nil {
+						return err
+					}
 					ciph, err = aes.NewCipher(decryptionKey)
 					if err != nil {
 						return err
 					}
 					c.Session.decrypter, err = ccm.NewCCMWithNonceAndTagSizes(ciph, 11, 16)
+					if err != nil {
+						return err
+					}
 					log.Debugln("Initialized encrypter and decrypter with CCM")
 				default:
 					err = fmt.Errorf("cipher algorithm (%d) not implemented", c.cipherId)
@@ -824,11 +830,56 @@ func (c *Connection) SessionSetup() (err error) {
 		}
 	}
 
+	// MS-SMB2 §3.2.5.3.1: when signing is negotiated the client MUST verify
+	// the signature on the final SESSION_SETUP response. It authenticates the
+	// server and detects tampering or a downgrade by an active attacker. This
+	// response is consumed before the signing key exists and the normal
+	// receive-path verify gate skips the SessionSetup command, so it is checked
+	// here, once the verifier has been derived. The gate mirrors the receive
+	// path (connection.go): for 3.1.1 always (the preauth-integrity hash also
+	// backstops it); for 2.0.2/2.1/3.0/3.0.2, only when signing is required —
+	// those dialects have no preauth-hash backstop, so this is the sole check.
+	// Guest/null sessions disable signing and are excluded. Fail closed.
+	if c.verifyFinalSessionSetupSignature() {
+		if len(finalSSResbuf) < 64 {
+			return fmt.Errorf("final SessionSetup response is too short (%d bytes) to verify its signature", len(finalSSResbuf))
+		}
+		var fh Header
+		if err := encoder.Unmarshal(finalSSResbuf[:64], &fh); err != nil {
+			return fmt.Errorf("decode final SessionSetup response header: %w", err)
+		}
+		if fh.Flags&SMB2_FLAGS_SIGNED != SMB2_FLAGS_SIGNED {
+			return fmt.Errorf("final SessionSetup response is not signed but signing is required; aborting")
+		}
+		if !c.verify(finalSSResbuf) {
+			return fmt.Errorf("final SessionSetup response has an invalid signature; aborting")
+		}
+		log.Debugln("Verified signature on final SessionSetup response")
+	}
+
 	log.Debugln("Completed NegotiateProtocol and SessionSetup")
 
 	c.enableSession()
 
 	return nil
+}
+
+// verifyFinalSessionSetupSignature reports whether the final SESSION_SETUP
+// response signature must be verified (MS-SMB2 §3.2.5.3.1). It mirrors the
+// inbound verify gate in runReceiver: SMB 3.1.1 always verifies (guest/null
+// excluded), older dialects verify only when signing is required. A nil
+// verifier (signing disabled) means there is nothing to check.
+func (c *Connection) verifyFinalSessionSetupSignature() bool {
+	if c.Session.verifier == nil {
+		return false
+	}
+	if c.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) != 0 {
+		return false
+	}
+	if c.dialect == DialectSmb_3_1_1 {
+		return true
+	}
+	return c.isSigningRequired.Load()
 }
 
 func (c *Connection) Logoff() error {
@@ -903,8 +954,7 @@ func (s *Session) encrypt(buf []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	ciphertext := make([]byte, 0)
-	ciphertext = s.encrypter.Seal(nil, nonce, buf, tHdrBytes[20:52])
+	ciphertext := s.encrypter.Seal(nil, nonce, buf, tHdrBytes[20:52])
 	copy(tHdrBytes[4:20], ciphertext[len(ciphertext)-16:])
 	return append(tHdrBytes, ciphertext[:len(ciphertext)-16]...), nil
 }
@@ -1025,10 +1075,7 @@ func (c *Connection) TreeDisconnect(name string) error {
 }
 
 func (f *File) IsOpen() bool {
-	if f.fd == nil {
-		return false
-	}
-	return true
+	return f.fd != nil
 }
 
 func (f *File) CloseFile() error {

@@ -27,6 +27,10 @@ import (
 	"strings"
 
 	"github.com/jfjallid/go-smb/smb/encoder"
+	// NTLM (MS-NLMP) mandates MD4 for the NT hash (NTOWFv1 = MD4(UTF-16LE(password))).
+	// MD4 is cryptographically broken, but this is a protocol-compatibility
+	// requirement, not a security choice; it cannot be replaced.
+	//lint:ignore SA1019 MD4 is required by MS-NLMP for the NT hash, not a security choice.
 	"golang.org/x/crypto/md4"
 )
 

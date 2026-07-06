@@ -62,7 +62,7 @@ const (
 )
 
 var iidNull = [16]byte{}
-var	IID_IDispatch          = mustGUID(MSRPCUuidIDispatch)
+var IID_IDispatch = mustGUID(MSRPCUuidIDispatch)
 
 // GetIDsOfNames resolves a method/property name to a DISPID via
 // IDispatch::GetIDsOfNames (opnum 5).
@@ -347,34 +347,34 @@ func marshalInvokeTypedStub(dispid int32, flags uint32, args []TypedArg) []byte 
 			arg := args[i]
 			switch arg.VT {
 			case VtBstr:
-				buf = binary.LittleEndian.AppendUint32(buf, 5)       // clSize
-				buf = binary.LittleEndian.AppendUint32(buf, 0)       // rpcReserved
-				buf = binary.LittleEndian.AppendUint16(buf, VtBstr)  // vt
-				buf = binary.LittleEndian.AppendUint16(buf, 0)       // wReserved1
-				buf = binary.LittleEndian.AppendUint16(buf, 0)       // wReserved2
-				buf = binary.LittleEndian.AppendUint16(buf, 0)       // wReserved3
+				buf = binary.LittleEndian.AppendUint32(buf, 5)              // clSize
+				buf = binary.LittleEndian.AppendUint32(buf, 0)              // rpcReserved
+				buf = binary.LittleEndian.AppendUint16(buf, VtBstr)         // vt
+				buf = binary.LittleEndian.AppendUint16(buf, 0)              // wReserved1
+				buf = binary.LittleEndian.AppendUint16(buf, 0)              // wReserved2
+				buf = binary.LittleEndian.AppendUint16(buf, 0)              // wReserved3
 				buf = binary.LittleEndian.AppendUint32(buf, uint32(VtBstr)) // union discriminant
-				buf = binary.LittleEndian.AppendUint32(buf, nextRef) // BSTR referent ID
+				buf = binary.LittleEndian.AppendUint32(buf, nextRef)        // BSTR referent ID
 				nextRef += 0x00010000
 				buf = append(buf, MarshalBSTRBody(arg.BStr)...)
 
 			case VtI4:
-				buf = binary.LittleEndian.AppendUint32(buf, 5)     // clSize
-				buf = binary.LittleEndian.AppendUint32(buf, 0)     // rpcReserved
-				buf = binary.LittleEndian.AppendUint16(buf, VtI4)  // vt
-				buf = binary.LittleEndian.AppendUint16(buf, 0)     // wReserved1
-				buf = binary.LittleEndian.AppendUint16(buf, 0)     // wReserved2
-				buf = binary.LittleEndian.AppendUint16(buf, 0)     // wReserved3
-				buf = binary.LittleEndian.AppendUint32(buf, uint32(VtI4)) // union discriminant
+				buf = binary.LittleEndian.AppendUint32(buf, 5)                 // clSize
+				buf = binary.LittleEndian.AppendUint32(buf, 0)                 // rpcReserved
+				buf = binary.LittleEndian.AppendUint16(buf, VtI4)              // vt
+				buf = binary.LittleEndian.AppendUint16(buf, 0)                 // wReserved1
+				buf = binary.LittleEndian.AppendUint16(buf, 0)                 // wReserved2
+				buf = binary.LittleEndian.AppendUint16(buf, 0)                 // wReserved3
+				buf = binary.LittleEndian.AppendUint32(buf, uint32(VtI4))      // union discriminant
 				buf = binary.LittleEndian.AppendUint32(buf, uint32(arg.Int32)) // lVal
 
 			case VtBool:
-				buf = binary.LittleEndian.AppendUint32(buf, 5)       // clSize
-				buf = binary.LittleEndian.AppendUint32(buf, 0)       // rpcReserved
-				buf = binary.LittleEndian.AppendUint16(buf, VtBool)  // vt
-				buf = binary.LittleEndian.AppendUint16(buf, 0)       // wReserved1
-				buf = binary.LittleEndian.AppendUint16(buf, 0)       // wReserved2
-				buf = binary.LittleEndian.AppendUint16(buf, 0)       // wReserved3
+				buf = binary.LittleEndian.AppendUint32(buf, 5)              // clSize
+				buf = binary.LittleEndian.AppendUint32(buf, 0)              // rpcReserved
+				buf = binary.LittleEndian.AppendUint16(buf, VtBool)         // vt
+				buf = binary.LittleEndian.AppendUint16(buf, 0)              // wReserved1
+				buf = binary.LittleEndian.AppendUint16(buf, 0)              // wReserved2
+				buf = binary.LittleEndian.AppendUint16(buf, 0)              // wReserved3
 				buf = binary.LittleEndian.AppendUint32(buf, uint32(VtBool)) // union discriminant
 				boolVal := uint16(0x0000)
 				if arg.Bool {

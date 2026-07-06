@@ -1159,7 +1159,7 @@ func (s *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 		buf = binary.LittleEndian.AppendUint32(buf, 0)
 		buf = binary.LittleEndian.AppendUint16(buf, 0)
 	} else {
-padding = 8 - ((36 + len(s.Dialects)*2) % 8)
+		padding = 8 - ((36 + len(s.Dialects)*2) % 8)
 		offset := 64 + 36 + len(s.Dialects)*2 + padding
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(offset))
 		buf = binary.LittleEndian.AppendUint16(buf, s.NegotiateContextCount)
@@ -1394,11 +1394,11 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			//Padd:        make([]byte, (8-(len(scBuf)%8))%8), // Padding not needed for the last item in the list.
 		}
 		/*
-		TODO When rewriting the marshalling, move padding to before instead ot after each context based on alignment.
-		The first negotiate context in the list MUST appear at the byte offset
-		indicated by the SMB2 NEGOTIATE request's NegotiateContextOffset field.
-		Subsequent negotiate contexts MUST appear at the first 8-byte-aligned
-		offset following the previous negotiate context.
+			TODO When rewriting the marshalling, move padding to before instead ot after each context based on alignment.
+			The first negotiate context in the list MUST appear at the byte offset
+			indicated by the SMB2 NEGOTIATE request's NegotiateContextOffset field.
+			Subsequent negotiate contexts MUST appear at the first 8-byte-aligned
+			offset following the previous negotiate context.
 		*/
 		req.ContextList = append(req.ContextList, n)
 
