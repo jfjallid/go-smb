@@ -28,15 +28,10 @@ https://xilinx.github.io/Vitis_Libraries/security/2020.1/_images/CCM_encryption.
 */
 
 import (
-	"bytes"
 	"crypto/cipher"
 	"crypto/subtle"
 	"fmt"
-
-	"github.com/jfjallid/golog"
 )
-
-var log = golog.Get("github.com/jfjallid/go-smb/smb/crypto/ccm").SetDisplayName("crypto_ccm")
 
 type ccm struct {
 	c         cipher.Block

@@ -25,7 +25,6 @@
 package mseven
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/jfjallid/go-smb/dcerpc"
@@ -33,10 +32,7 @@ import (
 	"github.com/jfjallid/mstypes"
 )
 
-var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/mseven").SetDisplayName("mseven")
-	le  binary.ByteOrder = binary.LittleEndian
-)
+var log = golog.Get("github.com/jfjallid/go-smb/dcerpc/mseven").SetDisplayName("mseven")
 
 const (
 	MSRPCUuidEven                = "82273FDC-E32A-18C3-3F78-827929DC23EA"

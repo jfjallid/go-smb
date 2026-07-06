@@ -26,14 +26,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-
-	"github.com/jfjallid/golog"
 )
 
 var (
-	le  = binary.LittleEndian
-	be  = binary.BigEndian
-	log = golog.Get("github.com/jfjallid/go-smb/msdtyp").SetDisplayName("msdtyp")
+	le = binary.LittleEndian
+	be = binary.BigEndian
 )
 
 // MS-DTYP Section 2.4.6 Security_Descriptor Control Flag

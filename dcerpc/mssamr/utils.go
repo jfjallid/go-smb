@@ -49,36 +49,6 @@ func plusOddParity(input []byte) []byte {
 	return output
 }
 
-func decryptNTHash(encHash, ridBytes []byte) (hash []byte, err error) {
-	nt1 := make([]byte, 8)
-	nt2 := make([]byte, 8)
-	desSrc1 := make([]byte, 7)
-	desSrc2 := make([]byte, 7)
-	shift1 := []int{0, 1, 2, 3, 0, 1, 2}
-	shift2 := []int{3, 0, 1, 2, 3, 0, 1}
-	for i := 0; i < 7; i++ {
-		desSrc1[i] = ridBytes[shift1[i]]
-		desSrc2[i] = ridBytes[shift2[i]]
-	}
-	deskey1 := plusOddParity(desSrc1)
-	deskey2 := plusOddParity(desSrc2)
-	dc1, err := des.NewCipher(deskey1)
-	if err != nil {
-		err = fmt.Errorf("initialize first DES cipher: %w", err)
-		return
-	}
-	dc2, err := des.NewCipher(deskey2)
-	if err != nil {
-		err = fmt.Errorf("initialize second DES cipher: %w", err)
-		return
-	}
-	dc1.Decrypt(nt1, encHash[:8])
-	dc2.Decrypt(nt2, encHash[8:])
-	hash = append(hash, nt1...)
-	hash = append(hash, nt2...)
-	return
-}
-
 func encryptHashWithHash(key, hash []byte) (res []byte, err error) {
 	if (len(key) != 16) || (len(hash) != 16) {
 		err = fmt.Errorf("input key and hash must both be 16 bytes length")

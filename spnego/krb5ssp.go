@@ -22,7 +22,6 @@
 package spnego
 
 import (
-	"encoding/binary"
 	"fmt"
 	"net"
 	"strings"
@@ -38,7 +37,6 @@ import (
 )
 
 var log = golog.Get("github.com/jfjallid/go-smb/spnego").SetDisplayName("spnego")
-var le = binary.LittleEndian
 
 // RFC4120 Section 5.3 Tickets, flags:
 const (

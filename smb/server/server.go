@@ -313,7 +313,6 @@ type Server struct {
 	listeners  map[net.Listener]struct{}
 	conns      map[*Conn]struct{}
 	inShutdown atomic.Bool
-	doneCh     chan struct{}
 
 	// Lazily-initialized random ServerGUID when Config.ServerGUID is zero.
 	serverGUIDOnce sync.Once

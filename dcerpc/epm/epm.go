@@ -29,13 +29,9 @@ import (
 	"time"
 
 	"github.com/jfjallid/go-smb/dcerpc"
-	"github.com/jfjallid/golog"
 )
 
-var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/epm").SetDisplayName("epm")
-	le  binary.ByteOrder = binary.LittleEndian
-)
+var le binary.ByteOrder = binary.LittleEndian
 
 const (
 	MSRPCUuidEpm                = "e1af8308-5d1f-11c9-91a4-08002b14a0fa"

@@ -27,17 +27,13 @@
 package msrprn
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/jfjallid/go-smb/dcerpc"
 	"github.com/jfjallid/golog"
 )
 
-var (
-	log                  = golog.Get("github.com/jfjallid/go-smb/dcerpc/msrprn").SetDisplayName("msrprn")
-	le  binary.ByteOrder = binary.LittleEndian
-)
+var log = golog.Get("github.com/jfjallid/go-smb/dcerpc/msrprn").SetDisplayName("msrprn")
 
 const (
 	MSRPCUuidRprn                = "12345678-1234-ABCD-EF00-0123456789AB"
