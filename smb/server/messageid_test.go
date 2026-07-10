@@ -122,9 +122,6 @@ func TestClientMessageIDAdvancesAfterNegotiate(t *testing.T) {
 			opts := smb.Options{
 				Host:              "127.0.0.1",
 				Port:              addr.Port,
-				User:              user,
-				Password:          password,
-				Domain:            domain,
 				Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 				DisableEncryption: true, // signing path is fine; SMB 3.1.1 refuses both off
 				ForceSMB2:         tc.forceSMB2,

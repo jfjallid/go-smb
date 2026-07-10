@@ -63,9 +63,6 @@ func TestEncryptedRoundTrip311(t *testing.T) {
 	opts := smb.Options{
 		Host:      "127.0.0.1",
 		Port:      addr.Port,
-		User:      user,
-		Password:  password,
-		Domain:    domain,
 		Initiator: &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		// DisableEncryption left false so the client engages encryption.
 		// RequireMessageSigning left false; encryption replaces signing
@@ -163,9 +160,6 @@ func TestEncryptedRoundTripAllCiphers(t *testing.T) {
 			opts := smb.Options{
 				Host:        "127.0.0.1",
 				Port:        addr.Port,
-				User:        user,
-				Password:    password,
-				Domain:      domain,
 				Initiator:   &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 				Ciphers:     []uint16{tc.cipher},
 				DialTimeout: 2 * time.Second,
@@ -235,9 +229,6 @@ func TestRequireEncryptionRejectsPlaintextClient(t *testing.T) {
 	opts := smb.Options{
 		Host:              "127.0.0.1",
 		Port:              addr.Port,
-		User:              user,
-		Password:          password,
-		Domain:            domain,
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableEncryption: true,
 		DialTimeout:       2 * time.Second,
@@ -293,9 +284,6 @@ func TestPerShareEncryptDataRejectsPlaintextOp(t *testing.T) {
 	opts := smb.Options{
 		Host:              "127.0.0.1",
 		Port:              addr.Port,
-		User:              user,
-		Password:          password,
-		Domain:            domain,
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableEncryption: true, // forces all traffic to plaintext SMB2
 		DialTimeout:       2 * time.Second,
@@ -379,9 +367,6 @@ func TestPerShareEncryptDataAllowsEncryptedOp(t *testing.T) {
 	opts := smb.Options{
 		Host:        "127.0.0.1",
 		Port:        addr.Port,
-		User:        user,
-		Password:    password,
-		Domain:      domain,
 		Initiator:   &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DialTimeout: 2 * time.Second,
 	}

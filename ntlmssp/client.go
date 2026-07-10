@@ -51,17 +51,44 @@ var version = []byte{
 	7: NTLMSSP_REVISION_W2K3,
 }
 
+// NTLMAuthMode selects how the Authenticate (Type 3) message is constructed,
+// making the auth intent explicit instead of inferring it from an empty
+// username. The zero value, NTLMAuthCredentials, preserves legacy behaviour:
+// when AuthMode is left at its default, an explicit NullSession still selects
+// anonymous and an empty User still selects guest (see Authenticate).
+type NTLMAuthMode int
+
+const (
+	// NTLMAuthCredentials sends a full NTLMv2 response together with the
+	// supplied username: a normal authenticated logon.
+	NTLMAuthCredentials NTLMAuthMode = iota
+	// NTLMAuthAnonymous sends NTLMSSP_NEGOTIATE_ANONYMOUS with zero-length
+	// LM/NT responses: a "null session". Servers that accept it report
+	// SMB2_SESSION_FLAG_IS_NULL. This is the same wire mechanism the legacy
+	// NullSession bool selects.
+	NTLMAuthAnonymous
+	// NTLMAuthGuest sends a genuine NTLMv2 response but omits the username and
+	// does NOT set NTLMSSP_NEGOTIATE_ANONYMOUS, inviting the server to map the
+	// (typically invalid) credential onto its Guest account. Servers that do
+	// so report SMB2_SESSION_FLAG_IS_GUEST.
+	NTLMAuthGuest
+)
+
 type Client struct {
-	User               string
-	Password           string
-	Hash               []byte // Password Hash
-	NTHash             []byte // Output from Ntowfv2
-	LMHash             []byte // Output from Lmowfv2
-	LocalUser          bool   // Don't use domain name from server
-	Domain             string
-	Workstation        string
-	NullSession        bool
-	guestSession       bool
+	User        string
+	Password    string
+	Hash        []byte // Password Hash
+	NTHash      []byte // Output from Ntowfv2
+	LMHash      []byte // Output from Lmowfv2
+	LocalUser   bool   // Don't use domain name from server
+	Domain      string
+	Workstation string
+	NullSession bool // Deprecated: prefer AuthMode = NTLMAuthAnonymous. Kept for backwards compatibility; equivalent to NTLMAuthAnonymous.
+	// AuthMode selects the auth mode explicitly. When left at its zero value
+	// (NTLMAuthCredentials) the legacy inference applies: NullSession==true
+	// selects anonymous and an empty User selects guest. A non-default AuthMode
+	// always takes precedence over that inference and over NullSession.
+	AuthMode           NTLMAuthMode
 	session            *Session
 	neg                *Negotiate
 	negBytes           []byte // Original marshaled Negotiate for MIC computation
@@ -174,8 +201,16 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 		return nil, err
 	}
 
-	if c.User == "" && (!c.NullSession) {
-		c.guestSession = true
+	// Resolve the effective auth mode. An explicitly set AuthMode always wins;
+	// otherwise fall back to the legacy inference for backwards compatibility:
+	// NullSession==true selects anonymous, and an empty username selects guest.
+	mode := c.AuthMode
+	if mode == NTLMAuthCredentials {
+		if c.NullSession {
+			mode = NTLMAuthAnonymous
+		} else if c.User == "" {
+			mode = NTLMAuthGuest
+		}
 	}
 
 	// Assumes domain, user, and workstation are not unicode
@@ -368,14 +403,17 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 		Workstation: encoder.ToUnicode(c.Workstation),
 		MIC:         make([]byte, 16),
 	}
-	// Anonymous auth attempt
-	if c.NullSession {
+	// Build the LM/NT response fields according to the resolved auth mode.
+	switch mode {
+	case NTLMAuthAnonymous:
+		// Null/anonymous session: zero-length responses (MS-NLMP 3.1.5.1.2).
 		auth.NtChallengeResponse = nil
 		auth.LmChallengeResponse = nil
-	} else if c.guestSession {
+	case NTLMAuthGuest:
+		// Guest attempt: a genuine response, but no username on the wire.
 		auth.NtChallengeResponse = response
 		auth.LmChallengeResponse = lmChallengeResponse
-	} else {
+	default: // NTLMAuthCredentials
 		auth.NtChallengeResponse = response
 		auth.LmChallengeResponse = lmChallengeResponse
 		auth.UserName = encoder.ToUnicode(c.User)
@@ -388,7 +426,10 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	   that contains the set of bit flags negotiated in the previous messages. */
 	//NOTE According to MS-NLMP Section 2.2.1.3 this should be set to the flags from the challenge received
 
-	if c.guestSession || c.NullSession {
+	// Only a true anonymous (null) session sets NTLMSSP_NEGOTIATE_ANONYMOUS.
+	// The guest path sends a genuine cryptographic response, so per MS-NLMP it
+	// must NOT claim to be anonymous.
+	if mode == NTLMAuthAnonymous {
 		flags |= FlgNegAnonymous
 	}
 

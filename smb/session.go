@@ -80,16 +80,23 @@ type TargetInfo struct {
 }
 
 type Session struct {
-	isSigningRequired   atomic.Bool
-	isSigningDisabled   bool
-	isAuthenticated     bool
-	supportsEncryption  bool
-	clientGuid          []byte
-	securityMode        uint16
-	messageID           uint64
-	sessionID           uint64 // Does this need to be atomic?
-	credits             uint64
-	sessionFlags        uint16
+	isSigningRequired  atomic.Bool
+	isSigningDisabled  bool
+	isAuthenticated    bool
+	supportsEncryption bool
+	clientGuid         []byte
+	securityMode       uint16
+	messageID          uint64
+	sessionID          uint64 // Does this need to be atomic?
+	credits            uint64
+	sessionFlags       uint16
+	// authedAsNull records that this session was established with an anonymous
+	// (null) NTLM logon that the server accepted — i.e. the client sent
+	// NTLMSSP_NEGOTIATE_ANONYMOUS with empty responses and authentication
+	// succeeded. This is the reliable null-session signal, independent of the
+	// server's SMB2_SESSION_FLAG_IS_NULL (which some servers omit). See
+	// IsNullSession / AuthResult.
+	authedAsNull        bool
 	supportsMultiCredit bool
 	//SequenceWindow            uint64
 	maxReadSize               uint32
@@ -116,10 +123,6 @@ type Options struct {
 	Host                  string
 	Port                  int
 	Workstation           string
-	Domain                string
-	User                  string
-	Password              string
-	Hash                  string
 	DisableSigning        bool
 	RequireMessageSigning bool
 	DisableEncryption     bool
@@ -607,7 +610,11 @@ func (c *Connection) SessionSetup() (err error) {
 	}
 
 	if c.options.Initiator.IsNullSession() {
-		// Anonymous auth
+		// Anonymous auth. Record the intent: combined with a successful
+		// SessionSetup this is what makes the session a null session, whether or
+		// not the server sets SMB2_SESSION_FLAG_IS_NULL. The sessionFlags bit is
+		// kept as well because the signing/encryption gating below keys off it.
+		c.authedAsNull = true
 		c.sessionFlags |= SessionFlagIsNull
 		c.sessionFlags &= ^SessionFlagEncryptData
 	}
@@ -684,6 +691,8 @@ func (c *Connection) SessionSetup() (err error) {
 		//TODO Unmarshal the Security Blob as well?
 
 		if ssres2.Header.Status == StatusOk {
+			// Fold the server's guest/null verdict into sessionFlags; the
+			// signing/encryption gating below keys off these bits.
 			if ssres2.Flags&SessionFlagIsGuest == SessionFlagIsGuest {
 				c.Session.sessionFlags |= SessionFlagIsGuest
 			}
@@ -2099,10 +2108,67 @@ func (s *Connection) MkdirAll(share string, path string) (err error) {
 	return
 }
 
+// IsNullSession reports whether this session is an accepted anonymous (null)
+// session: the client authenticated with NTLMSSP_NEGOTIATE_ANONYMOUS (empty
+// LM/NT responses) and the SessionSetup succeeded. This is derived from the
+// client's own auth attempt plus success, not from the server's
+// SMB2_SESSION_FLAG_IS_NULL — some servers accept a null session without
+// setting that flag, so the flag alone is an unreliable signal.
 func (c *Session) IsNullSession() bool {
-	return c.sessionFlags&SessionFlagIsNull == SessionFlagIsNull
+	return c.isAuthenticated && c.authedAsNull
 }
 
+// IsGuestSession reports whether the server mapped this logon onto its Guest
+// account, as signalled by SMB2_SESSION_FLAG_IS_GUEST in the SESSION_SETUP
+// response. Unlike the null case there is no client-side signal for guest — the
+// client sends a genuine credential and only the server decides — so the
+// server's flag is the only, and authoritative, indicator.
 func (c *Session) IsGuestSession() bool {
 	return c.sessionFlags&SessionFlagIsGuest == SessionFlagIsGuest
+}
+
+// SessionAuthResult classifies how an authenticated session was established:
+// as a normal user, as a guest (server verdict), or as an anonymous/null
+// session (client-requested and accepted).
+type SessionAuthResult int
+
+const (
+	// AuthResultUser indicates a normal authenticated session: neither guest
+	// nor anonymous.
+	AuthResultUser SessionAuthResult = iota
+	// AuthResultGuest indicates the server mapped the logon onto its Guest
+	// account (SMB2_SESSION_FLAG_IS_GUEST).
+	AuthResultGuest
+	// AuthResultAnonymous indicates an accepted anonymous/null session (the
+	// client sent NTLMSSP_NEGOTIATE_ANONYMOUS and SessionSetup succeeded). Note
+	// that "null session" and "anonymous" are the same NTLM mechanism.
+	AuthResultAnonymous
+)
+
+func (r SessionAuthResult) String() string {
+	switch r {
+	case AuthResultGuest:
+		return "guest"
+	case AuthResultAnonymous:
+		return "anonymous"
+	default:
+		return "user"
+	}
+}
+
+// AuthResult classifies how the authenticated session was established. This is
+// the single accessor a caller should use to fingerprint a server's auth
+// policy: run each probe (normal creds, NTLMAuthAnonymous, NTLMAuthGuest) and
+// read AuthResult on the resulting session. Guest (the server's verdict) takes
+// precedence in the unlikely event the server also flags a requested null
+// session as guest.
+func (c *Session) AuthResult() SessionAuthResult {
+	switch {
+	case c.IsGuestSession():
+		return AuthResultGuest
+	case c.IsNullSession():
+		return AuthResultAnonymous
+	default:
+		return AuthResultUser
+	}
 }

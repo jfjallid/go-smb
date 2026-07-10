@@ -152,9 +152,6 @@ func TestCrossProtocolSMBInboundToHTTPUpstream(t *testing.T) {
 	bait := smb.Options{
 		Host:              relayAddr.IP.String(),
 		Port:              relayAddr.Port,
-		User:              user,
-		Password:          password,
-		Domain:            domain,
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,

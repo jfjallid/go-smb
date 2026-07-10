@@ -9,6 +9,68 @@ at release time it is renamed to the new version and a fresh
 
 ## [Unreleased]
 
+Headline items this cycle are an explicit NTLM authentication mode, reliable
+detection of accepted guest/null sessions, and the removal of the long-unused
+credential fields on `smb.Options`.
+
+### Breaking changes
+
+**1. `smb.Options` credential fields removed.**
+
+The `User`, `Password`, `Hash`, and `Domain` fields have been removed from
+`smb.Options`. They were never read by the library — authentication has always
+been driven exclusively by `Options.Initiator` — so setting them had no effect.
+
+```go
+// Before (User/Password/Hash/Domain were ignored)
+opts := smb.Options{
+    Host:     host,
+    User:     user,
+    Password: pass,
+    Domain:   domain,
+    Initiator: &spnego.NTLMInitiator{User: user, Password: pass, Domain: domain},
+}
+// After — supply credentials only through the Initiator
+opts := smb.Options{
+    Host:      host,
+    Initiator: &spnego.NTLMInitiator{User: user, Password: pass, Domain: domain},
+}
+```
+
+Code that set these fields will no longer compile; move the values into the
+`Initiator`. Code that relied on them for authentication was already silently
+broken and must do the same.
+
+**2. Guest authentication no longer sets `NTLMSSP_NEGOTIATE_ANONYMOUS`.**
+
+An NTLM guest attempt (empty username, real NTLMv2 response) previously set the
+`NTLMSSP_NEGOTIATE_ANONYMOUS` flag in the AUTHENTICATE message, which is
+inconsistent with MS-NLMP — that flag denotes a credential-less session. The
+flag is now set only for a true anonymous/null session. This changes the bytes
+on the wire for the guest path but not the Go API.
+
+### New features
+
+- **Explicit NTLM auth mode.** `ntlmssp.Client` and `spnego.NTLMInitiator` gain
+  an `AuthMode` field of type `NTLMAuthMode` with values `NTLMAuthCredentials`,
+  `NTLMAuthAnonymous`, and `NTLMAuthGuest`, re-exported from `spnego` for
+  convenience. This makes the auth intent explicit rather than inferring it from
+  an empty username. The zero value preserves the previous behaviour: the
+  deprecated `NullSession bool` still selects anonymous, and an empty `User`
+  still selects guest.
+- **Reliable session-type detection.** `smb.Session` gains `AuthResult()`,
+  returning a `SessionAuthResult` (`AuthResultUser` / `AuthResultGuest` /
+  `AuthResultAnonymous`), so a caller can fingerprint how a server treated an
+  authentication attempt (run a probe with normal creds, `NTLMAuthAnonymous`,
+  or `NTLMAuthGuest` and read the result). `IsNullSession()` now reports an
+  accepted anonymous/null session — the client sent
+  `NTLMSSP_NEGOTIATE_ANONYMOUS` and SessionSetup succeeded — rather than merely
+  echoing the server's `SMB2_SESSION_FLAG_IS_NULL`, which some servers omit even
+  when they accept a null session. `IsGuestSession()` continues to reflect the
+  server's `SMB2_SESSION_FLAG_IS_GUEST`, the only signal for guest since the
+  client cannot infer it. (Note that "null session" and "anonymous" are the same
+  NTLM mechanism.)
+
 ## [0.11.0] — 2026-07-06
 
 Headline items this cycle are a logging and error-handling overhaul, a pass

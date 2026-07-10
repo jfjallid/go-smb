@@ -112,9 +112,6 @@ func TestRelayServerEndToEnd(t *testing.T) {
 		opts := smb.Options{
 			Host:              relayAddr.IP.String(),
 			Port:              relayAddr.Port,
-			User:              user,
-			Password:          password,
-			Domain:            domain,
 			Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 			DisableSigning:    true,
 			DisableEncryption: true,
@@ -157,9 +154,6 @@ func TestRelayServerEndToEnd(t *testing.T) {
 	socksOpts := smb.Options{
 		Host:              up1Addr.IP.String(),
 		Port:              up1Addr.Port,
-		User:              user,
-		Password:          "ignored",
-		Domain:            domain,
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: "ignored", Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
@@ -266,9 +260,6 @@ func TestSocksPiggybackReusesPooledSession(t *testing.T) {
 	bait := smb.Options{
 		Host:              relayAddr.IP.String(),
 		Port:              relayAddr.Port,
-		User:              user,
-		Password:          password,
-		Domain:            domain,
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
@@ -283,9 +274,6 @@ func TestSocksPiggybackReusesPooledSession(t *testing.T) {
 	socksOpts := smb.Options{
 		Host:              upAddr.IP.String(),
 		Port:              upAddr.Port,
-		User:              user,
-		Password:          "ignored",
-		Domain:            domain,
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: "ignored", Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
@@ -400,9 +388,6 @@ func TestPostAuthAction(t *testing.T) {
 	clientOpts := smb.Options{
 		Host:              relayAddr.IP.String(),
 		Port:              relayAddr.Port,
-		User:              user,
-		Password:          password,
-		Domain:            domain,
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
@@ -480,9 +465,6 @@ func TestSocksUserRouting(t *testing.T) {
 		bait := smb.Options{
 			Host:              relayAddr.IP.String(),
 			Port:              relayAddr.Port,
-			User:              u,
-			Password:          password,
-			Domain:            domain,
 			Initiator:         &spnego.NTLMInitiator{User: u, Password: password, Domain: domain},
 			DisableSigning:    true,
 			DisableEncryption: true,
@@ -505,9 +487,6 @@ func TestSocksUserRouting(t *testing.T) {
 		opts := smb.Options{
 			Host:              upAddr.IP.String(),
 			Port:              upAddr.Port,
-			User:              user,
-			Password:          "ignored",
-			Domain:            domain,
 			Initiator:         &spnego.NTLMInitiator{User: user, Password: "ignored", Domain: domain},
 			DisableSigning:    true,
 			DisableEncryption: true,
@@ -561,9 +540,6 @@ func TestSocksUserRouting(t *testing.T) {
 	bogusOpts := smb.Options{
 		Host:              upAddr.IP.String(),
 		Port:              upAddr.Port,
-		User:              "nobody",
-		Password:          "ignored",
-		Domain:            domain,
 		Initiator:         &spnego.NTLMInitiator{User: "nobody", Password: "ignored", Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,

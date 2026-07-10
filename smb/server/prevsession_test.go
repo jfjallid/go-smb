@@ -90,9 +90,6 @@ func TestPreviousSessionEviction(t *testing.T) {
 	opts := smb.Options{
 		Host:              "127.0.0.1",
 		Port:              addr.Port,
-		User:              user,
-		Password:          password,
-		Domain:            domain,
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,

@@ -229,9 +229,6 @@ func dialClient(t *testing.T, port int, user, password, domain string) *smb.Conn
 	opts := smb.Options{
 		Host:              "127.0.0.1",
 		Port:              port,
-		User:              user,
-		Password:          password,
-		Domain:            domain,
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,

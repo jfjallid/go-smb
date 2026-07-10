@@ -37,13 +37,28 @@ import (
 
 // NTLMInitiator implements session setup through NTLMv2.
 // It does not support NTLMv1. It is possible to use hash instead of password.
+// NTLMAuthMode and its constants are re-exported from the ntlmssp package so
+// callers can select the auth mode without importing ntlmssp directly, e.g.
+// &spnego.NTLMInitiator{AuthMode: spnego.NTLMAuthGuest}.
+type NTLMAuthMode = ntlmssp.NTLMAuthMode
+
+const (
+	NTLMAuthCredentials = ntlmssp.NTLMAuthCredentials
+	NTLMAuthAnonymous   = ntlmssp.NTLMAuthAnonymous
+	NTLMAuthGuest       = ntlmssp.NTLMAuthGuest
+)
+
 type NTLMInitiator struct {
 	User        string
 	Password    string
 	Hash        []byte
 	Domain      string
 	LocalUser   bool
-	NullSession bool
+	NullSession bool // Deprecated: prefer AuthMode = NTLMAuthAnonymous. Equivalent, kept for backwards compatibility.
+	// AuthMode selects the NTLM auth mode (credentials / anonymous / guest)
+	// explicitly. Left at its zero value it preserves legacy behaviour:
+	// NullSession==true selects anonymous, and an empty User selects guest.
+	AuthMode    NTLMAuthMode
 	Workstation string
 	TargetSPN   string
 
@@ -72,6 +87,7 @@ func (i *NTLMInitiator) InitSecContext(inputToken []byte) ([]byte, error) {
 			Domain:      i.Domain,
 			LocalUser:   i.LocalUser,
 			NullSession: i.NullSession,
+			AuthMode:    i.AuthMode,
 			Hash:        i.Hash,
 			Workstation: i.Workstation,
 			TargetSPN:   i.TargetSPN,
@@ -111,7 +127,7 @@ func (i *NTLMInitiator) SessionKey() []byte {
 }
 
 func (i *NTLMInitiator) IsNullSession() bool {
-	return i.NullSession
+	return i.NullSession || i.AuthMode == ntlmssp.NTLMAuthAnonymous
 }
 
 func (i *NTLMInitiator) GetUsername() string {
