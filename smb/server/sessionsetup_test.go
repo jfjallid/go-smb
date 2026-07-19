@@ -58,7 +58,7 @@ func TestSessionSetupCredentialCapture(t *testing.T) {
 		Initiator:         ntlmInit,
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true, // SMB 2.1 keeps the negotiate path simple
+		Dialects:          smb.DialectsSMB2Only, // SMB 2.1 keeps the negotiate path simple
 		DialTimeout:       2 * time.Second,
 	}
 	_, err := smb.NewConnection(opts)
@@ -124,7 +124,7 @@ func TestSessionSetupAnonymous(t *testing.T) {
 		ManualLogin:       true,
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 	}
 	c, err := smb.NewConnection(opts)
@@ -176,7 +176,7 @@ func TestSessionSetupMapAuthSuccess(t *testing.T) {
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 	}
 	c, err := smb.NewConnection(opts)

@@ -115,7 +115,7 @@ func TestRelayServerEndToEnd(t *testing.T) {
 			Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 			DisableSigning:    true,
 			DisableEncryption: true,
-			ForceSMB2:         true,
+			Dialects:          smb.DialectsSMB2Only,
 			DialTimeout:       2 * time.Second,
 		}
 		_, _ = smb.NewConnection(opts) // expected to fail (capture-and-drop)
@@ -157,7 +157,7 @@ func TestRelayServerEndToEnd(t *testing.T) {
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: "ignored", Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 		ProxyDialer:       &fixedSocksDialer{socksAddr: socksAddr.String(), target: up1Addr.String()},
 	}
@@ -263,7 +263,7 @@ func TestSocksPiggybackReusesPooledSession(t *testing.T) {
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 	}
 	_, _ = smb.NewConnection(bait)
@@ -277,7 +277,7 @@ func TestSocksPiggybackReusesPooledSession(t *testing.T) {
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: "ignored", Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 		ProxyDialer:       &fixedSocksDialer{socksAddr: socksAddr.String(), target: upAddr.String()},
 	}
@@ -391,7 +391,7 @@ func TestPostAuthAction(t *testing.T) {
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 	}
 	_, _ = smb.NewConnection(clientOpts)
@@ -468,7 +468,7 @@ func TestSocksUserRouting(t *testing.T) {
 			Initiator:         &spnego.NTLMInitiator{User: u, Password: password, Domain: domain},
 			DisableSigning:    true,
 			DisableEncryption: true,
-			ForceSMB2:         true,
+			Dialects:          smb.DialectsSMB2Only,
 			DialTimeout:       2 * time.Second,
 		}
 		_, _ = smb.NewConnection(bait)
@@ -490,7 +490,7 @@ func TestSocksUserRouting(t *testing.T) {
 			Initiator:         &spnego.NTLMInitiator{User: user, Password: "ignored", Domain: domain},
 			DisableSigning:    true,
 			DisableEncryption: true,
-			ForceSMB2:         true,
+			Dialects:          smb.DialectsSMB2Only,
 			DialTimeout:       2 * time.Second,
 			ProxyDialer:       &fixedSocksDialer{socksAddr: socksAddr.String(), target: upAddr.String()},
 		}
@@ -543,7 +543,7 @@ func TestSocksUserRouting(t *testing.T) {
 		Initiator:         &spnego.NTLMInitiator{User: "nobody", Password: "ignored", Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 		ProxyDialer:       &fixedSocksDialer{socksAddr: socksAddr.String(), target: upAddr.String()},
 	}

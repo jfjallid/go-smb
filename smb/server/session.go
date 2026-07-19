@@ -98,7 +98,7 @@ type Session struct {
 
 	// previousSessionID is captured from SessionSetupReq.PreviousSessionID on
 	// the first leg and applied (across all connections owned by Server) on
-	// successful authentication. MS-SMB2 §3.3.5.5.3 step 6: when an existing
+	// successful authentication. MS-SMB2 §3.3.5.5.3 step 13: when an existing
 	// session with the same SessionID exists and is owned by the same user,
 	// the server evicts it before installing the new one. The "same user"
 	// guard is what justifies deferring the eviction to leg-2 success.
@@ -178,7 +178,7 @@ func (c *Conn) cleanupSessions() {
 
 // cleanupSession drains a single session's tree handles via VFS.Close.
 // Called by cleanupSessions and by the PreviousSessionID eviction path
-// (MS-SMB2 §3.3.5.5.3 step 6).
+// (MS-SMB2 §3.3.5.5.3 step 13).
 func (c *Conn) cleanupSession(sess *Session) {
 	sess.mu.Lock()
 	trees := sess.trees

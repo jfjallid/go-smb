@@ -19,7 +19,7 @@ import (
 // TestPreviousSessionEviction drives two back-to-back SessionSetups with
 // the second one carrying PreviousSessionID = first session's ID, and
 // verifies the first session is evicted from the server's tracking once
-// the second one authenticates successfully (MS-SMB2 §3.3.5.5.3 step 6).
+// the second one authenticates successfully (MS-SMB2 §3.3.5.5.3 step 13).
 //
 // The in-tree client does not expose PreviousSessionID on Options, so we
 // inject it via OnRawRequest after the second connection's NegotiateProtocol
@@ -93,7 +93,7 @@ func TestPreviousSessionEviction(t *testing.T) {
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 	}
 	c1, err := smb.NewConnection(opts)

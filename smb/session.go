@@ -88,7 +88,7 @@ type Session struct {
 	securityMode       uint16
 	messageID          uint64
 	sessionID          uint64 // Does this need to be atomic?
-	credits            uint64
+	creditMgr          *creditManager
 	sessionFlags       uint16
 	// authedAsNull records that this session was established with an anonymous
 	// (null) NTLM logon that the server accepted — i.e. the client sent
@@ -113,10 +113,29 @@ type Session struct {
 	decrypter      cipher.AEAD
 	dialect        uint16
 	options        Options
-	trees          map[string]uint32
+	trees          map[string]*treeConnect
+	treeLock       sync.RWMutex
 	lock           sync.RWMutex
 	authUsername   string // Combined domain and username as sent in SessionSetup2 request
 	targetInfo     *TargetInfo
+	// oplockBreakHandler, when set, is consulted on an unsolicited server
+	// oplock break notification and returns the oplock level to acknowledge.
+	// nil means "acknowledge down to None".
+	oplockBreakHandler OplockBreakHandler
+}
+
+// treeConnect records the per-share state returned by an SMB2 TREE_CONNECT
+// response (MS-SMB2 §2.2.10). Beyond the TreeId it captures the ShareFlags,
+// Capabilities and MaximalAccess so callers and the send path can honor
+// per-share requirements — most importantly SMB2_SHAREFLAG_ENCRYPT_DATA, which
+// obliges the client to encrypt every request on that tree even when the
+// session default is cleartext (MS-SMB2 §3.2.5.5).
+type treeConnect struct {
+	treeId        uint32
+	shareFlags    uint32
+	capabilities  uint32
+	maximalAccess uint32
+	encryptData   bool
 }
 
 type Options struct {
@@ -126,10 +145,18 @@ type Options struct {
 	DisableSigning        bool
 	RequireMessageSigning bool
 	DisableEncryption     bool
-	ForceSMB2             bool
 	// SMB2Only skips the SMB1 multi-protocol negotiate and sends an SMB2
 	// NEGOTIATE directly. Useful against servers with SMB1 disabled.
-	SMB2Only    bool
+	SMB2Only bool
+	// Dialects, when non-empty, overrides the set of SMB2 dialects offered in
+	// the NEGOTIATE request. Entries must be known dialect revisions
+	// (DialectSmb_2_0_2, _2_1, _3_0, _3_0_2, _3_1_1); the server still selects
+	// the highest it supports, so order is not significant. Setting it forces
+	// the direct SMB2 negotiate (the SMB1 multi-protocol probe cannot honor a
+	// custom list). Leaving it nil keeps the default offer
+	// (3.1.1, 3.0.2, 3.0, 2.1, 2.0.2). To pin the legacy SMB 2.1 path, set
+	// DialectsSMB2Only.
+	Dialects    []uint16
 	Initiator   gss.Mechanism
 	DialTimeout time.Duration
 	ProxyDialer proxy.Dialer
@@ -141,7 +168,29 @@ type Options struct {
 	// AES-256-GCM). Useful for tests that need to pin which cipher gets
 	// negotiated.
 	Ciphers []uint16
+	// CreditReserveTimeout bounds how long a request will block waiting for the
+	// server to grant enough credits before failing with an error instead of
+	// hanging. Zero selects defaultCreditReserveTimeout; a negative value waits
+	// indefinitely (the old behavior, unblocked only by connection teardown).
+	CreditReserveTimeout time.Duration
+	// CreditTarget is the credit balance the client tries to keep granted by
+	// requesting toward it on every request ("ask for more"). Zero selects
+	// defaultCreditTarget. One credit covers 64 KiB of a single READ/WRITE, so
+	// the target also bounds the largest un-split transfer (target × 64 KiB).
+	CreditTarget uint16
 }
+
+// defaultCreditReserveTimeout is the ceiling on how long a single request waits
+// for credits when Options.CreditReserveTimeout is left unset. A well-behaved
+// server grants credits within a round trip, so a wait this long means the
+// window is starved and the caller should hear about it rather than hang.
+const defaultCreditReserveTimeout = 60 * time.Second
+
+// defaultCreditTarget is the credit balance the client aims to keep when
+// Options.CreditTarget is unset. 512 credits ≈ a 32 MiB window: comfortably
+// larger than a typical 1–8 MiB MaxReadSize/MaxWriteSize so full-size transfers
+// fit without splitting, while staying modest enough not to burden the server.
+const defaultCreditTarget uint64 = 512
 
 func validateOptions(opt Options) error {
 	if opt.Host == "" {
@@ -152,6 +201,15 @@ func validateOptions(opt Options) error {
 	}
 	if opt.Initiator == nil && !opt.ManualLogin {
 		return fmt.Errorf("initiator empty")
+	}
+	if len(opt.Dialects) > 0 {
+		for _, d := range opt.Dialects {
+			switch d {
+			case DialectSmb_2_0_2, DialectSmb_2_1, DialectSmb_3_0, DialectSmb_3_0_2, DialectSmb_3_1_1:
+			default:
+				return fmt.Errorf("invalid options: unknown dialect 0x%04x in Dialects", d)
+			}
+		}
 	}
 	return nil
 }
@@ -204,10 +262,12 @@ func (c *Connection) NegotiateProtocol() (err error) {
 	var negRes NegotiateRes
 	var negResBuf []byte
 
-	if c.options.SMB2Only {
+	if c.options.SMB2Only || len(c.options.Dialects) > 0 {
 		// Skip SMB1 multi-protocol negotiate and go straight to an SMB2
 		// NEGOTIATE request. The dialect list (including 2.0.2) is the
-		// authoritative offer.
+		// authoritative offer. A custom Options.Dialects forces this path too:
+		// the SMB1 multi-protocol probe advertises a fixed 2.0.2/2.1 set it
+		// cannot restrict, so honoring a custom list requires the direct offer.
 		negReq, err := c.NewNegotiateReq()
 		if err != nil {
 			return err
@@ -379,6 +439,17 @@ func (c *Connection) NegotiateProtocol() (err error) {
 	c.maxTransactSize = negRes.MaxTransactSize
 
 	if c.dialect != DialectSmb_3_1_1 {
+		// SMB 3.0 / 3.0.2 have no negotiate contexts: signing is fixed at
+		// AES-128-CMAC and, when encryption was negotiated via the
+		// GlobalCapEncryption capability flag above, the cipher is fixed at
+		// AES-128-CCM (MS-SMB2 §3.1.4.2, §3.2.5.2). Pin those defaults here so
+		// the SessionSetup key-derivation branch has a concrete algorithm.
+		if c.dialect >= DialectSmb_3_0 {
+			c.signingId = AES_CMAC
+			if c.supportsEncryption {
+				c.cipherId = AES128CCM
+			}
+		}
 		return nil
 	}
 
@@ -726,6 +797,49 @@ func (c *Connection) SessionSetup() (err error) {
 				c.Session.signer = newHashSigner(hmac.New(sha256.New, sessionKey))
 				c.Session.verifier = newHashVerifier(hmac.New(sha256.New, sessionKey))
 			}
+		case DialectSmb_3_0, DialectSmb_3_0_2:
+			// SMB 3.0 / 3.0.2 key derivation (MS-SMB2 §3.1.4.2). Unlike 3.1.1
+			// these dialects have no negotiate contexts: signing is always
+			// AES-128-CMAC and encryption, when negotiated, is always
+			// AES-128-CCM. The KDF context is a fixed string rather than the
+			// preauth-integrity hash (which only exists in 3.1.1).
+			signingKey := kdf(sessionKey, smb30LabelSigning, smb30ContextSigning, 128)
+			cs, errS := cmac.New(signingKey)
+			if errS != nil {
+				return fmt.Errorf("init AES-CMAC signer: %w", errS)
+			}
+			cv, errV := cmac.New(signingKey)
+			if errV != nil {
+				return fmt.Errorf("init AES-CMAC verifier: %w", errV)
+			}
+			c.Session.signer = newHashSigner(cs)
+			c.Session.verifier = newHashVerifier(cv)
+
+			if c.supportsEncryption {
+				// c.cipherId was pinned to AES128CCM during NegotiateProtocol.
+				encryptionKey := kdf(sessionKey, smb30LabelCipher, smb30ContextC2S, 128)
+				decryptionKey := kdf(sessionKey, smb30LabelCipher, smb30ContextS2C, 128)
+
+				ciph, errC := aes.NewCipher(encryptionKey)
+				if errC != nil {
+					return errC
+				}
+				c.Session.encrypter, errC = ccm.NewCCMWithNonceAndTagSizes(ciph, 11, 16)
+				if errC != nil {
+					return errC
+				}
+				ciph, errC = aes.NewCipher(decryptionKey)
+				if errC != nil {
+					return errC
+				}
+				c.Session.decrypter, errC = ccm.NewCCMWithNonceAndTagSizes(ciph, 11, 16)
+				if errC != nil {
+					return errC
+				}
+				log.Debugln("Initialized encrypter and decrypter with CCM (SMB 3.0/3.0.2)")
+			}
+
+			c.applicationKey = kdf(sessionKey, smb30LabelApp, smb30ContextApp, 128)
 		case DialectSmb_3_1_1:
 			switch c.preauthIntegrityHashId {
 			case SHA512:
@@ -741,7 +855,7 @@ func (c *Connection) SessionSetup() (err error) {
 
 			// SMB 3.1.1 requires either signing or encryption of requests, so can't disable signing.
 			// Signingkey is always 128bit
-			signingKey := kdf(sessionKey, []byte("SMBSigningKey\x00"), c.Session.preauthIntegrityHashValue[:], 128)
+			signingKey := kdf(sessionKey, smb311LabelSigning, c.Session.preauthIntegrityHashValue[:], 128)
 
 			switch c.signingId {
 			case AES_CMAC:
@@ -787,8 +901,8 @@ func (c *Connection) SessionSetup() (err error) {
 					return err
 				}
 
-				encryptionKey := kdf(sessionKey, []byte("SMBC2SCipherKey\x00"), c.Session.preauthIntegrityHashValue[:], l)
-				decryptionKey := kdf(sessionKey, []byte("SMBS2CCipherKey\x00"), c.Session.preauthIntegrityHashValue[:], l)
+				encryptionKey := kdf(sessionKey, smb311LabelC2S, c.Session.preauthIntegrityHashValue[:], l)
+				decryptionKey := kdf(sessionKey, smb311LabelS2C, c.Session.preauthIntegrityHashValue[:], l)
 
 				switch c.cipherId {
 				case AES128GCM, AES256GCM:
@@ -835,7 +949,7 @@ func (c *Connection) SessionSetup() (err error) {
 			}
 
 			// Handle ApplicationKey
-			c.applicationKey = kdf(sessionKey, []byte("SMBAppKey\x00"), c.Session.preauthIntegrityHashValue[:], 128)
+			c.applicationKey = kdf(sessionKey, smb311LabelApp, c.Session.preauthIntegrityHashValue[:], 128)
 		}
 	}
 
@@ -892,7 +1006,7 @@ func (c *Connection) verifyFinalSessionSetupSignature() bool {
 }
 
 func (c *Connection) Logoff() error {
-	for k := range c.trees {
+	for _, k := range c.treeNames() {
 		c.TreeDisconnect(k)
 	}
 
@@ -987,9 +1101,82 @@ func (c *Connection) GetTargetInfo() *TargetInfo {
 	return c.targetInfo
 }
 
+// treeId returns the TreeConnect id for a share name, or 0 if the share is not
+// currently connected. TreeId 0 is never a valid connected tree, so it doubles
+// as a "not found" sentinel.
+func (s *Session) treeId(name string) uint32 {
+	s.treeLock.RLock()
+	defer s.treeLock.RUnlock()
+	if t, ok := s.trees[name]; ok {
+		return t.treeId
+	}
+	return 0
+}
+
+// hasTree reports whether the named share is currently tree-connected.
+func (s *Session) hasTree(name string) bool {
+	s.treeLock.RLock()
+	defer s.treeLock.RUnlock()
+	_, ok := s.trees[name]
+	return ok
+}
+
+// treeNames returns a snapshot of the connected share names. Callers that
+// mutate the tree map (e.g. disconnecting every tree) must iterate this
+// snapshot rather than ranging the live map.
+func (s *Session) treeNames() []string {
+	s.treeLock.RLock()
+	defer s.treeLock.RUnlock()
+	names := make([]string, 0, len(s.trees))
+	for k := range s.trees {
+		names = append(names, k)
+	}
+	return names
+}
+
+// canEncrypt reports whether the connection can encrypt PDUs such that the
+// server will be able to decrypt them: encryption was negotiated, the client
+// offered the capability (it did not opt out via DisableEncryption), and an
+// encrypter is initialized. A server derives its decrypter only when the client
+// advertised GlobalCapEncryption, so having offered the capability is required —
+// the EncryptionCapabilities negotiate context alone is not sufficient.
+func (s *Session) canEncrypt() bool {
+	return s.supportsEncryption && !s.options.DisableEncryption && s.encrypter != nil
+}
+
+// treeIdEncrypts reports whether the share behind the given TreeConnect id was
+// flagged by the server with SMB2_SHAREFLAG_ENCRYPT_DATA, meaning every request
+// on that tree must be encrypted (MS-SMB2 §3.2.5.5).
+func (s *Session) treeIdEncrypts(id uint32) bool {
+	if id == 0 {
+		return false
+	}
+	s.treeLock.RLock()
+	defer s.treeLock.RUnlock()
+	for _, t := range s.trees {
+		if t.treeId == id {
+			return t.encryptData
+		}
+	}
+	return false
+}
+
+// TreeConnectInfo returns the ShareFlags, Capabilities and MaximalAccess the
+// server reported for an already-connected share. ok is false if the share is
+// not connected.
+func (s *Session) TreeConnectInfo(name string) (shareFlags, capabilities, maximalAccess uint32, ok bool) {
+	s.treeLock.RLock()
+	defer s.treeLock.RUnlock()
+	t, ok := s.trees[name]
+	if !ok {
+		return 0, 0, 0, false
+	}
+	return t.shareFlags, t.capabilities, t.maximalAccess, true
+}
+
 func (c *Connection) TreeConnect(name string) error {
 	// Check if already connected
-	if _, ok := c.trees[name]; ok {
+	if c.hasTree(name) {
 		return nil
 	}
 
@@ -1030,8 +1217,26 @@ func (c *Connection) TreeConnect(name string) error {
 	if err = statusError("TreeConnect", res.Header.Status); err != nil {
 		return err
 	}
-	c.trees[name] = res.Header.TreeID
-	c.credits += uint64(res.Header.Credits) // Add granted credits
+
+	encryptData := res.ShareFlags&ShareFlagEncryptData != 0
+	// MS-SMB2 §3.2.5.5: if the share requires encryption but the connection
+	// cannot encrypt end-to-end, the client MUST fail the tree connect rather
+	// than send traffic the server is unable to decrypt (or plaintext it will
+	// reject with STATUS_ACCESS_DENIED).
+	if encryptData && !c.canEncrypt() {
+		return fmt.Errorf("share [%s]: %w", name, ErrShareRequiresEncryption)
+	}
+
+	c.treeLock.Lock()
+	c.trees[name] = &treeConnect{
+		treeId:        res.Header.TreeID,
+		shareFlags:    res.ShareFlags,
+		capabilities:  res.Capabilities,
+		maximalAccess: res.MaximalAccess,
+		encryptData:   encryptData,
+	}
+	c.treeLock.Unlock()
+	// Granted credits are accounted centrally in the receive loop.
 
 	log.Debugf("Completed TreeConnect [%s]\n", name)
 	return nil
@@ -1039,19 +1244,8 @@ func (c *Connection) TreeConnect(name string) error {
 
 func (c *Connection) TreeDisconnect(name string) error {
 
-	var (
-		treeid    uint32
-		pathFound bool
-	)
-	for k, v := range c.trees {
-		if k == name {
-			treeid = v
-			pathFound = true
-			break
-		}
-	}
-
-	if !pathFound {
+	treeid := c.treeId(name)
+	if treeid == 0 {
 		err := fmt.Errorf("unable to find tree path for disconnect")
 		log.Debugln(err)
 		return err
@@ -1077,7 +1271,9 @@ func (c *Connection) TreeDisconnect(name string) error {
 	if err = statusError("TreeDisconnect", res.Header.Status); err != nil {
 		return err
 	}
+	c.treeLock.Lock()
 	delete(c.trees, name)
+	c.treeLock.Unlock()
 
 	log.Debugf("TreeDisconnect completed [%s]\n", name)
 	return nil
@@ -1085,6 +1281,52 @@ func (c *Connection) TreeDisconnect(name string) error {
 
 func (f *File) IsOpen() bool {
 	return f.fd != nil
+}
+
+// Echo sends an SMB2 ECHO (MS-SMB2 §2.2.28) and waits for the reply. It is a
+// connection-level keepalive that probes the server is still responsive
+// without touching any share or file.
+func (c *Connection) Echo() error {
+	req := c.NewEchoReq()
+	buf, err := c.sendrecv(req)
+	if err != nil {
+		log.Debugln(err)
+		return err
+	}
+	if len(buf) < 64 {
+		return fmt.Errorf("Echo received a response too short to contain a header")
+	}
+	var h Header
+	if err := encoder.Unmarshal(buf[:64], &h); err != nil {
+		log.Debugln(err)
+		return err
+	}
+	return statusError("Echo", h.Status)
+}
+
+// Flush issues an SMB2 FLUSH (MS-SMB2 §2.2.17) for this open handle, asking the
+// server to commit all buffered writes to stable storage, and waits for
+// confirmation. Call it after a sequence of WriteFile calls when durability
+// must be guaranteed before proceeding.
+func (f *File) Flush() error {
+	if f.fd == nil {
+		return fmt.Errorf("can't operate on a closed file")
+	}
+	req := f.NewFlushReq(f.share, f.fd)
+	buf, err := f.sendrecv(req)
+	if err != nil {
+		log.Debugln(err)
+		return err
+	}
+	if len(buf) < 64 {
+		return fmt.Errorf("Flush received a response too short to contain a header")
+	}
+	var h Header
+	if err := encoder.Unmarshal(buf[:64], &h); err != nil {
+		log.Debugln(err)
+		return err
+	}
+	return statusError("Flush", h.Status)
 }
 
 func (f *File) CloseFile() error {
@@ -1342,7 +1584,7 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return files, err
 	}
-	f := &File{Connection: s, share: share, fd: res.FileId, filename: dir, shareid: s.trees[share]}
+	f := &File{Connection: s, share: share, fd: res.FileId, filename: dir, shareid: s.treeId(share)}
 	defer f.CloseFile()
 
 	maxResponseBufferSize := uint32(65536)
@@ -1430,7 +1672,7 @@ func (s *Connection) ListShare(share, dir string, recurse bool) (files []SharedF
 
 func (s *Connection) OpenFileExt(tree string, filepath string, opts *CreateReqOpts) (file *File, err error) {
 	// If tree is not connected, connect to it
-	if _, ok := s.trees[tree]; !ok {
+	if !s.hasTree(tree) {
 		err = s.TreeConnect(tree)
 		if err != nil {
 			log.Debugln(err)
@@ -1489,7 +1731,7 @@ func (s *Connection) OpenFileExt(tree string, filepath string, opts *CreateReqOp
 			Attributes:     res.FileAttributes,
 			EndOfFile:      res.EndOfFile,
 		},
-		shareid:  s.trees[tree],
+		shareid:  s.treeId(tree),
 		fd:       res.FileId,
 		share:    tree,
 		filename: filepath,
@@ -1516,7 +1758,7 @@ func (s *Connection) OpenFileReadAttributes(tree string, filepath string) (file 
 // Returns true if a new connection was made (caller should defer TreeDisconnect),
 // or false if already connected. Returns an error if the connection failed.
 func (s *Connection) connectToTree(share string) (bool, error) {
-	if _, ok := s.trees[share]; ok {
+	if s.hasTree(share) {
 		return false, nil
 	}
 	if err := s.TreeConnect(share); err != nil {
@@ -1584,7 +1826,7 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 		Connection: s,
 		share:      share,
 		filename:   filepath,
-		shareid:    s.trees[share],
+		shareid:    s.treeId(share),
 		fd:         res.FileId,
 	}
 	defer f.CloseFile()
@@ -1627,14 +1869,27 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 	if f.fd == nil {
 		return 0, fmt.Errorf("can't operate on a closed file")
 	}
+	// Bound a single READ request. Without multi-credit support the server
+	// permits only one 64 KiB credit per request. With it, cap to the
+	// server-advertised MaxReadSize and then to what the current credit window
+	// can cover, so a read larger than the granted window is split across
+	// several requests instead of charging more credits than exist and blocking
+	// forever in reserve. Splitting is transparent: each READ carries its own
+	// offset, and callers already loop on the returned (possibly short) count.
+	//
+	// NOTE: like WriteFile, this trusts the server-advertised MaxReadSize. Some
+	// servers misbehave on transfers larger than 1 MiB regardless of what they
+	// advertise; if reads fail or stall, clamp maxReadBufferSize to 1<<20.
 	maxReadBufferSize := 65536
 	if f.supportsMultiCredit {
-		maxReadBufferSize = len(b)
+		maxReadBufferSize = int(f.maxReadSize)
+		if w := f.creditWindowBytes(); w < maxReadBufferSize {
+			maxReadBufferSize = w
+		}
 	}
-
-	// If connection supports multi-credit requests, we can request as large chunks
-	// as the caller wants up to an upper limit of the connection maxReadSize. Otherwise the size is limited to
-	// 64KiB
+	if maxReadBufferSize < 65536 {
+		maxReadBufferSize = 65536
+	}
 	if len(b) > maxReadBufferSize {
 		b = b[:maxReadBufferSize]
 	}
@@ -1764,7 +2019,7 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 		filename:   filepath,
 		fd:         res.FileId,
 		share:      share,
-		shareid:    s.trees[share],
+		shareid:    s.treeId(share),
 	}
 	defer f.CloseFile()
 
@@ -1796,44 +2051,69 @@ func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
 	if f.fd == nil {
 		return 0, fmt.Errorf("can't operate on a closed file")
 	}
-	maxWriteBufferSize := 65536
-	if f.supportsMultiCredit {
-		// Reading data in chunks of max 1MiB blocks as f.MaxReadSize seems to cause problems
-		//maxWriteBufferSize = 1048576 // Arbitrary value of 1MiB
-		maxWriteBufferSize = len(data)
-	}
 
-	// If connection supports multi-credit requests, we can send as large chunks
-	// as the caller wants up to an upper limit of 1MiB. Otherwise the size is limited to
-	// 64KiB
-	if len(data) > maxWriteBufferSize {
-		data = data[:maxWriteBufferSize]
-	}
+	// Write all of data, splitting it across as many WRITE requests as the
+	// per-request ceiling requires. Without multi-credit support a request is
+	// limited to a single 64 KiB credit; with it, cap each chunk to the
+	// server-advertised MaxWriteSize and then to what the current credit window
+	// covers, so a large write is split into requests whose CreditCharge stays
+	// within the granted window rather than deadlocking in reserve. Callers
+	// (PutFile) rely on WriteFile consuming the whole buffer, so the loop
+	// continues until data is exhausted.
+	//
+	// NOTE: MaxWriteSize is trusted as the per-request ceiling, but in practice
+	// some servers misbehave on WRITE requests larger than 1 MiB even though
+	// they advertise a bigger MaxWriteSize (an earlier revision of this code
+	// hard-capped transfers at 1 MiB for exactly this reason). If large writes
+	// start failing or stalling against a particular server, clamp chunkMax to
+	// 1<<20 here (and the read path in ReadFile) before assuming the bug is
+	// elsewhere.
+	for n < len(data) {
+		chunkMax := 65536
+		if f.supportsMultiCredit {
+			chunkMax = int(f.maxWriteSize)
+			if w := f.creditWindowBytes(); w < chunkMax {
+				chunkMax = w
+			}
+		}
+		if chunkMax < 65536 {
+			chunkMax = 65536
+		}
+		end := n + chunkMax
+		if end > len(data) {
+			end = len(data)
+		}
+		chunk := data[n:end]
 
-	req, err := f.NewWriteReq(f.share, f.fd, offset, data)
+		req, err := f.NewWriteReq(f.share, f.fd, offset+uint64(n), chunk)
+		if err != nil {
+			log.Debugln(err)
+			return n, err
+		}
 
-	if err != nil {
-		log.Debugln(err)
-		return
-	}
+		buf, err := f.sendrecv(req)
+		if err != nil {
+			log.Debugln(err)
+			return n, err
+		}
 
-	buf, err := f.sendrecv(req)
-	if err != nil {
-		log.Debugln(err)
-		return
+		var res WriteRes
+		log.Tracef("Unmarshalling Write response [%s]\n", f.share)
+		if err := encoder.Unmarshal(buf, &res); err != nil {
+			log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
+			return n, err
+		}
+		if err = statusError("Write", res.Status); err != nil {
+			return n, err
+		}
+		if res.Count == 0 {
+			// A server that acknowledges zero bytes would otherwise spin the
+			// loop forever; surface it instead.
+			return n, fmt.Errorf("Write made no progress at offset %d", offset+uint64(n))
+		}
+		n += int(res.Count)
 	}
-
-	var res WriteRes
-	log.Tracef("Unmarshalling Write response [%s]\n", f.share)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
-		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
-		return n, err
-	}
-	if err = statusError("Write", res.Status); err != nil {
-		return
-	}
-	n = int(res.Count)
-	return
+	return n, nil
 }
 
 func (f *File) IsDir() bool {
@@ -1909,7 +2189,7 @@ func (s *Connection) deleteFileDir(share string, path string, isDir bool) (err e
 		filename:   path,
 		fd:         res.FileId,
 		share:      share,
-		shareid:    s.trees[share],
+		shareid:    s.treeId(share),
 	}
 	defer f.CloseFile()
 
@@ -1976,7 +2256,7 @@ func (s *Connection) WriteIoCtlReq(req *IoCtlReq) (res IoCtlRes, err error) {
 
 func (c *Connection) Close() {
 	log.Debug("Closing session")
-	for k := range c.trees {
+	for _, k := range c.treeNames() {
 		c.TreeDisconnect(k)
 	}
 	//c.outstandingRequests.shutdown(nil)
@@ -2047,7 +2327,7 @@ func (s *Connection) Mkdir(share string, path string) (err error) {
 		filename:   path,
 		fd:         res.FileId,
 		share:      share,
-		shareid:    s.trees[share],
+		shareid:    s.treeId(share),
 	}
 	defer f.CloseFile()
 

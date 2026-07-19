@@ -31,25 +31,25 @@ import (
 func TestNegotiate(t *testing.T) {
 	cases := []struct {
 		name              string
-		forceSMB2         bool // client flag: only offer SMB 2.1
+		dialects          []uint16 // client offer; nil = default (highest 3.1.1)
 		disableSigning    bool
 		disableEncryption bool
 	}{
 		// SMB 2.1 with everything off — exercises the simple non-3.1.1 path.
-		{name: "smb_2_1_only", forceSMB2: true, disableSigning: true, disableEncryption: true},
+		{name: "smb_2_1_only", dialects: smb.DialectsSMB2Only, disableSigning: true, disableEncryption: true},
 		// SMB 3.1.1 with encryption off but signing left enabled — the
 		// client refuses 3.1.1 with both off, so we allow signing here.
-		{name: "smb_3_1_1", forceSMB2: false, disableSigning: false, disableEncryption: true},
+		{name: "smb_3_1_1", dialects: nil, disableSigning: false, disableEncryption: true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			runNegotiateTest(t, tc.forceSMB2, tc.disableSigning, tc.disableEncryption)
+			runNegotiateTest(t, tc.dialects, tc.disableSigning, tc.disableEncryption)
 		})
 	}
 }
 
-func runNegotiateTest(t *testing.T, forceSMB2, disableSigning, disableEncryption bool) {
+func runNegotiateTest(t *testing.T, dialects []uint16, disableSigning, disableEncryption bool) {
 	t.Helper()
 
 	var negotiateHookFired atomic.Bool
@@ -78,7 +78,7 @@ func runNegotiateTest(t *testing.T, forceSMB2, disableSigning, disableEncryption
 		ManualLogin:       true,
 		DisableSigning:    disableSigning,
 		DisableEncryption: disableEncryption,
-		ForceSMB2:         forceSMB2,
+		Dialects:          dialects,
 		DialTimeout:       2 * time.Second,
 	}
 

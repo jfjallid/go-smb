@@ -101,8 +101,8 @@ type ServerConfig struct {
 	HealthCheckOnSelect bool
 
 	// UpstreamOptions configures every upstream *smb.Connection. The
-	// forwarder forces ManualLogin/ForceSMB2/DisableSigning/DisableEncryption
-	// regardless (relay can't sign or encrypt).
+	// forwarder forces ManualLogin/Dialects(SMB2Only)/DisableSigning/
+	// DisableEncryption regardless (relay can't sign or encrypt).
 	UpstreamOptions smb.Options
 
 	// ListenerConfig configures the inbound smb/server listener.

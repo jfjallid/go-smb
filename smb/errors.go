@@ -23,8 +23,16 @@
 package smb
 
 import (
+	"errors"
 	"fmt"
 )
+
+// ErrShareRequiresEncryption is returned by TreeConnect when the server marks a
+// share SMB2_SHAREFLAG_ENCRYPT_DATA but the connection did not negotiate
+// encryption end-to-end (e.g. the client set DisableEncryption, so the server
+// derived no decrypter). Per MS-SMB2 §3.2.5.5 the client MUST fail the tree
+// connect rather than send traffic the server cannot decrypt.
+var ErrShareRequiresEncryption = errors.New("share requires encryption but the connection negotiated none")
 
 // NTStatusError represents a non-success NTSTATUS in an SMB2 response
 // header. Status always preserves the raw NTSTATUS, also when no sentinel

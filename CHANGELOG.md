@@ -9,9 +9,79 @@ at release time it is renamed to the new version and a fresh
 
 ## [Unreleased]
 
-Headline items this cycle are an explicit NTLM authentication mode, reliable
-detection of accepted guest/null sessions, and the removal of the long-unused
-credential fields on `smb.Options`.
+Headline items this cycle are a batch of SMB 2.1–3.1.1 client protocol
+conformance work (SMB 3.0/3.0.2 dialects, credit-based flow control with the
+Windows request/grow/split strategy, per-share encryption, and oplock-break /
+CANCEL handling), an explicit NTLM authentication mode, reliable detection of
+accepted guest/null sessions, and the removal of the long-unused credential
+fields on `smb.Options`.
+
+### SMB2/3 client protocol conformance
+
+A batch of MS-SMB2 client-side improvements:
+
+- **SMB 3.0 / 3.0.2 dialects are now offered.** Previously the client jumped
+  straight from 3.1.1 to 2.1, so any server capped at 3.0/3.0.2 silently
+  downgraded to 2.1 and lost SMB3 signing and encryption. The negotiate offer
+  now includes `0x0302`/`0x0300`, with the matching key-derivation path
+  (fixed AES-128-CMAC signing, AES-128-CCM encryption, and the SMB 3.0 KDF
+  label/context pairs per MS-SMB2 §3.1.4.2).
+- **Custom dialect offer via `Options.Dialects`.** A caller can now override the
+  set of SMB2 dialects advertised in NEGOTIATE (e.g. to require 3.1.1 only or
+  exclude 2.0.2). Entries are validated against the known revisions; the
+  3.1.1-only negotiate contexts are emitted only when 3.1.1 is offered, and
+  setting the field takes the direct SMB2 negotiate path (the SMB1
+  multi-protocol probe cannot honor a custom list). Leaving it nil keeps the
+  default offer.
+- **`Options.ForceSMB2` removed (breaking).** The flag was equivalent to
+  offering only SMB 2.1, which `Options.Dialects` now expresses directly. Set
+  `Dialects: smb.DialectsSMB2Only` (a new convenience value for
+  `[]uint16{smb.DialectSmb_2_1}`) to pin the legacy 2.1 path. Unlike the old
+  flag, this also skips the SMB1 multi-protocol probe and goes straight to the
+  SMB2 negotiate.
+- **Per-share encryption is honored (MS-SMB2 §3.2.5.5).** TreeConnect now
+  captures `ShareFlags`, `Capabilities` and `MaximalAccess` (exposed via
+  `Session.TreeConnectInfo`). A share flagged `SMB2_SHAREFLAG_ENCRYPT_DATA`
+  gets its traffic encrypted; if the connection cannot encrypt end-to-end the
+  tree connect fails with the new `smb.ErrShareRequiresEncryption` instead of
+  sending traffic the server rejects.
+- **Credit-based flow control (MS-SMB2 §3.2.4.1.2).** The client now maintains
+  a real credit balance: it consumes `CreditCharge` credits per request
+  (blocking when short) and replenishes from each response's granted credits.
+  The server side was correspondingly fixed to grant credits commensurate with
+  the request (it previously granted a flat 1, which starves a compliant
+  client on multi-credit operations). The client now also follows the Windows
+  credit strategy end-to-end:
+    - **Ask for more.** Every credit-managed request advertises a
+      `CreditRequest` that covers its charge and grows the granted balance
+      toward a target (default 512 credits ≈ a 32 MiB window), so the window
+      climbs and holds instead of draining. Configurable via the new
+      `Options.CreditTarget`.
+    - **Never exceed / split.** Large `ReadFile`/`WriteFile` calls are split
+      into requests whose `CreditCharge` fits the current window (and the
+      server-advertised `MaxReadSize`/`MaxWriteSize`), so a single transfer can
+      never require more credits than the server will grant.
+    - **Deadlock-free by construction.** Credit reservation happens off the
+      send mutex, connection teardown wakes any waiter, and a bounded wait
+      (default 60 s, configurable via the new `Options.CreditReserveTimeout`;
+      negative waits forever) turns a starved window into an error rather than
+      a hang.
+    - `calcCreditCharge` now uses the integer formula from MS-SMB2 §3.1.5.2;
+      it previously over-charged by one credit at exact 64 KiB multiples.
+- **`ReadFile`/`WriteFile` transfer semantics.** As a consequence of credit
+  splitting, `File.ReadFile` is now `io.Reader`-style: it may return
+  `n < len(b)` for a single call even when more data is available, and callers
+  should loop on the returned offset (`RetrieveFile` already does).
+  `File.WriteFile` now always writes the *entire* buffer, looping internally as
+  needed — this also fixes a latent bug where, against a server without
+  multi-credit support, only the first 64 KiB of a larger buffer was written.
+- **Unsolicited oplock break handling + CANCEL (MS-SMB2 §2.2.23/24, §2.2.30).**
+  Server break notifications (reserved MessageId `0xFFFF…`) are routed to an
+  optional handler (`Session.SetOplockBreakHandler`) and acknowledged instead
+  of being dropped. `Connection.SendCancel` issues an SMB2 CANCEL; the server
+  now exempts CANCEL from duplicate-MessageId detection as the spec requires.
+- **New client commands: `Connection.Echo` (keepalive, §2.2.28) and
+  `File.Flush` (§2.2.17).**
 
 ### Breaking changes
 

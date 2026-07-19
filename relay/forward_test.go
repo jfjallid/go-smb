@@ -90,7 +90,7 @@ func TestSMBForwarderRawNTLMBoundary(t *testing.T) {
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 	}
 	_, _ = smb.NewConnection(bait)
@@ -172,7 +172,7 @@ func TestSMBForwarderMICStripDoesNotBreakRelay(t *testing.T) {
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 	}
 	_, _ = smb.NewConnection(bait)

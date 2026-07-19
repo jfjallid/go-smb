@@ -43,7 +43,7 @@ func (c *Conn) handleSessionSetup(ctx pduCtx, raw []byte, h *smb.Header) error {
 	if err := encoder.Unmarshal(raw, &req); err != nil {
 		return formatErr("decode SessionSetupReq", err)
 	}
-	// MS-SMB2 §3.3.5.5.2: a server that does not support multichannel
+	// MS-SMB2 §3.3.5.5: a server that does not support multichannel
 	// session binding MUST fail SessionSetup with STATUS_REQUEST_NOT_ACCEPTED
 	// when SMB2_SESSION_FLAG_BINDING is set. Reject before allocating a new
 	// session so the bind attempt doesn't leak state on this Conn.
@@ -131,7 +131,7 @@ func (c *Conn) handleSessionSetupAuthenticate(ctx pduCtx, raw []byte, h *smb.Hea
 	}
 
 	// Fold inbound SessionSetup2Req into the preauth chain *before* deriving
-	// keys — MS-SMB2 §3.1.5.1 includes every SessionSetup leg up to and
+	// keys — MS-SMB2 §3.3.5.5.3 includes every SessionSetup leg up to and
 	// including the inbound auth blob in the chain.
 	c.updatePreauthChainSession(sess, raw)
 
@@ -172,7 +172,7 @@ func (c *Conn) handleSessionSetupAuthenticate(ctx pduCtx, raw []byte, h *smb.Hea
 		sess.Username = sess.AuthAcceptor.User()
 		sess.Domain = sess.AuthAcceptor.Domain()
 		sess.Workstation = sess.AuthAcceptor.Workstation()
-		// MS-SMB2 §3.3.5.5.3 step 6: now that we know the user, evict any
+		// MS-SMB2 §3.3.5.5.3 step 13: now that we know the user, evict any
 		// prior session matching PreviousSessionID owned by the same user
 		// across all connections on this server.
 		if sess.previousSessionID != 0 {
@@ -294,6 +294,36 @@ func (c *Conn) writeSessionSetupReply(ctx pduCtx, reqHdr *smb.Header, sessionID 
 	return c.writeReply(ctx, &res)
 }
 
+// maxCreditGrant caps how many credits the server hands out in a single
+// response. It bounds the client's outstanding credit window (and thus the
+// server's per-connection request concurrency) while staying well above any
+// realistic multi-credit operation.
+const maxCreditGrant = 512
+
+// grantedCredits decides how many credits to return in a response. MS-SMB2
+// §3.3.1.2 / §3.3.4.1.2: the server MUST replace at least the credits the
+// request consumed (CreditCharge) so the client's window never collapses, and
+// SHOULD honor the client's CreditRequest so the window can grow enough for
+// multi-credit operations. Granting a flat 1 (the previous behavior) starves a
+// spec-compliant client that blocks on credits before sending a multi-credit
+// read or write.
+func grantedCredits(reqHdr *smb.Header) uint16 {
+	charge := reqHdr.CreditCharge
+	if charge < 1 {
+		charge = 1
+	}
+	granted := reqHdr.Credits // CreditRequest on an inbound header
+	if granted > maxCreditGrant {
+		granted = maxCreditGrant
+	}
+	// The charge floor is applied last so a request that consumed more than the
+	// cap is still fully replaced — the client's window must never shrink.
+	if granted < charge {
+		granted = charge
+	}
+	return granted
+}
+
 // buildResponseHeader assembles an SMB2 header for a reply, echoing fields
 // from the inbound request and setting SMB2_FLAGS_SERVER_TO_REDIR. command
 // is provided explicitly because some SessionSetup paths (e.g. anonymous
@@ -305,7 +335,7 @@ func buildResponseHeader(reqHdr *smb.Header, status uint32, sessionID uint64, co
 		CreditCharge:  reqHdr.CreditCharge,
 		Status:        status,
 		Command:       command,
-		Credits:       1,
+		Credits:       grantedCredits(reqHdr),
 		Flags:         smb.SMB2_FLAGS_SERVER_TO_REDIR,
 		MessageID:     reqHdr.MessageID,
 		TreeID:        reqHdr.TreeID,

@@ -18,7 +18,7 @@ import (
 )
 
 // TestSigning311 round-trips a file over SMB 3.1.1 with mutual signing.
-// The default test client offers 3.1.1 first (since ForceSMB2 is left off);
+// The default test client offers 3.1.1 first (since Dialects is left unset);
 // the server has SigningRequired=true so the client must sign every PDU and
 // the server must sign every reply. A tampered signature on either side
 // would cause the verifier to drop the message and the test to hang/fail.
@@ -126,7 +126,7 @@ func TestSigning21(t *testing.T) {
 		Initiator:             &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		RequireMessageSigning: true,
 		DisableEncryption:     true,
-		ForceSMB2:             true, // restricts client to DialectSmb_2_1
+		Dialects:              smb.DialectsSMB2Only, // restricts client to DialectSmb_2_1
 		DialTimeout:           2 * time.Second,
 	}
 	c, err := smb.NewConnection(opts)

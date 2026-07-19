@@ -55,6 +55,28 @@ Process:
 5. KO := the leftmost L bits of result.
 */
 
+// KDF labels and contexts. SMB 3.1.1 keys the KDF with dedicated labels and
+// uses the preauth-integrity hash as the context (MS-SMB2 §3.1.4.2). SMB 3.0 /
+// 3.0.2 predate preauth integrity and instead use these fixed label/context
+// string pairs. Note the trailing space in smb30LabelDecrypt's ServerIn / the
+// ServerOut context and that every string is NUL-terminated.
+var (
+	// SMB 3.1.1 labels (context is the preauth-integrity hash).
+	smb311LabelSigning = []byte("SMBSigningKey\x00")
+	smb311LabelC2S     = []byte("SMBC2SCipherKey\x00")
+	smb311LabelS2C     = []byte("SMBS2CCipherKey\x00")
+	smb311LabelApp     = []byte("SMBAppKey\x00")
+
+	// SMB 3.0 / 3.0.2 fixed label + context pairs.
+	smb30LabelSigning   = []byte("SMB2AESCMAC\x00")
+	smb30ContextSigning = []byte("SmbSign\x00")
+	smb30LabelCipher    = []byte("SMB2AESCCM\x00")
+	smb30ContextC2S     = []byte("ServerIn \x00") // trailing space is intentional
+	smb30ContextS2C     = []byte("ServerOut\x00")
+	smb30LabelApp       = []byte("SMB2APP\x00")
+	smb30ContextApp     = []byte("SmbRpc\x00")
+)
+
 func kdf(ki, label, context []byte, L uint32) []byte {
 
 	h := hmac.New(sha256.New, ki)

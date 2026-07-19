@@ -475,7 +475,7 @@ func (c *Conn) writeRawError(ctx pduCtx, reqHdr *smb.Header, status uint32) erro
 		CreditCharge:  reqHdr.CreditCharge,
 		Status:        status,
 		Command:       reqHdr.Command,
-		Credits:       1,
+		Credits:       grantedCredits(reqHdr),
 		Flags:         smb.SMB2_FLAGS_SERVER_TO_REDIR,
 		MessageID:     reqHdr.MessageID,
 		TreeID:        reqHdr.TreeID,

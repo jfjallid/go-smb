@@ -86,7 +86,7 @@ func TestFakeServerRoundTrip(t *testing.T) {
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 	}
 	conn, err := smb.NewConnection(opts)
@@ -208,7 +208,7 @@ func TestFakeServerReadOnly(t *testing.T) {
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 	}
 	conn, err := smb.NewConnection(opts)

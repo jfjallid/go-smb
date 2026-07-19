@@ -101,11 +101,11 @@ func TestClientMessageIDAdvancesAfterNegotiate(t *testing.T) {
 	ntHash := ntlmssp.Ntowfv1(password)
 
 	for _, tc := range []struct {
-		name      string
-		forceSMB2 bool
+		name     string
+		dialects []uint16
 	}{
-		{"smb1_multiproto", false}, // SMB1 multi-proto → SMB2 Negotiate (CC=0)
-		{"smb2_only", true},        // SMB2-only Negotiate (CC=0)
+		{"smb1_multiproto", nil},            // SMB1 multi-proto → SMB2 Negotiate (CC=0)
+		{"smb2_only", smb.DialectsSMB2Only}, // SMB2-only Negotiate (CC=0)
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := &server.Server{
@@ -124,7 +124,7 @@ func TestClientMessageIDAdvancesAfterNegotiate(t *testing.T) {
 				Port:              addr.Port,
 				Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 				DisableEncryption: true, // signing path is fine; SMB 3.1.1 refuses both off
-				ForceSMB2:         tc.forceSMB2,
+				Dialects:          tc.dialects,
 				DialTimeout:       2 * time.Second,
 			}
 			c, err := smb.NewConnection(opts)

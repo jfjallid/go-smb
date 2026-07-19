@@ -88,7 +88,8 @@ different connection types.
 			LocalUser: false, // Authenticate with local and not domain account?
 		},
 		DisableEncryption: false, // Useful for debugging when SMB 3.1.1 is used
-		ForceSMB2:         false,
+		// To pin the legacy SMB 2.1 path, set:
+		// Dialects: smb.DialectsSMB2Only,
 	}
 
     var session *smb.Connection

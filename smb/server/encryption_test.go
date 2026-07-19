@@ -239,14 +239,16 @@ func TestRequireEncryptionRejectsPlaintextClient(t *testing.T) {
 	}
 }
 
-// TestPerShareEncryptDataRejectsPlaintextOp covers the per-share
-// EncryptData enforcement gap: the server advertises encryption support
-// (but does not require it server-wide) and registers a share with
-// EncryptData=true. A client that opts out of encryption
-// (DisableEncryption=true) is allowed through SessionSetup and
-// TreeConnect — the TreeConnect reply correctly reflects
-// ShareFlagEncryptData — but any subsequent operation against that
-// tree must fail with STATUS_ACCESS_DENIED (MS-SMB2 §3.3.5.2.11).
+// TestPerShareEncryptDataRejectsPlaintextOp covers per-share EncryptData
+// enforcement on the client side (MS-SMB2 §3.2.5.5). The server advertises
+// encryption support (but does not require it server-wide) and registers a
+// share with EncryptData=true. A client that opts out of encryption
+// (DisableEncryption=true) never advertises GlobalCapEncryption, so the server
+// derives no decrypter for the session. The TreeConnect reply still reflects
+// ShareFlagEncryptData, and the spec-compliant client MUST fail the tree
+// connect rather than proceed — sending plaintext (rejected with
+// STATUS_ACCESS_DENIED) or encrypted traffic the server cannot decrypt (which
+// tears down the connection). This asserts the client's refusal.
 func TestPerShareEncryptDataRejectsPlaintextOp(t *testing.T) {
 	const (
 		user     = "alice"
@@ -294,31 +296,21 @@ func TestPerShareEncryptDataRejectsPlaintextOp(t *testing.T) {
 	}
 	defer c.Close()
 
-	// TreeConnect must succeed even though the share is encrypt-only —
-	// the client uses the share-flag in the reply to learn it should
-	// switch to encryption. Our client doesn't auto-upgrade, but the
-	// TreeConnect itself is permitted plaintext per MS-SMB2 §3.3.5.7.
-	if err := c.TreeConnect(share); err != nil {
-		t.Fatalf("TreeConnect: %v", err)
+	// TreeConnect to the encrypt-only share must fail: the client cannot
+	// provide encryption end-to-end (it opted out), so per MS-SMB2 §3.2.5.5 it
+	// refuses rather than sending traffic the server can neither accept as
+	// plaintext nor decrypt.
+	err = c.TreeConnect(share)
+	if err == nil {
+		t.Fatalf("expected TreeConnect to encrypt-only share to fail; got nil")
 	}
+	if !errors.Is(err, smb.ErrShareRequiresEncryption) {
+		t.Fatalf("TreeConnect error: got %v, want ErrShareRequiresEncryption", err)
+	}
+	// The server still processed the request and reflected the encrypt flag in
+	// its reply (the client inspects it before refusing).
 	if !sawShareFlag.Load() {
 		t.Fatalf("server did not reflect ShareFlagEncryptData in TreeConnectRes")
-	}
-
-	// A plaintext PutFile against the encrypt-only tree must be rejected.
-	src := bytes.NewReader([]byte("should never be written\n"))
-	err = c.PutFile(share, "denied.txt", 0, func(buf []byte) (int, error) {
-		n, err := src.Read(buf)
-		if err == io.EOF && n == 0 {
-			return 0, io.EOF
-		}
-		return n, nil
-	})
-	if err == nil {
-		t.Fatalf("expected PutFile on encrypt-only share to fail; got nil")
-	}
-	if !errors.Is(err, smb.StatusMap[smb.StatusAccessDenied]) {
-		t.Fatalf("PutFile error: got %v, want STATUS_ACCESS_DENIED", err)
 	}
 }
 

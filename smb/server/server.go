@@ -454,7 +454,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // evictPreviousSession evicts any session matching prevID owned by the
 // same (case-insensitively compared) user@domain across every Conn the
 // Server currently tracks, except for the newly-installed session
-// identified by (newConn, newID). MS-SMB2 §3.3.5.5.3 step 6: the eviction
+// identified by (newConn, newID). MS-SMB2 §3.3.5.5.3 step 13: the eviction
 // happens once the new SessionSetup has succeeded with an authenticated
 // principal, so we can match by username (a no-op SessionID match without
 // the user guard would let an attacker stomp another user's session).

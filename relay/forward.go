@@ -74,7 +74,7 @@ func newSMBForwarder(t Target, opts smb.Options, logger server.Logger) (*smbForw
 	// (client-side) session and we never see them. Force these off even if
 	// the caller forgot.
 	opts.ManualLogin = true
-	opts.ForceSMB2 = true
+	opts.Dialects = smb.DialectsSMB2Only
 	opts.DisableSigning = true
 	opts.DisableEncryption = true
 	return &smbForwarder{target: t, opts: opts, logger: logger}, nil

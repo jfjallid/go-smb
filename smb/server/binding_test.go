@@ -27,7 +27,7 @@ import (
 
 // TestSessionBindingRejected verifies that a SessionSetup request with
 // SMB2_SESSION_FLAG_BINDING (0x01) is rejected with STATUS_REQUEST_NOT_ACCEPTED
-// per MS-SMB2 §3.3.5.5.2 — our server doesn't support multichannel.
+// per MS-SMB2 §3.3.5.5 — our server doesn't support multichannel.
 //
 // We bypass the in-tree client because it doesn't set the BINDING flag.
 // The test does a minimum Negotiate handshake by hand, then synthesizes a
@@ -43,7 +43,7 @@ func TestSessionBindingRejected(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// The server's BINDING check (handleSessionSetup, MS-SMB2 §3.3.5.5.2)
+	// The server's BINDING check (handleSessionSetup, MS-SMB2 §3.3.5.5)
 	// runs before any dialect-dependent processing, so we can skip the
 	// Negotiate handshake here and synthesize the SessionSetup PDU directly.
 

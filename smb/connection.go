@@ -301,10 +301,25 @@ func (c *Connection) runReceiver() {
 			}
 		}
 
+		// MS-SMB2 §3.2.5.19/20: an unsolicited server packet (oplock or lease
+		// break notification) carries the reserved MessageId 0xFFFFFFFFFFFFFFFF
+		// and matches no outstanding request. Route it to the break handler
+		// instead of dropping it as "not found".
+		if h.MessageID == unsolicitedMessageID {
+			c.handleServerBreak(data)
+			continue
+		}
+
 		rr, ok := c.outstandingRequests.pop(h.MessageID)
 		if !ok {
 			log.Errorf("Message Id (%d) not found in outstanding packets!\n", h.MessageID)
 			continue
+		}
+		// MS-SMB2 §3.2.5.1.4: every response — including STATUS_PENDING interim
+		// responses — grants credits via its Credits field. Account them
+		// centrally so blocked senders can proceed.
+		if c.Session != nil && c.Session.creditMgr != nil {
+			c.Session.creditMgr.grant(h.Credits)
 		}
 		if h.Status == StatusPending {
 			// There are two types of SMB Headers depending on if Async flag is set.
@@ -326,6 +341,15 @@ func (c *Connection) runReceiver() {
 		err = nil
 	default:
 		log.Debugln(err)
+	}
+
+	// Wake any sender blocked waiting for credits BEFORE taking c.m. A sender
+	// parked in reserve() holds c.m for the duration of makeRequestResponse, so
+	// acquiring c.m here first would deadlock against it — and the very call
+	// that would release it (shutdown) sits past that lock. The credit manager
+	// has its own lock, so this is safe to do outside c.m.
+	if c.Session != nil && c.Session.creditMgr != nil {
+		c.Session.creditMgr.shutdown()
 	}
 
 	c.m.Lock()
@@ -394,7 +418,10 @@ func NewConnection(opt Options) (c *Connection, err error) {
 		sessionID:         0,
 		dialect:           0,
 		options:           opt,
-		trees:             make(map[string]uint32),
+		trees:             make(map[string]*treeConnect),
+		// MS-SMB2 §3.2.4.1.6: the connection starts with a sequence window of
+		// 1 credit so the initial NEGOTIATE can be sent before any grant.
+		creditMgr: newCreditManager(1),
 	}
 	c.Session.isSigningRequired.Store(opt.RequireMessageSigning)
 
@@ -420,11 +447,6 @@ func NewConnection(opt Options) (c *Connection, err error) {
 		log.Debugln(err)
 		return
 	}
-	if opt.ForceSMB2 {
-		// ForceSMB2 advertises only [2.1]; encryption requires 3.x.
-		c.Session.options.DisableEncryption = true
-	}
-
 	// Run sender and receiver go routines
 	go c.runSender()
 	go c.runReceiver()
@@ -453,7 +475,14 @@ func NewConnection(opt Options) (c *Connection, err error) {
 	return c, nil
 }
 
-func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err error) {
+// makeRequestResponse stamps the connection's next MessageID, CreditRequest,
+// and signature/encryption onto an already-marshalled request buffer and
+// registers it in the outstanding set. credited indicates the caller already
+// reserved this request's credits via reserveForSend (see send); it gates the
+// "ask for more" CreditRequest so only credit-managed requests advertise a
+// growth target. Credit reservation itself is deliberately NOT done here: it
+// can block, and this runs under c.m.
+func (c *Connection) makeRequestResponse(buf []byte, credited bool) (rr *requestResponse, err error) {
 	var h1 SMB1Header
 	var h Header
 	var smb1 bool
@@ -485,7 +514,7 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 	if !smb1 {
 		h.MessageID = messageID
 		creditCharge = h.CreditCharge
-		// MS-SMB2 §3.2.4.1.5: MessageIDs must monotonically increase across
+		// MS-SMB2 §3.2.4.1.6: MessageIDs must monotonically increase across
 		// the connection. CreditCharge=0 is valid for SMB2 Negotiate (dialect
 		// not yet known so multi-credit can't apply), but it still consumes
 		// one sequence slot — otherwise the next request reuses this ID,
@@ -503,8 +532,17 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 	}
 	c.lock.Unlock()
 
+	// "Ask for more": advertise a CreditRequest that both covers what this
+	// request consumes and refills the window toward the target, so the granted
+	// balance grows and holds instead of draining. Only for credit-managed
+	// (reserved) requests — the handshake sets its own Credits.
+	if credited && c.Session != nil && c.Session.creditMgr != nil {
+		h.Credits = c.Session.creditMgr.requestSize(h.CreditCharge, c.Session.creditTarget())
+	}
+
 	if !smb1 {
-		hBuf, err := encoder.Marshal(h)
+		var hBuf []byte
+		hBuf, err = encoder.Marshal(h)
 		if err != nil {
 			log.Debugln(err)
 			return rr, err
@@ -514,7 +552,13 @@ func (c *Connection) makeRequestResponse(buf []byte) (rr *requestResponse, err e
 
 	if c.Session != nil {
 		if h.Command != CommandSessionSetup {
-			if c.Session.sessionFlags&SessionFlagEncryptData != 0 {
+			// Encrypt when the session default requires it OR the specific
+			// share this request targets was flagged ENCRYPT_DATA by the
+			// server (MS-SMB2 §3.2.5.5). TreeConnect itself carries TreeId 0
+			// and so follows only the session-global rule.
+			encrypt := c.Session.sessionFlags&SessionFlagEncryptData != 0 ||
+				(c.Session.treeIdEncrypts(h.TreeID) && c.Session.canEncrypt())
+			if encrypt {
 				buf, err = c.encrypt(buf)
 				if err != nil {
 					return
@@ -584,10 +628,62 @@ func (c *Connection) SendRawPDU(pdu []byte) ([]byte, error) {
 	return c.recv(rr)
 }
 
+// peekSMB2Header reads the Command and CreditCharge fields from an
+// already-marshalled SMB2 header without a full unmarshal. Field offsets are
+// fixed by MS-SMB2 §2.2.1.2: CreditCharge at byte 6, Command at byte 12.
+func peekSMB2Header(buf []byte) (command, creditCharge uint16) {
+	creditCharge = binary.LittleEndian.Uint16(buf[6:8])
+	command = binary.LittleEndian.Uint16(buf[12:14])
+	return
+}
+
+// reserveForSend reserves the credits an outbound request will consume BEFORE
+// the caller takes c.m. Reserving here — rather than inside makeRequestResponse
+// under c.m — is essential: reserve can block waiting for the server to grant
+// credits, and blocking while holding c.m would serialize every other sender
+// behind the wait and deadlock the receiver's teardown (which needs c.m to run
+// the shutdown that would unblock the wait). It returns the reserved charge and
+// whether a reservation was made; SMB1 and the NEGOTIATE / SESSION_SETUP
+// handshake are exempt (they run inside the initial sequence window, and gating
+// them would deadlock connection setup).
+func (c *Connection) reserveForSend(buf []byte) (charge uint16, credited bool, err error) {
+	if len(buf) < 64 || buf[0] == 0xff {
+		return 0, false, nil
+	}
+	if c.Session == nil || c.Session.creditMgr == nil {
+		return 0, false, nil
+	}
+	command, creditCharge := peekSMB2Header(buf)
+	switch command {
+	case CommandNegotiate, CommandSessionSetup:
+		return 0, false, nil
+	}
+	if err = c.Session.creditMgr.reserve(creditCharge, c.Session.creditReserveTimeout()); err != nil {
+		return 0, false, err
+	}
+	return creditCharge, true, nil
+}
+
 // sendRawBytes is the bytes-only twin of send: it skips the encoder.Marshal
 // step (caller has already produced the wire bytes) and lets
 // makeRequestResponse stamp the MessageID / signature / encryption in place.
 func (c *Connection) sendRawBytes(buf []byte) (*requestResponse, error) {
+	charge, credited, err := c.reserveForSend(buf)
+	if err != nil {
+		return nil, err
+	}
+	// Return the reservation unless the request is handed to the write channel:
+	// a request that never reaches the server gets no response to grant its
+	// credits back, so releasing here keeps the window from leaking. The wdone
+	// paths already had creditMgr.shutdown unblock every waiter, so this release
+	// is a harmless no-op there.
+	handedOff := false
+	defer func() {
+		if credited && !handedOff && c.Session != nil && c.Session.creditMgr != nil {
+			c.Session.creditMgr.release(charge)
+		}
+	}()
+
 	c.m.Lock()
 	defer c.m.Unlock()
 	if c.err != nil {
@@ -599,7 +695,7 @@ func (c *Connection) sendRawBytes(buf []byte) (*requestResponse, error) {
 	default:
 	}
 
-	rr, err := c.makeRequestResponse(buf)
+	rr, err := c.makeRequestResponse(buf, credited)
 	if err != nil {
 		return nil, err
 	}
@@ -625,10 +721,30 @@ func (c *Connection) sendRawBytes(buf []byte) (*requestResponse, error) {
 		c.outstandingRequests.pop(rr.msgId)
 		return nil, nil
 	}
+	handedOff = true
 	return rr, nil
 }
 
 func (c *Connection) send(req any) (rr *requestResponse, err error) {
+	buf, err := encoder.Marshal(req)
+	if err != nil {
+		log.Debugln(err)
+		return nil, err
+	}
+
+	charge, credited, err := c.reserveForSend(buf)
+	if err != nil {
+		log.Debugln(err)
+		return nil, err
+	}
+	// See sendRawBytes: hand the reservation back on every path that doesn't
+	// deliver the request to the write channel.
+	handedOff := false
+	defer func() {
+		if credited && !handedOff && c.Session != nil && c.Session.creditMgr != nil {
+			c.Session.creditMgr.release(charge)
+		}
+	}()
 
 	c.m.Lock()
 	defer c.m.Unlock()
@@ -643,13 +759,7 @@ func (c *Connection) send(req any) (rr *requestResponse, err error) {
 		//Do nothing
 	}
 
-	buf, err := encoder.Marshal(req)
-	if err != nil {
-		log.Debugln(err)
-		return nil, err
-	}
-
-	rr, err = c.makeRequestResponse(buf)
+	rr, err = c.makeRequestResponse(buf, credited)
 	if err != nil {
 		log.Debugln(err)
 		return nil, err
@@ -678,6 +788,7 @@ func (c *Connection) send(req any) (rr *requestResponse, err error) {
 		return nil, nil
 	}
 
+	handedOff = true
 	return
 }
 

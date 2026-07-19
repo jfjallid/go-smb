@@ -198,7 +198,7 @@ func (c *Conn) handleNegotiate(ctx pduCtx, raw []byte, h *smb.Header) error {
 	res.Header.TreeID = h.TreeID
 	res.Header.CreditCharge = h.CreditCharge
 	if res.Header.Credits == 0 {
-		res.Header.Credits = 1
+		res.Header.Credits = grantedCredits(h)
 	}
 
 	// SMB 3.1.1 preauth integrity hash: fold both the inbound NegotiateReq
@@ -449,7 +449,7 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 	c.PreauthHashID = chosenHash
 	c.CipherID = chosenCipher
 	c.SigningID = chosenSign
-	// Preauth anti-downgrade (MS-SMB2 §3.1.5.2 + §3.3.5.4): the chain is
+	// Preauth anti-downgrade (MS-SMB2 §3.3.5.4 + §3.3.5.5.3): the chain is
 	// fed through updatePreauthChainConn (Negotiate req+res) and
 	// updatePreauthChainSession (each SessionSetup leg) and consumed by
 	// deriveKeys / deriveEncryptionKeys to compute the per-session signing

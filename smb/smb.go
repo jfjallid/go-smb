@@ -26,7 +26,6 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"slices"
 
 	"github.com/jfjallid/golog"
@@ -133,6 +132,11 @@ const DialectSmb_3_0 uint16 = 0x0300
 const DialectSmb_3_0_2 uint16 = 0x0302
 const DialectSmb_3_1_1 uint16 = 0x0311
 const DialectSmb2_ALL uint16 = 0x02FF
+
+// DialectsSMB2Only pins the negotiate offer to the legacy SMB 2.1 dialect. Use
+// it as Options.Dialects when a server has SMB 3.x disabled or must be forced
+// onto the 2.1 path (which cannot negotiate signing contexts or encryption).
+var DialectsSMB2Only = []uint16{DialectSmb_2_1}
 
 const (
 	CommandNegotiate uint16 = iota
@@ -837,6 +841,31 @@ type CloseRes struct {
 	FileAttributes uint32
 }
 
+// OplockBreak models the SMB2 OPLOCK_BREAK PDU (MS-SMB2 §2.2.23.1 /
+// §2.2.24.1 / §2.2.25.1). The same 24-byte layout is used for the server's
+// unsolicited break notification, the client's acknowledgment, and the
+// server's response, differing only in the meaning of OplockLevel. A lease
+// break uses a different, larger structure (StructureSize 44) that the client
+// does not model yet.
+type OplockBreak struct {
+	Header
+	StructureSize uint16 // Must be 24
+	OplockLevel   byte
+	Reserved      byte
+	Reserved2     uint32
+	FileId        []byte `smb:"fixed:16"`
+}
+
+// CancelReq models the SMB2 CANCEL request (MS-SMB2 §2.2.30). It carries no
+// body beyond the fixed StructureSize; the request is correlated to the target
+// operation by reusing the target's MessageId (and AsyncId, if the target went
+// asynchronous).
+type CancelReq struct {
+	Header
+	StructureSize uint16 // Must be 4
+	Reserved      uint16
+}
+
 type QueryDirectoryReq struct {
 	Header
 	StructureSize        uint16 // Must always be 33 regardless of Buffer size
@@ -1130,8 +1159,17 @@ type IoCtlRes struct {
 	Buffer        []byte
 }
 
+// calcCreditCharge returns the number of credits a request consumes for a
+// payload of payloadSize bytes: CreditCharge = (payloadSize - 1) / 65536 + 1
+// (MS-SMB2 §3.1.5.2), i.e. one credit per 64 KiB or fraction thereof. Integer
+// division is required — a float ceil over-charges by one at exact multiples of
+// 65536 (e.g. a 64 KiB read would take 2 credits instead of 1), needlessly
+// draining the window.
 func calcCreditCharge(payloadSize uint32) uint16 {
-	return uint16(math.Ceil(((float64(payloadSize) - 1) / 65536) + 1))
+	if payloadSize <= 1 {
+		return 1
+	}
+	return uint16((payloadSize-1)/65536 + 1)
 }
 
 func (s *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
@@ -1159,7 +1197,11 @@ func (s *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 		buf = binary.LittleEndian.AppendUint32(buf, 0)
 		buf = binary.LittleEndian.AppendUint16(buf, 0)
 	} else {
-		padding = 8 - ((36 + len(s.Dialects)*2) % 8)
+		// Pad the dialect array up to the next 8-byte boundary so the first
+		// negotiate context is 8-aligned. The outer % 8 keeps padding at 0 when
+		// the array already ends on a boundary (e.g. a 2-dialect custom offer),
+		// instead of inserting a spurious 8 bytes.
+		padding = (8 - ((36 + len(s.Dialects)*2) % 8)) % 8
 		offset := 64 + 36 + len(s.Dialects)*2 + padding
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(offset))
 		buf = binary.LittleEndian.AppendUint16(buf, s.NegotiateContextCount)
@@ -1288,23 +1330,34 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 
 	var dialects []uint16
 
-	if s.options.ForceSMB2 {
-		dialects = []uint16{DialectSmb_2_1}
-	} else {
+	switch {
+	case len(s.options.Dialects) > 0:
+		// Caller-supplied offer (validated in validateOptions). Copy so the
+		// request does not alias the caller's slice. To pin the legacy SMB 2.1
+		// path, callers set Options.Dialects = DialectsSMB2Only.
+		dialects = append([]uint16(nil), s.options.Dialects...)
+	default:
 		dialects = []uint16{
 			DialectSmb_3_1_1,
+			DialectSmb_3_0_2,
+			DialectSmb_3_0,
 			DialectSmb_2_1,
 			DialectSmb_2_0_2,
 		}
 	}
 
 	// MS-SMB2 §2.2.3: the Capabilities field MUST be 0 unless the client
-	// implements SMB 3.x. Detect that by inspecting the offered dialect list.
+	// implements SMB 3.x, and the negotiate contexts (preauth integrity,
+	// encryption, signing) are 3.1.1-only. Detect both from the offered list
+	// so a custom Dialects set is handled correctly.
 	offers3x := false
+	offers311 := false
 	for _, d := range dialects {
 		if d >= DialectSmb_3_0 {
 			offers3x = true
-			break
+		}
+		if d == DialectSmb_3_1_1 {
+			offers311 = true
 		}
 	}
 
@@ -1330,7 +1383,7 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 		req.SecurityMode = SecurityModeSigningEnabled | SecurityModeSigningRequired
 	}
 
-	if !s.options.ForceSMB2 {
+	if offers311 {
 		pic := PreauthIntegrityContext{
 			HashAlgorithmCount: 1,
 			HashAlgorithms:     []uint16{SHA512},
@@ -1614,7 +1667,7 @@ func (s *Session) NewCreateReq(share, name string,
 	header.Command = CommandCreate
 	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
-	header.TreeID = s.trees[share]
+	header.TreeID = s.treeId(share)
 	var buf []byte
 	var nameLen uint16
 	if len(name) > 0 {
@@ -1624,13 +1677,6 @@ func (s *Session) NewCreateReq(share, name string,
 		copy(buf, uname)
 	} else {
 		buf = make([]byte, 1)
-	}
-
-	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
-		header.Credits = 127
-		if header.CreditCharge > 127 {
-			header.Credits = header.CreditCharge
-		}
 	}
 
 	return CreateReq{
@@ -1659,7 +1705,7 @@ func (s *Session) NewCloseReq(share string, fileId []byte) (CloseReq, error) {
 	header.Command = CommandClose
 	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
-	header.TreeID = s.trees[share]
+	header.TreeID = s.treeId(share)
 
 	return CloseReq{
 		Header:        header,
@@ -1668,6 +1714,79 @@ func (s *Session) NewCloseReq(share string, fileId []byte) (CloseReq, error) {
 		Reserved:      0,
 		FileId:        fileId,
 	}, nil
+}
+
+// NewOplockBreakAck builds an SMB2 OPLOCK_BREAK acknowledgment for a break the
+// server signalled on fileId (MS-SMB2 §2.2.24.1 / §3.2.5.19). oplockLevel is the
+// level the client is willing to hold after the break — typically
+// OpLockLevelII or OpLockLevelNone.
+func (s *Session) NewOplockBreakAck(fileId []byte, oplockLevel byte) OplockBreak {
+	header := newHeader()
+	header.Command = CommandOplockBreak
+	s.applyCreditCharge(&header)
+	header.SessionID = s.sessionID
+
+	return OplockBreak{
+		Header:        header,
+		StructureSize: 24,
+		OplockLevel:   oplockLevel,
+		FileId:        fileId,
+	}
+}
+
+// NewCancelReq builds an SMB2 CANCEL for the request identified by msgId /
+// asyncId (MS-SMB2 §2.2.30 / §3.2.4.24). When asyncId is non-zero the target
+// had returned an interim STATUS_PENDING response, so the cancel is flagged
+// asynchronous and carries the AsyncId; otherwise it is correlated purely by
+// MessageId. The header's MessageId is set to the target's — the caller must
+// send this without allocating a fresh id.
+func (s *Session) NewCancelReq(msgId, asyncId uint64) CancelReq {
+	header := newHeader()
+	header.Command = CommandCancel
+	s.applyCreditCharge(&header)
+	header.MessageID = msgId
+	header.SessionID = s.sessionID
+	if asyncId != 0 {
+		header.Flags |= SMB2_FLAGS_ASYNC_COMMAND
+		// In an async header the 8-byte AsyncId overlays Reserved+TreeID.
+		header.Reserved = uint32(asyncId & 0xffffffff)
+		header.TreeID = uint32(asyncId >> 32)
+	}
+
+	return CancelReq{
+		Header:        header,
+		StructureSize: 4,
+	}
+}
+
+// NewEchoReq builds an SMB2 ECHO request (MS-SMB2 §2.2.28), a connection-level
+// keepalive that carries no body and targets no tree.
+func (s *Session) NewEchoReq() EchoReq {
+	header := newHeader()
+	header.Command = CommandEcho
+	s.applyCreditCharge(&header)
+	header.SessionID = s.sessionID
+
+	return EchoReq{
+		Header:        header,
+		StructureSize: 4,
+	}
+}
+
+// NewFlushReq builds an SMB2 FLUSH request (MS-SMB2 §2.2.17) asking the server
+// to commit buffered data for the open handle fileId to stable storage.
+func (s *Session) NewFlushReq(share string, fileId []byte) FlushReq {
+	header := newHeader()
+	header.Command = CommandFlush
+	s.applyCreditCharge(&header)
+	header.SessionID = s.sessionID
+	header.TreeID = s.treeId(share)
+
+	return FlushReq{
+		Header:        header,
+		StructureSize: 24,
+		FileId:        fileId,
+	}
 }
 
 func (s *Session) NewQueryDirectoryReq(share, pattern string, fileId []byte,
@@ -1686,14 +1805,7 @@ func (s *Session) NewQueryDirectoryReq(share, pattern string, fileId []byte,
 	header.CreditCharge = calcCreditCharge(outputBufferLength)
 	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
-	header.TreeID = s.trees[share]
-
-	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
-		header.Credits = 127
-		if header.CreditCharge > 127 {
-			header.Credits = header.CreditCharge
-		}
-	}
+	header.TreeID = s.treeId(share)
 
 	if pattern == "" {
 		/* QueryDirectory has a fixed Structure Size of 33 which seems to mean
@@ -1738,15 +1850,7 @@ func (s *Session) NewReadReq(share string, fileid []byte,
 	header.CreditCharge = calcCreditCharge(length)
 	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
-	header.TreeID = s.trees[share]
-
-	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
-		header.Credits = 127
-		if header.CreditCharge > 127 {
-			header.Credits = header.CreditCharge
-		}
-		header.Credits = header.CreditCharge
-	}
+	header.TreeID = s.treeId(share)
 
 	return ReadReq{
 		Header:                header, //Size 64 bytes
@@ -1775,15 +1879,7 @@ func (s *Session) NewWriteReq(share string, fileid []byte,
 	header.CreditCharge = calcCreditCharge(uint32(len(data)))
 	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
-	header.TreeID = s.trees[share]
-
-	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
-		header.Credits = 127
-		if header.CreditCharge > 127 {
-			header.Credits = header.CreditCharge
-		}
-		header.Credits = header.CreditCharge
-	}
+	header.TreeID = s.treeId(share)
 
 	fileSize := len(data)
 	buf := make([]byte, fileSize)
@@ -1811,7 +1907,6 @@ func (f *File) NewIoCTLReq(operation uint32, data []byte) (*IoCtlReq, error) {
 	header := newHeader()
 	header.Command = CommandIOCtl
 	f.applyCreditCharge(&header)
-	header.Credits = 127
 	header.SessionID = f.sessionID
 	header.TreeID = f.shareid
 
@@ -1845,14 +1940,7 @@ func (s *Session) NewSetInfoReq(share string, fileId []byte) (SetInfoReq, error)
 	header.Command = CommandSetInfo
 	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
-	header.TreeID = s.trees[share]
-
-	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
-		header.Credits = 127
-		if header.CreditCharge > 127 {
-			header.Credits = header.CreditCharge
-		}
-	}
+	header.TreeID = s.treeId(share)
 
 	return SetInfoReq{
 		Header:        header,
@@ -1878,14 +1966,7 @@ func (s *Session) NewQueryInfoReq(
 	header.CreditCharge = calcCreditCharge(outputBufferLength)
 	s.applyCreditCharge(&header)
 	header.SessionID = s.sessionID
-	header.TreeID = s.trees[share]
-
-	if (s.dialect != DialectSmb_2_0_2) && s.supportsMultiCredit {
-		header.Credits = 127
-		if header.CreditCharge > 127 {
-			header.Credits = header.CreditCharge
-		}
-	}
+	header.TreeID = s.treeId(share)
 
 	return QueryInfoReq{
 		Header:                header, //Size 64 bytes

@@ -156,7 +156,11 @@ func (c *Conn) dispatchSMB2Inner(raw []byte, ctx pduCtx) error {
 	// disconnect. Skipping this check leaves the server vulnerable to clients
 	// (or buggy SMB stacks) that forget to advance the message counter, e.g.
 	// after an SMB2 NegotiateReq with CreditCharge=0.
-	if !ctx.encrypted {
+	//
+	// CANCEL is the documented exception (§3.2.4.24): it intentionally reuses
+	// the MessageId of the request it cancels, so it must not be flagged as a
+	// duplicate.
+	if !ctx.encrypted && h.Command != smb.CommandCancel {
 		const ignoreMID = uint64(0xFFFFFFFFFFFFFFFF)
 		if h.MessageID != ignoreMID {
 			if c.seenMsgIDs.seen(h.MessageID) {

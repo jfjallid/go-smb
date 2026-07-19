@@ -232,7 +232,7 @@ func dialClient(t *testing.T, port int, user, password, domain string) *smb.Conn
 		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		DisableSigning:    true,
 		DisableEncryption: true,
-		ForceSMB2:         true,
+		Dialects:          smb.DialectsSMB2Only,
 		DialTimeout:       2 * time.Second,
 	}
 	c, err := smb.NewConnection(opts)
