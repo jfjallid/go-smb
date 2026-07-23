@@ -16,6 +16,7 @@ package spnego
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/jfjallid/gofork/encoding/asn1"
@@ -152,5 +153,120 @@ func TestAcceptorIncludesMIC_WhenInitiatorIncluded(t *testing.T) {
 	}
 	if len(resp.MechListMIC) == 0 {
 		t.Fatalf("expected non-empty MechListMIC when initiator sent one")
+	}
+}
+
+// newRawAcceptor builds an NTLMAcceptor whose Verify returns (verifyKey,
+// verifyStatus). verifyKey==nil with status 0 mimics an anonymous accept.
+func newRawAcceptor(verifyKey []byte, verifyStatus uint32) *NTLMAcceptor {
+	return &NTLMAcceptor{
+		Server: &ntlmssp.Server{
+			TargetName:      "TESTSRV",
+			NetBIOSName:     "TESTSRV",
+			NetBIOSDomain:   "TESTDOM",
+			DnsComputerName: "testsrv.testdom.local",
+			DnsDomainName:   "testdom.local",
+		},
+		Verify: func(_ *ntlmssp.Authenticate, _ [8]byte) ([]byte, uint32) {
+			return verifyKey, verifyStatus
+		},
+	}
+}
+
+// TestAcceptorRawNTLMSSP drives a bare (non-SPNEGO) NTLMSSP exchange as the
+// Linux kernel CIFS client does: the leading token is an NTLMSSP NEGOTIATE with
+// no SPNEGO wrapper. The acceptor must reply with a bare CHALLENGE (MessageType
+// 2, no ASN.1), and on the AUTHENTICATE leg return an empty output token with a
+// non-nil session key and Status 0 for good credentials.
+func TestAcceptorRawNTLMSSP(t *testing.T) {
+	client := &ntlmssp.Client{
+		User:     "alice",
+		Password: "p4ss",
+		Domain:   "TESTDOM",
+		Hash:     ntlmssp.Ntowfv1("p4ss"),
+	}
+	negMsg, err := client.Negotiate()
+	if err != nil {
+		t.Fatalf("client.Negotiate: %v", err)
+	}
+
+	fixedKey := bytes.Repeat([]byte{0xab}, 16)
+	acceptor := newRawAcceptor(fixedKey, 0)
+
+	// Leg 1: feed the bare NEGOTIATE directly (no NegTokenInit).
+	out1, done, err := acceptor.AcceptSecContext(negMsg)
+	if err != nil {
+		t.Fatalf("AcceptSecContext leg1: %v", err)
+	}
+	if done {
+		t.Fatalf("leg1 unexpectedly done")
+	}
+	// Output must be a bare CHALLENGE: signature + MessageType 2, no wrapper.
+	if len(out1) < 12 || string(out1[:8]) != ntlmssp.Signature {
+		t.Fatalf("leg1 output is not a bare NTLMSSP message: %x", out1[:min(12, len(out1))])
+	}
+	if mt := binary.LittleEndian.Uint32(out1[8:12]); mt != ntlmssp.TypeNtLmChallenge {
+		t.Fatalf("leg1 output MessageType = %d, want CHALLENGE (%d)", mt, ntlmssp.TypeNtLmChallenge)
+	}
+	if out1[0] == 0x60 || out1[0] == 0xa1 || out1[0] == 0x30 {
+		t.Fatalf("leg1 output looks ASN.1/SPNEGO-wrapped (first byte 0x%02x)", out1[0])
+	}
+
+	// Client consumes the bare CHALLENGE, produces an AUTHENTICATE.
+	authMsg, err := client.Authenticate(out1)
+	if err != nil {
+		t.Fatalf("client.Authenticate: %v", err)
+	}
+
+	// Leg 2: feed the bare AUTHENTICATE directly.
+	out2, done, err := acceptor.AcceptSecContext(authMsg)
+	if err != nil {
+		t.Fatalf("AcceptSecContext leg2: %v", err)
+	}
+	if !done {
+		t.Fatalf("leg2 expected done=true")
+	}
+	if len(out2) != 0 {
+		t.Fatalf("leg2 output token must be empty on the raw path, got %x", out2)
+	}
+	if acceptor.Status() != 0 {
+		t.Fatalf("Status() = 0x%08x, want 0", acceptor.Status())
+	}
+	if len(acceptor.SessionKey()) == 0 {
+		t.Fatalf("SessionKey() is empty, want non-nil for good credentials")
+	}
+	if acceptor.User() != "alice" {
+		t.Fatalf("User() = %q, want alice", acceptor.User())
+	}
+}
+
+// TestAcceptorRawNTLMSSP_BadCredentials verifies the raw path surfaces the
+// Verify callback's failure status (and no session key) unchanged.
+func TestAcceptorRawNTLMSSP_BadCredentials(t *testing.T) {
+	const statusLogonFailure = 0xC000006D
+
+	client := &ntlmssp.Client{User: "bob", Password: "wrong", Domain: "TESTDOM", Hash: ntlmssp.Ntowfv1("wrong")}
+	negMsg, err := client.Negotiate()
+	if err != nil {
+		t.Fatalf("client.Negotiate: %v", err)
+	}
+	acceptor := newRawAcceptor(nil, statusLogonFailure)
+
+	out1, _, err := acceptor.AcceptSecContext(negMsg)
+	if err != nil {
+		t.Fatalf("leg1: %v", err)
+	}
+	authMsg, err := client.Authenticate(out1)
+	if err != nil {
+		t.Fatalf("client.Authenticate: %v", err)
+	}
+	if _, done, err := acceptor.AcceptSecContext(authMsg); err != nil || !done {
+		t.Fatalf("leg2: done=%v err=%v", done, err)
+	}
+	if acceptor.Status() != statusLogonFailure {
+		t.Fatalf("Status() = 0x%08x, want 0x%08x", acceptor.Status(), statusLogonFailure)
+	}
+	if len(acceptor.SessionKey()) != 0 {
+		t.Fatalf("SessionKey() should be empty on failure, got %x", acceptor.SessionKey())
 	}
 }

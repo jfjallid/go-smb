@@ -158,6 +158,76 @@ func TestSigning21(t *testing.T) {
 	}
 }
 
+// TestSigningRawNTLMSSP30 round-trips a file over a signed SMB 3.0 channel set
+// up with bare NTLMSSP (Options.RawNTLMSSP) — the realistic Linux kernel CIFS
+// scenario, which signs SMB3 sessions. It confirms the raw auth path derives
+// keys correctly and the server signs the final SessionSetup reply and all
+// subsequent PDUs. SMB 3.0 is the simplest dialect past the reported bug.
+func TestSigningRawNTLMSSP30(t *testing.T) {
+	const (
+		user     = "install"
+		password = "P@ssw0rd"
+		domain   = "WORKGROUP"
+		share    = "test"
+		filename = "rawsigned30.txt"
+	)
+	payload := []byte("payload over a signed SMB 3.0 raw-NTLMSSP channel\n")
+	ntHash := ntlmssp.Ntowfv1(password)
+
+	srv := &server.Server{
+		Config: &server.ServerConfig{
+			MaxDialect:      smb.DialectSmb_3_0,
+			SigningRequired: true,
+			Authenticator: &server.MapAuthenticator{
+				Domain:   domain,
+				Accounts: map[string]*server.Account{user: {NTHash: ntHash}},
+			},
+		},
+	}
+	srv.RegisterShare(share, server.Share{Type: smb.ShareTypeDisk, VFS: memvfs.New(memvfs.Options{})})
+
+	addr, shutdown := startTestServer(t, srv)
+	defer shutdown()
+
+	opts := smb.Options{
+		Host:                  "127.0.0.1",
+		Port:                  addr.Port,
+		Initiator:             &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		RawNTLMSSP:            true,
+		RequireMessageSigning: true,
+		DisableEncryption:     true,
+		Dialects:              []uint16{smb.DialectSmb_3_0},
+		DialTimeout:           2 * time.Second,
+	}
+	c, err := smb.NewConnection(opts)
+	if err != nil {
+		t.Fatalf("NewConnection (signed 3.0 raw NTLMSSP): %v", err)
+	}
+	defer c.Close()
+
+	src := bytes.NewReader(payload)
+	if err := c.PutFile(share, filename, 0, func(buf []byte) (int, error) {
+		n, err := src.Read(buf)
+		if err == io.EOF && n == 0 {
+			return 0, io.EOF
+		}
+		return n, nil
+	}); err != nil {
+		t.Fatalf("PutFile over signed raw channel: %v", err)
+	}
+
+	var got bytes.Buffer
+	if err := c.RetrieveFile(share, filename, 0, func(b []byte) (int, error) {
+		got.Write(b)
+		return len(b), nil
+	}); err != nil {
+		t.Fatalf("RetrieveFile over signed raw channel: %v", err)
+	}
+	if !bytes.Equal(got.Bytes(), payload) {
+		t.Fatalf("read mismatch over signed raw channel: got %q want %q", got.String(), string(payload))
+	}
+}
+
 // TestUnsignedRejected verifies that once a session is established with
 // signing keys, the server rejects an inbound PDU that lacks a signature.
 // We accomplish this by grabbing the raw bytes via OnRawRequest, dropping

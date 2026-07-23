@@ -140,6 +140,13 @@ on the wire for the guest path but not the Go API.
   server's `SMB2_SESSION_FLAG_IS_GUEST`, the only signal for guest since the
   client cannot infer it. (Note that "null session" and "anonymous" are the same
   NTLM mechanism.)
+- **Raw (non-SPNEGO) NTLMSSP.** Both sides now speak bare NTLMSSP — the framing
+  the Linux kernel CIFS client (`mount.cifs`) uses, where the SessionSetup blob
+  is an NTLMSSP token with no SPNEGO wrapper. The server auto-detects it by the
+  `NTLMSSP\0` signature and routes each leg through the existing acceptor, so
+  Linux clients can now mount a go-smb share; Windows and SPNEGO clients are
+  unaffected. The client can opt into offering it via the new
+  `Options.RawNTLMSSP` (NTLM only; requires a `*spnego.NTLMInitiator`).
 
 ## [0.11.0] — 2026-07-06
 

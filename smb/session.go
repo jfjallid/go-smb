@@ -161,6 +161,12 @@ type Options struct {
 	DialTimeout time.Duration
 	ProxyDialer proxy.Dialer
 	ManualLogin bool
+	// RawNTLMSSP offers bare NTLMSSP tokens in SessionSetup instead of
+	// SPNEGO-wrapped ones (the framing the Linux kernel CIFS client uses).
+	// NTLM only: it requires a *spnego.NTLMInitiator and is rejected with a
+	// Kerberos initiator. Leave it false (the default) for the standard
+	// SPNEGO path, which every mainstream server accepts.
+	RawNTLMSSP bool
 	// Ciphers, when non-nil, overrides the SMB 3.1.1 EncryptionCapabilities
 	// offer in the Negotiate request. The slice order is the client's
 	// preference — the server picks the first entry it recognizes. Leaving
@@ -201,6 +207,11 @@ func validateOptions(opt Options) error {
 	}
 	if opt.Initiator == nil && !opt.ManualLogin {
 		return fmt.Errorf("initiator empty")
+	}
+	if opt.RawNTLMSSP && opt.Initiator != nil {
+		if _, ok := opt.Initiator.(*spnego.NTLMInitiator); !ok {
+			return fmt.Errorf("RawNTLMSSP requires a *spnego.NTLMInitiator (NTLM only)")
+		}
 	}
 	if len(opt.Dialects) > 0 {
 		for _, d := range opt.Dialects {
@@ -553,46 +564,100 @@ func (c *Connection) SessionSetup() (err error) {
 	c.sessionID = 0
 	c.isAuthenticated = false
 
-	spnegoClient, err := spnego.NewClient([]gss.Mechanism{c.options.Initiator})
-	if err != nil {
-		return err
+	// RawNTLMSSP: drive bare NTLMSSP tokens directly through the initiator,
+	// bypassing SPNEGO framing. spnegoClient stays nil in that mode; rawInit
+	// is the concrete NTLM initiator (validated in validateOptions).
+	rawMode := c.options.RawNTLMSSP
+	var spnegoClient *spnego.Client
+	var rawInit *spnego.NTLMInitiator
+	if rawMode {
+		var ok bool
+		rawInit, ok = c.options.Initiator.(*spnego.NTLMInitiator)
+		if !ok {
+			return fmt.Errorf("RawNTLMSSP requires a *spnego.NTLMInitiator")
+		}
+	} else {
+		spnegoClient, err = spnego.NewClient([]gss.Mechanism{c.options.Initiator})
+		if err != nil {
+			return err
+		}
 	}
+
 	log.Debugln("Sending SessionSetup1 request")
-	ssreq, err := c.NewSessionSetup1Req(spnegoClient)
-	if err != nil {
-		log.Debugln(err)
-		return err
-	}
-	// Since I'm not currently handling credits I try to request more than I need
-	// Turns out that with Kerberos auth I sometimes lack credits due to shorter
-	// SessionSetup flow
-	ssreq.Header.Credits = 127
 	ssres, err := NewSessionSetup1Res()
 	if err != nil {
 		log.Debugln(err)
 		return err
 	}
 
-	rr, err := c.send(ssreq)
-	if err != nil {
-		return err
-	}
-	ssresbuf, err := c.recv(rr)
-	if err != nil {
-		return err
+	// challengeBytes holds the bare NTLMSSP CHALLENGE extracted from the leg-1
+	// response — from the SPNEGO ResponseToken or, in raw mode, the whole blob.
+	var (
+		rr             *requestResponse
+		ssresbuf       []byte
+		challengeBytes []byte
+	)
+
+	if rawMode {
+		negToken, nErr := rawInit.InitSecContext(nil) // bare NTLMSSP NEGOTIATE
+		if nErr != nil {
+			return nErr
+		}
+		ssreq := c.NewSessionSetupRawReq(negToken)
+		ssreq.Header.Credits = 127
+		rr, err = c.send(ssreq)
+		if err != nil {
+			return err
+		}
+		ssresbuf, err = c.recv(rr)
+		if err != nil {
+			return err
+		}
+		log.Traceln("Unmarshalling raw SessionSetup1 response")
+		var rawRes SessionSetupRes
+		if err := encoder.Unmarshal(ssresbuf, &rawRes); err != nil {
+			log.Debugln(err)
+			return err
+		}
+		// Populate the header/flags on ssres so the shared flow below keys off
+		// the same fields as the SPNEGO path.
+		ssres.Header = rawRes.Header
+		ssres.Flags = rawRes.Flags
+		challengeBytes = rawRes.SecurityBlob
+	} else {
+		ssreq, sErr := c.NewSessionSetup1Req(spnegoClient)
+		if sErr != nil {
+			log.Debugln(sErr)
+			return sErr
+		}
+		// Since I'm not currently handling credits I try to request more than I need
+		// Turns out that with Kerberos auth I sometimes lack credits due to shorter
+		// SessionSetup flow
+		ssreq.Header.Credits = 127
+		rr, err = c.send(ssreq)
+		if err != nil {
+			return err
+		}
+		ssresbuf, err = c.recv(rr)
+		if err != nil {
+			return err
+		}
+		log.Traceln("Unmarshalling SessionSetup1 response")
+		if err := encoder.Unmarshal(ssresbuf, &ssres); err != nil {
+			log.Debugln(err)
+			return err
+		}
+		// Extracting target info only works for NTLMSSP and not for Kerberos
+		if ssres.SecurityBlob.SupportedMech.Equal(gss.NtLmSSPMechTypeOid) {
+			challengeBytes = ssres.SecurityBlob.ResponseToken
+		}
 	}
 
-	log.Traceln("Unmarshalling SessionSetup1 response")
-	if err := encoder.Unmarshal(ssresbuf, &ssres); err != nil {
-		log.Debugln(err)
-		return err
-	}
-
-	resp := ssres.SecurityBlob
-	// Extracting target info only works for NTLMSSP and not for Kerberos
-	if resp.SupportedMech.Equal(gss.NtLmSSPMechTypeOid) {
+	// Extract target info from the bare NTLMSSP CHALLENGE (NTLM only — empty
+	// for Kerberos).
+	if len(challengeBytes) > 0 {
 		challenge := ntlmssp.NewChallenge()
-		if err := encoder.Unmarshal(resp.ResponseToken, &challenge); err != nil {
+		if err := encoder.Unmarshal(challengeBytes, &challenge); err != nil {
 			log.Debugln(err)
 			return err
 		}
@@ -690,18 +755,6 @@ func (c *Connection) SessionSetup() (err error) {
 		c.sessionFlags &= ^SessionFlagEncryptData
 	}
 
-	securityBlob, err := encoder.Marshal(ssres.SecurityBlob)
-	if err != nil {
-		return err
-	}
-
-	sc, err := spnegoClient.InitSecContext(securityBlob)
-	if err != nil {
-		return err
-	}
-
-	var ss2req SessionSetup2Req
-
 	// finalSSResbuf holds the raw bytes of the last SESSION_SETUP response in
 	// the exchange. Its signature is verified once the signing key is derived
 	// (see below) — MS-SMB2 §3.2.5.3.1. In the common multi-leg flow this is
@@ -714,21 +767,45 @@ func (c *Connection) SessionSetup() (err error) {
 
 	if ssres.Status == StatusMoreProcessingRequired {
 		log.Debugln("Sending SessionSetup2 request")
-		ss2req, err = c.NewSessionSetup2Req(sc, &ssres)
-		if err != nil {
-			log.Debugln(err)
-			return err
-		}
-		ss2req.Header.Credits = 127
-
-		rr, err = c.send(ss2req)
-		if err != nil {
-			return err
-		}
-
-		ss2resbuf, err := c.recv(rr)
-		if err != nil {
-			return err
+		var ss2resbuf []byte
+		if rawMode {
+			authToken, aErr := rawInit.InitSecContext(challengeBytes) // bare NTLMSSP AUTHENTICATE
+			if aErr != nil {
+				return aErr
+			}
+			ss2req := c.NewSessionSetupRawReq(authToken)
+			ss2req.Header.Credits = 127
+			rr, err = c.send(ss2req)
+			if err != nil {
+				return err
+			}
+			ss2resbuf, err = c.recv(rr)
+			if err != nil {
+				return err
+			}
+		} else {
+			securityBlob, sErr := encoder.Marshal(ssres.SecurityBlob)
+			if sErr != nil {
+				return sErr
+			}
+			sc, sErr := spnegoClient.InitSecContext(securityBlob)
+			if sErr != nil {
+				return sErr
+			}
+			ss2req, sErr := c.NewSessionSetup2Req(sc, &ssres)
+			if sErr != nil {
+				log.Debugln(sErr)
+				return sErr
+			}
+			ss2req.Header.Credits = 127
+			rr, err = c.send(ss2req)
+			if err != nil {
+				return err
+			}
+			ss2resbuf, err = c.recv(rr)
+			if err != nil {
+				return err
+			}
 		}
 		finalSSResbuf = ss2resbuf
 		log.Traceln("Unmarshalling SessionSetup2 response header")
@@ -788,7 +865,12 @@ func (c *Connection) SessionSetup() (err error) {
 
 	// Handle signing and encryption options
 	if c.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {
-		sessionKey := spnegoClient.SessionKey()[:16]
+		var sessionKey []byte
+		if rawMode {
+			sessionKey = rawInit.SessionKey()[:16]
+		} else {
+			sessionKey = spnegoClient.SessionKey()[:16]
+		}
 		c.exportedSessionKey = sessionKey
 
 		switch c.dialect {

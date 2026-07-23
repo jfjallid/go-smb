@@ -15,6 +15,7 @@
 package spnego
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"github.com/jfjallid/gofork/encoding/asn1"
@@ -63,6 +64,12 @@ type NTLMAcceptor struct {
 	workstation  string
 	leg          int                     // 0 = nothing yet, 1 = challenge sent, 2 = auth processed
 	offeredMechs []asn1.ObjectIdentifier // mech list from the inbound NegTokenInit (input to MechListMIC)
+	// raw reports that this exchange is bare NTLMSSP (no SPNEGO framing) —
+	// set when the first token carries the "NTLMSSP\0" signature rather than
+	// a NegTokenInit/NegTokenResp. The Linux kernel CIFS client sends this
+	// form. On the raw path the CHALLENGE is returned unwrapped and no RFC
+	// 4178 MechListMIC is produced (there is no mech list).
+	raw bool
 }
 
 // AcceptSecContext processes one round of SPNEGO. The first call expects a
@@ -76,6 +83,22 @@ func (a *NTLMAcceptor) AcceptSecContext(inputToken []byte) ([]byte, bool, error)
 		return nil, false, fmt.Errorf("spnego.NTLMAcceptor: empty input token")
 	}
 
+	// Bare NTLMSSP (no SPNEGO wrapper). The Linux kernel CIFS client sends
+	// the NTLMSSP token directly, prefixed with the "NTLMSSP\0" signature and
+	// a 4-byte little-endian MessageType. Detect it by signature before the
+	// SPNEGO tag switch — 0x4e ('N') collides with neither 0x60 nor 0xa1.
+	if len(inputToken) >= 12 && string(inputToken[:8]) == ntlmssp.Signature {
+		a.raw = true
+		switch binary.LittleEndian.Uint32(inputToken[8:12]) {
+		case ntlmssp.TypeNtLmNegotiate:
+			return a.acceptRawNegotiate(inputToken)
+		case ntlmssp.TypeNtLmAuthenticate:
+			return a.acceptRawAuthenticate(inputToken)
+		default:
+			return nil, false, fmt.Errorf("spnego.NTLMAcceptor: unexpected raw NTLMSSP MessageType %d", binary.LittleEndian.Uint32(inputToken[8:12]))
+		}
+	}
+
 	switch inputToken[0] {
 	case 0x60: // NegTokenInit (first leg)
 		return a.acceptInit(inputToken)
@@ -84,6 +107,32 @@ func (a *NTLMAcceptor) AcceptSecContext(inputToken []byte) ([]byte, bool, error)
 	default:
 		return nil, false, fmt.Errorf("spnego.NTLMAcceptor: unknown token tag 0x%02x", inputToken[0])
 	}
+}
+
+// acceptRawNegotiate handles leg 1 of a bare (non-SPNEGO) NTLMSSP exchange:
+// the input token IS the NTLMSSP NEGOTIATE. It returns the CHALLENGE bytes
+// unwrapped — no NegTokenResp framing — so the reply matches the bare request.
+func (a *NTLMAcceptor) acceptRawNegotiate(buf []byte) ([]byte, bool, error) {
+	chall, err := a.Server.AcceptNegotiate(buf)
+	if err != nil {
+		return nil, false, err
+	}
+	a.leg = 1
+	return chall, false, nil
+}
+
+// acceptRawAuthenticate handles leg 2 of a bare NTLMSSP exchange: the input
+// token IS the NTLMSSP AUTHENTICATE. It runs the shared verification tail and
+// returns an empty output token (bare NTLM has no terminal SPNEGO message and
+// no MechListMIC).
+func (a *NTLMAcceptor) acceptRawAuthenticate(buf []byte) ([]byte, bool, error) {
+	auth, err := a.Server.AcceptAuthenticate(buf)
+	if err != nil {
+		return nil, false, err
+	}
+	a.finishAuthenticate(auth)
+	a.leg = 2
+	return nil, true, nil
 }
 
 // acceptInit parses a NegTokenInit, checks that NTLMSSP is among the offered
@@ -148,30 +197,9 @@ func (a *NTLMAcceptor) acceptResp(buf []byte) ([]byte, bool, error) {
 		return nil, false, err
 	}
 
-	// Decode failures here mean the client sent malformed UTF-16 — Debugf,
-	// not Errorf, since attackers can spam this. Fall back to empty so the
-	// rest of authentication proceeds (the Verify callback gets the raw
-	// bytes via the auth message).
-	var fuErr error
-	if a.user, fuErr = encoder.FromUnicodeString(auth.UserName); fuErr != nil {
-		log.Debugf("spnego.NTLMAcceptor: decode UserName: %v", fuErr)
-	}
-	if a.domain, fuErr = encoder.FromUnicodeString(auth.DomainName); fuErr != nil {
-		log.Debugf("spnego.NTLMAcceptor: decode DomainName: %v", fuErr)
-	}
-	if a.workstation, fuErr = encoder.FromUnicodeString(auth.Workstation); fuErr != nil {
-		log.Debugf("spnego.NTLMAcceptor: decode Workstation: %v", fuErr)
-	}
-
-	var (
-		sessionKey []byte
-		status     uint32
-	)
-	if a.Verify != nil {
-		sessionKey, status = a.Verify(auth, a.Server.Challenge)
-	}
-	a.sessionKey = sessionKey
-	a.status = status
+	a.finishAuthenticate(auth)
+	sessionKey := a.sessionKey
+	status := a.status
 
 	out := gss.NegTokenResp{}
 	if status == 0 {
@@ -211,6 +239,39 @@ func (a *NTLMAcceptor) acceptResp(buf []byte) ([]byte, bool, error) {
 	}
 	a.leg = 2
 	return outBytes, true, nil
+}
+
+// finishAuthenticate is the framing-agnostic tail shared by acceptResp (SPNEGO)
+// and acceptRawAuthenticate (bare NTLMSSP): it decodes the identity fields from
+// the parsed AUTHENTICATE, invokes the Verify callback, and records the derived
+// session key and NT status on the acceptor. It emits no output token and does
+// not touch the RFC 4178 MechListMIC (which is SPNEGO-only and lives in
+// acceptResp).
+func (a *NTLMAcceptor) finishAuthenticate(auth *ntlmssp.Authenticate) {
+	// Decode failures here mean the client sent malformed UTF-16 — Debugf,
+	// not Errorf, since attackers can spam this. Fall back to empty so the
+	// rest of authentication proceeds (the Verify callback gets the raw
+	// bytes via the auth message).
+	var fuErr error
+	if a.user, fuErr = encoder.FromUnicodeString(auth.UserName); fuErr != nil {
+		log.Debugf("spnego.NTLMAcceptor: decode UserName: %v", fuErr)
+	}
+	if a.domain, fuErr = encoder.FromUnicodeString(auth.DomainName); fuErr != nil {
+		log.Debugf("spnego.NTLMAcceptor: decode DomainName: %v", fuErr)
+	}
+	if a.workstation, fuErr = encoder.FromUnicodeString(auth.Workstation); fuErr != nil {
+		log.Debugf("spnego.NTLMAcceptor: decode Workstation: %v", fuErr)
+	}
+
+	var (
+		sessionKey []byte
+		status     uint32
+	)
+	if a.Verify != nil {
+		sessionKey, status = a.Verify(auth, a.Server.Challenge)
+	}
+	a.sessionKey = sessionKey
+	a.status = status
 }
 
 // finalNegTokenResp is the wire shape for the acceptor's terminal

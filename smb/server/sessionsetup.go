@@ -23,6 +23,7 @@
 package server
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"github.com/jfjallid/go-smb/ntlmssp"
@@ -55,12 +56,31 @@ func (c *Conn) handleSessionSetup(ctx pduCtx, raw []byte, h *smb.Header) error {
 		return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
 	}
 
+	// Bare NTLMSSP (no SPNEGO wrapper): the Linux kernel CIFS client sends the
+	// NTLMSSP token directly, signature "NTLMSSP\0" + 4-byte little-endian
+	// MessageType. Detect by signature and route each leg to the same handlers
+	// the SPNEGO path uses — everything downstream is framing-agnostic. The
+	// leading byte (0x4e = 'N') cannot collide with the SPNEGO tags below.
+	if len(req.SecurityBlob) >= 12 && string(req.SecurityBlob[:8]) == ntlmssp.Signature {
+		switch binary.LittleEndian.Uint32(req.SecurityBlob[8:12]) {
+		case ntlmssp.TypeNtLmNegotiate:
+			return c.handleSessionSetupNegotiate(ctx, raw, h, &req)
+		case ntlmssp.TypeNtLmAuthenticate:
+			return c.handleSessionSetupAuthenticate(ctx, raw, h, &req)
+		}
+	}
+
 	switch req.SecurityBlob[0] {
 	case 0x60:
 		return c.handleSessionSetupNegotiate(ctx, raw, h, &req)
 	case 0xa1:
 		return c.handleSessionSetupAuthenticate(ctx, raw, h, &req)
 	default:
+		// Name the NTLMSSP signature explicitly if we see it — a bare token
+		// with an unexpected MessageType lands here.
+		if len(req.SecurityBlob) >= 8 && string(req.SecurityBlob[:8]) == ntlmssp.Signature {
+			return fmt.Errorf("unsupported bare NTLMSSP SessionSetup MessageType")
+		}
 		return fmt.Errorf("unknown SessionSetup blob tag 0x%02x", req.SecurityBlob[0])
 	}
 }

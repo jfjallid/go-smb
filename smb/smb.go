@@ -1535,6 +1535,38 @@ func NewSessionSetup1Req() SessionSetup1Req {
 	return ret
 }
 
+// NewSessionSetupRawReq builds a SessionSetup request carrying a bare NTLMSSP
+// token (no SPNEGO wrapper). It is used for both legs of the RawNTLMSSP client
+// flow: the caller supplies the NTLMSSP NEGOTIATE (leg 1) or AUTHENTICATE
+// (leg 2) bytes as blob, and sets the header SessionID for leg 2. The generic
+// SessionSetupReq (SecurityBlob []byte) is reused so the token bytes are placed
+// on the wire verbatim.
+func (s *Connection) NewSessionSetupRawReq(blob []byte) SessionSetupReq {
+	header := newHeader()
+	header.Command = CommandSessionSetup
+	s.applyCreditCharge(&header)
+	header.SessionID = s.sessionID
+
+	req := SessionSetupReq{
+		Header:               header,
+		StructureSize:        25,
+		Flags:                0x00,
+		Capabilities:         s.capabilities,
+		Channel:              0,
+		SecurityBufferOffset: 88,
+		PreviousSessionID:    0,
+		SecurityBlob:         blob,
+	}
+
+	// See NewSessionSetup1Req for the rationale on combining ENABLED+REQUIRED.
+	if s.isSigningRequired.Load() {
+		req.SecurityMode = byte(SecurityModeSigningEnabled | SecurityModeSigningRequired)
+	} else {
+		req.SecurityMode = byte(SecurityModeSigningEnabled)
+	}
+	return req
+}
+
 func NewSessionSetup1Res() (SessionSetup1Res, error) {
 	resp, err := gss.NewNegTokenResp()
 	if err != nil {

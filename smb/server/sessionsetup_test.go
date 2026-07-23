@@ -190,6 +190,56 @@ func TestSessionSetupMapAuthSuccess(t *testing.T) {
 	}
 }
 
+// TestSessionSetupRawNTLMSSP exercises the bare (non-SPNEGO) NTLMSSP path end to
+// end: the client offers raw NTLMSSP (Options.RawNTLMSSP, mirroring the Linux
+// kernel CIFS client) and the server accepts it via signature-based dispatch.
+// Asserts a successful login and that credential capture still fires on the raw
+// path (Linux clients must be observable too).
+func TestSessionSetupRawNTLMSSP(t *testing.T) {
+	const (
+		user     = "install"
+		password = "P@ssw0rd"
+		domain   = "WORKGROUP"
+	)
+	ntHash := ntlmssp.Ntowfv1(password)
+
+	var hookFired atomic.Bool
+	srv := &Server{
+		Config: &ServerConfig{
+			NetBIOSName: "TESTSRV",
+			Authenticator: &MapAuthenticator{
+				Domain:   domain,
+				Accounts: map[string]*Account{user: {NTHash: ntHash}},
+			},
+			OnCredentialCaptured: func(c *Conn, cred *Credential) {
+				hookFired.Store(true)
+			},
+		},
+	}
+	addr, shutdown := startTestServer(t, srv)
+	defer shutdown()
+
+	opts := smb.Options{
+		Host:              "127.0.0.1",
+		Port:              addr.Port,
+		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		RawNTLMSSP:        true,
+		DisableSigning:    true,
+		DisableEncryption: true,
+		Dialects:          smb.DialectsSMB2Only,
+		DialTimeout:       2 * time.Second,
+	}
+	c, err := smb.NewConnection(opts)
+	if err != nil {
+		t.Fatalf("NewConnection with RawNTLMSSP: %v", err)
+	}
+	defer c.Close()
+
+	if !hookFired.Load() {
+		t.Errorf("OnCredentialCaptured did not fire on the raw NTLMSSP path")
+	}
+}
+
 // startTestServer spins up the supplied Server on an ephemeral port and
 // returns the address plus a shutdown function the caller defers.
 func startTestServer(t *testing.T, srv *Server) (*net.TCPAddr, func()) {
