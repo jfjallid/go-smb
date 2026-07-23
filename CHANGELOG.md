@@ -173,6 +173,24 @@ Also: a NEGOTIATE with no mutually-supported dialect now returns
 connection, and the client surfaces that status instead of a misleading parse
 error. Dialect revisions are logged as friendly version strings.
 
+### Client encryption
+
+- **`Options.RequireEncryption`.** Opts the whole session into encrypt-all:
+  every request is wrapped in a TransformHeader regardless of the server's or
+  share's flags. Mutually exclusive with `DisableEncryption` (which wins).
+- **The server's encryption verdict is now honored (MS-SMB2 §3.2.5.3.1).**
+  Previously the client forced session-wide encryption whenever it merely
+  *supported* it. It now only encrypts session-wide when the server sets
+  `SMB2_SESSION_FLAG_ENCRYPT_DATA` (including when the server asserts it only on
+  the final SessionSetup response) or the caller set `RequireEncryption`;
+  otherwise per-tree enforcement encrypts individual `ENCRYPT_DATA` shares while
+  plaintext shares stay unwrapped.
+- **Encrypted responses are no longer wrongly rejected by the signing check.**
+  On a signing-required session negotiating a pre-3.1.1 dialect with encryption,
+  the reader ran the plaintext signature check on encrypted PDUs (which carry
+  their own AEAD integrity and never set `SMB2_FLAGS_SIGNED`) and tore the
+  connection down. The check is now skipped for encrypted PDUs.
+
 ## [0.11.0] — 2026-07-06
 
 Headline items this cycle are a logging and error-handling overhaul, a pass

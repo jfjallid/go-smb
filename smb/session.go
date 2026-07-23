@@ -145,6 +145,14 @@ type Options struct {
 	DisableSigning        bool
 	RequireMessageSigning bool
 	DisableEncryption     bool
+	// RequireEncryption opts the whole session into encrypt-all: every request
+	// is wrapped in a TransformHeader regardless of whether the server flagged
+	// the session or the target share with ENCRYPT_DATA. Leaving it false makes
+	// the client honor the server's verdict (MS-SMB2 §3.2.5.3.1) — the session
+	// encrypts only when the server set SMB2_SESSION_FLAG_ENCRYPT_DATA, while
+	// individual shares flagged SMB2_SHAREFLAG_ENCRYPT_DATA are still encrypted
+	// per-tree. Mutually exclusive with DisableEncryption; the latter wins.
+	RequireEncryption bool
 	// SMB2Only skips the SMB1 multi-protocol negotiate and sends an SMB2
 	// NEGOTIATE directly. Useful against servers with SMB1 disabled.
 	SMB2Only bool
@@ -750,10 +758,14 @@ func (c *Connection) SessionSetup() (err error) {
 	}
 
 	//TODO Validate Challenge security options?
+	// Adopt the server's session flags, including its SMB2_SESSION_FLAG_ENCRYPT_DATA
+	// verdict (MS-SMB2 §3.2.5.3.1). Only force session-wide encryption when the
+	// caller explicitly opted in via RequireEncryption; otherwise per-tree
+	// enforcement (treeIdEncrypts) handles ENCRYPT_DATA shares individually.
 	c.sessionFlags = ssres.Flags
 	if c.Session.options.DisableEncryption {
 		c.sessionFlags &= ^SessionFlagEncryptData
-	} else if c.supportsEncryption {
+	} else if c.Session.options.RequireEncryption && c.supportsEncryption {
 		c.sessionFlags |= SessionFlagEncryptData
 	}
 
@@ -877,6 +889,18 @@ func (c *Connection) SessionSetup() (err error) {
 			}
 			if ssres2.Flags&SessionFlagIsNull == SessionFlagIsNull {
 				c.Session.sessionFlags |= SessionFlagIsNull
+			}
+			// MS-SMB2 §3.2.5.3.1: honor the server's session-wide encryption
+			// directive. A server that requires encryption only sets
+			// SMB2_SESSION_FLAG_ENCRYPT_DATA on the final SessionSetup response
+			// (after deriving keys), so it is not visible on the first-response
+			// flags copied above. Unless the caller opted out via
+			// DisableEncryption, adopt it so every PDU is wrapped in a
+			// TransformHeader. This is the server-driven counterpart to the
+			// client-side RequireEncryption opt-in handled off the first response.
+			if ssres2.Flags&SessionFlagEncryptData == SessionFlagEncryptData &&
+				!c.Session.options.DisableEncryption {
+				c.Session.sessionFlags |= SessionFlagEncryptData
 			}
 		}
 	}

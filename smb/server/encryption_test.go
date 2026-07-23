@@ -6,6 +6,7 @@ package server_test
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"sync/atomic"
@@ -18,6 +19,154 @@ import (
 	"github.com/jfjallid/go-smb/smb/server/memvfs"
 	"github.com/jfjallid/go-smb/spnego"
 )
+
+// TestMixedPerShareEncryption locks in the per-tree encryption mix: within a
+// single session against a server that *supports but does not require*
+// encryption, traffic to a plaintext share stays unwrapped SMB2 while traffic to
+// a share flagged EncryptData is wrapped in a TransformHeader (MS-SMB2 §3.2.5.5).
+//
+// This guards the fix that stopped the client from forcing session-wide
+// encrypt-all whenever it merely *supported* encryption. Two invariants must
+// hold together: (a) the session-global SMB2_SESSION_FLAG_ENCRYPT_DATA stays
+// clear (asserted server-side via Session.Flags), and (b) only the encrypt
+// share's data PDUs are Transform-wrapped, while the plaintext share's arrive
+// as cleartext SMB2. A regression to encrypt-all trips both the phase-0
+// Transform check and the plaintext-data check below.
+func TestMixedPerShareEncryption(t *testing.T) {
+	const (
+		user       = "alice"
+		password   = "Hunter2!"
+		domain     = "WORKGROUP"
+		plainShare = "public"
+		encShare   = "secret"
+		filename   = "f.txt"
+	)
+	payload := []byte("mixed per-share encryption payload\n")
+	ntHash := ntlmssp.Ntowfv1(password)
+
+	// phase selects which share the current client traffic targets: 0 while we
+	// exercise the plaintext share, 1 while we exercise the encrypt share. The
+	// OnRawRequest hook tags each observed frame by the phase in effect.
+	var phase atomic.Int32
+	var (
+		plainTreeID          atomic.Uint32
+		plainDataSeen        atomic.Bool // cleartext data PDU on the plaintext share (positive signal)
+		transformInPhase0    atomic.Bool // any Transform frame while on the plaintext share (regression signal)
+		transformInPhase1    atomic.Bool // Transform frame while on the encrypt share (expected)
+		sessionGlobalEncrypt atomic.Bool // server session carried SESSION_FLAG_ENCRYPT_DATA
+	)
+
+	srv := &server.Server{
+		Config: &server.ServerConfig{
+			EncryptionSupported: true, // supported, NOT required — the mixed case
+			Authenticator: &server.MapAuthenticator{
+				Domain:   domain,
+				Accounts: map[string]*server.Account{user: {NTHash: ntHash}},
+			},
+			OnRawRequest: func(c *server.Conn, raw []byte) (bool, error) {
+				if len(raw) < 4 {
+					return false, nil
+				}
+				switch string(raw[0:4]) {
+				case smb.ProtocolTransformHdr:
+					if phase.Load() == 0 {
+						transformInPhase0.Store(true)
+					} else {
+						transformInPhase1.Store(true)
+					}
+				case smb.ProtocolSmb2:
+					// SMB2 sync header: Command at offset 12, TreeId at 36.
+					if len(raw) < 40 {
+						return false, nil
+					}
+					cmd := binary.LittleEndian.Uint16(raw[12:14])
+					treeID := binary.LittleEndian.Uint32(raw[36:40])
+					if phase.Load() == 0 && treeID == plainTreeID.Load() && treeID != 0 &&
+						(cmd == smb.CommandCreate || cmd == smb.CommandWrite || cmd == smb.CommandRead) {
+						plainDataSeen.Store(true)
+					}
+				}
+				return false, nil
+			},
+			OnTreeConnect: func(c *server.Conn, s *server.Session, name string, req *smb.TreeConnectReq, res *smb.TreeConnectRes) (*server.Status, error) {
+				if s.Flags&smb.SessionFlagEncryptData != 0 {
+					sessionGlobalEncrypt.Store(true)
+				}
+				if name == plainShare {
+					plainTreeID.Store(res.Header.TreeID)
+				}
+				return nil, nil
+			},
+		},
+	}
+	srv.RegisterShare(plainShare, server.Share{Type: smb.ShareTypeDisk, VFS: memvfs.New(memvfs.Options{})})
+	srv.RegisterShare(encShare, server.Share{Type: smb.ShareTypeDisk, VFS: memvfs.New(memvfs.Options{}), EncryptData: true})
+
+	addr, shutdown := startTestServer(t, srv)
+	defer shutdown()
+
+	opts := smb.Options{
+		Host:      "127.0.0.1",
+		Port:      addr.Port,
+		Initiator: &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		// Default options: DisableEncryption and RequireEncryption both false,
+		// so the client neither opts out nor forces encrypt-all — exactly the
+		// configuration where per-tree enforcement must drive the decision.
+		DialTimeout: 2 * time.Second,
+	}
+	c, err := smb.NewConnection(opts)
+	if err != nil {
+		t.Fatalf("NewConnection: %v", err)
+	}
+	defer c.Close()
+
+	putGet := func(share string) {
+		t.Helper()
+		src := bytes.NewReader(payload)
+		if err := c.PutFile(share, filename, 0, func(buf []byte) (int, error) {
+			n, err := src.Read(buf)
+			if err == io.EOF && n == 0 {
+				return 0, io.EOF
+			}
+			return n, nil
+		}); err != nil {
+			t.Fatalf("PutFile on %q: %v", share, err)
+		}
+		var got bytes.Buffer
+		if err := c.RetrieveFile(share, filename, 0, func(b []byte) (int, error) {
+			got.Write(b)
+			return len(b), nil
+		}); err != nil {
+			t.Fatalf("RetrieveFile on %q: %v", share, err)
+		}
+		if !bytes.Equal(got.Bytes(), payload) {
+			t.Fatalf("read mismatch on %q: got %q want %q", share, got.String(), string(payload))
+		}
+	}
+
+	// Phase 0: plaintext share. All of its traffic must be cleartext SMB2.
+	phase.Store(0)
+	putGet(plainShare)
+
+	// Phase 1: encrypt share. Its data PDUs must be Transform-wrapped. (The
+	// TreeConnect itself still travels plaintext on TreeId 0; the encryption
+	// kicks in for the per-tree ops that follow.)
+	phase.Store(1)
+	putGet(encShare)
+
+	if sessionGlobalEncrypt.Load() {
+		t.Fatalf("session had SMB2_SESSION_FLAG_ENCRYPT_DATA set; expected per-tree encryption, not session-global")
+	}
+	if !plainDataSeen.Load() {
+		t.Fatalf("no cleartext data PDU observed on the plaintext share; traffic may have been encrypted globally")
+	}
+	if transformInPhase0.Load() {
+		t.Fatalf("observed a TransformHeader while exercising the plaintext share; encryption leaked beyond the encrypt share")
+	}
+	if !transformInPhase1.Load() {
+		t.Fatalf("no TransformHeader observed while exercising the encrypt share; per-tree encryption did not engage")
+	}
+}
 
 // TestEncryptedRoundTrip311 round-trips a file over an SMB 3.1.1
 // connection where every post-SessionSetup PDU is wrapped in a
