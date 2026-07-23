@@ -148,6 +148,31 @@ on the wire for the guest path but not the Go API.
   unaffected. The client can opt into offering it via the new
   `Options.RawNTLMSSP` (NTLM only; requires a `*spnego.NTLMInitiator`).
 
+### Server interoperability fixes
+
+Three defects made a default-configured go-smb server unreachable by real
+Windows clients (WinPE `net use` failed before authentication, with nothing
+logged); each moved the connection reset one step later on the wire:
+
+- **Empty `SMB2_COMPRESSION_CAPABILITIES` context is no longer emitted.** The
+  3.1.1 Negotiate Response echoed a compression context with
+  `CompressionAlgorithmCount == 0`, which MS-SMB2 §2.2.3.1.3 forbids (the count
+  MUST be > 0); Windows reset the connection on reading it. A server with no
+  compression now omits the context entirely.
+- **CHALLENGE no longer inherits `NTLMSSP_NEGOTIATE_LM_KEY`.** LM_KEY and
+  `EXTENDED_SESSIONSECURITY` are mutually exclusive (MS-NLMP §2.2.2.5) and the
+  server always asserts the latter, so inheriting LM_KEY from a client that
+  requested both produced a spec-violating CHALLENGE.
+- **CHALLENGE TargetInfo defaults from `NetBIOSName`.** When the domain/DNS
+  fields are unset the server now fills the `MsvAv*` domain/DNS pairs from
+  `NetBIOSName` instead of omitting them; Windows rejects a CHALLENGE that
+  lacks them. A minimally-configured server is now usable by Windows.
+
+Also: a NEGOTIATE with no mutually-supported dialect now returns
+`STATUS_NOT_SUPPORTED` (MS-SMB2 §3.3.5.4) instead of silently dropping the
+connection, and the client surfaces that status instead of a misleading parse
+error. Dialect revisions are logged as friendly version strings.
+
 ## [0.11.0] — 2026-07-06
 
 Headline items this cycle are a logging and error-handling overhaul, a pass

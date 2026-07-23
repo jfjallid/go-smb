@@ -133,6 +133,38 @@ const DialectSmb_3_0_2 uint16 = 0x0302
 const DialectSmb_3_1_1 uint16 = 0x0311
 const DialectSmb2_ALL uint16 = 0x02FF
 
+// DialectString maps a dialect revision to its friendly SMB version string
+// (e.g. 0x0311 -> "3.1.1"). Unknown values fall back to a hex representation so
+// log output stays readable regardless of what a client offers.
+func DialectString(d uint16) string {
+	switch d {
+	case DialectSmb_2_0_2:
+		return "2.0.2"
+	case DialectSmb_2_1:
+		return "2.1"
+	case DialectSmb_3_0:
+		return "3.0"
+	case DialectSmb_3_0_2:
+		return "3.0.2"
+	case DialectSmb_3_1_1:
+		return "3.1.1"
+	case DialectSmb2_ALL:
+		return "2.??? (wildcard)"
+	default:
+		return fmt.Sprintf("0x%04X", d)
+	}
+}
+
+// DialectsString maps a slice of dialect revisions to their friendly version
+// strings for logging.
+func DialectsString(dialects []uint16) []string {
+	out := make([]string, len(dialects))
+	for i, d := range dialects {
+		out[i] = DialectString(d)
+	}
+	return out
+}
+
 // DialectsSMB2Only pins the negotiate offer to the legacy SMB 2.1 dialect. Use
 // it as Options.Dialects when a server has SMB 3.x disabled or must be forced
 // onto the 2.1 path (which cannot negotiate signing contexts or encryption).

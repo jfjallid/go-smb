@@ -261,6 +261,23 @@ func (s *Session) IsSigningRequired() bool {
 	return s.isSigningRequired.Load()
 }
 
+// negotiateStatus decodes only the SMB2 header from a negotiate response and
+// returns a non-nil error when the server signalled a failure status. It must
+// run before the full-body NegotiateRes unmarshalling: an error response (for
+// example STATUS_NOT_SUPPORTED when no common dialect exists) carries only a
+// short 9-byte error body, so unmarshalling it as a full NegotiateRes fails
+// with a misleading "unexpected EOF" and masks the real server status.
+func negotiateStatus(buf []byte) error {
+	if len(buf) < 64 {
+		return fmt.Errorf("Negotiate received a response that was too short: %d bytes", len(buf))
+	}
+	var h Header
+	if err := encoder.Unmarshal(buf[:64], &h); err != nil {
+		return err
+	}
+	return statusError("Negotiate", h.Status)
+}
+
 func (c *Connection) NegotiateProtocol() (err error) {
 	// Debug breadcrumb at the layer seam: connection establishment spans
 	// multiple round trips before sendrecv-based operations take over.
@@ -299,6 +316,12 @@ func (c *Connection) NegotiateProtocol() (err error) {
 			err = fmt.Errorf("target %s only accepts SMBv1, but SMBv1 is not implemented", c.conn.RemoteAddr().String())
 			return err
 		}
+		// Surface a server error status (e.g. STATUS_NOT_SUPPORTED when the
+		// server shares no dialect with our offer) before attempting to parse
+		// the response as a full NegotiateRes.
+		if err = negotiateStatus(negResBuf); err != nil {
+			return err
+		}
 		negRes = NewNegotiateRes()
 		log.Traceln("Unmarshalling SMB2-only NegotiateProtocol response")
 		if err := encoder.Unmarshal(negResBuf, &negRes); err != nil {
@@ -330,6 +353,10 @@ func (c *Connection) NegotiateProtocol() (err error) {
 		if negResBuf[0] == 0xFF {
 			// Server does not support or want to use SMB2.
 			err = fmt.Errorf("target %s is only accepting SMBv1, but SMBv1 support is not implemented", c.conn.RemoteAddr().String())
+			return err
+		}
+		// Surface a server error status before parsing the SMB2 response body.
+		if err = negotiateStatus(negResBuf); err != nil {
 			return err
 		}
 
@@ -365,6 +392,10 @@ func (c *Connection) NegotiateProtocol() (err error) {
 			negResBuf, err = c.recv(rr)
 			if err != nil {
 				log.Debugln(err)
+				return err
+			}
+			// Surface a server error status before parsing the response body.
+			if err = negotiateStatus(negResBuf); err != nil {
 				return err
 			}
 			negRes = NewNegotiateRes()

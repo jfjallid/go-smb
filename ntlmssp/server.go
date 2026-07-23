@@ -100,17 +100,26 @@ func (s *Server) AcceptNegotiate(neg []byte) ([]byte, error) {
 	addAv := func(id uint16, val []byte) {
 		avs = append(avs, AvPair{AvID: id, AvLen: uint16(len(val)), Value: val})
 	}
-	if s.NetBIOSDomain != "" {
-		addAv(MsvAvNbDomainName, encoder.ToUnicode(s.NetBIOSDomain))
+	// Windows rejects a CHALLENGE whose TargetInfo lacks the domain/DNS pairs.
+	// Every real SMB server fills these in; a workgroup server uses its own name for
+	// all four. Fall back to NetBIOSName rather than omitting the pair. Keep the
+	// order MsvAvNbDomainName before MsvAvNbComputerName — that is what Windows
+	// servers emit.
+	//NOTE Might want to introduce a way to explicitly skip them if so desired
+	nbDomain := orDefaultStr(s.NetBIOSDomain, s.NetBIOSName)
+	dnsDomain := orDefaultStr(s.DnsDomainName, s.NetBIOSName)
+	dnsComputer := orDefaultStr(s.DnsComputerName, s.NetBIOSName)
+	if nbDomain != "" {
+		addAv(MsvAvNbDomainName, encoder.ToUnicode(nbDomain))
 	}
 	if s.NetBIOSName != "" {
 		addAv(MsvAvNbComputerName, encoder.ToUnicode(s.NetBIOSName))
 	}
-	if s.DnsDomainName != "" {
-		addAv(MsvAvDnsDomainName, encoder.ToUnicode(s.DnsDomainName))
+	if dnsDomain != "" {
+		addAv(MsvAvDnsDomainName, encoder.ToUnicode(dnsDomain))
 	}
-	if s.DnsComputerName != "" {
-		addAv(MsvAvDnsComputerName, encoder.ToUnicode(s.DnsComputerName))
+	if dnsComputer != "" {
+		addAv(MsvAvDnsComputerName, encoder.ToUnicode(dnsComputer))
 	}
 	tsBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(tsBuf, ConvertToFileTime(time.Now()))
@@ -220,7 +229,10 @@ const supportedClientFlags uint32 = FlgNegUnicode |
 	FlgNegRequestTarget |
 	FlgNegSign |
 	FlgNegSeal |
-	FlgNegLmKey |
+	// FlgNegLmKey deliberately NOT inherited: MS-NLMP §2.2.2.5 makes LM_KEY and
+	// EXTENDED_SESSIONSECURITY mutually exclusive, and mandatoryServerFlags
+	// always asserts EXTENDED_SESSIONSECURITY. Windows clients request both, so
+	// inheriting LM_KEY would emit a spec-violating CHALLENGE.
 	FlgNegNtLm |
 	FlgNegAlwaysSign |
 	FlgNegExtendedSessionSecurity |
@@ -237,6 +249,14 @@ const mandatoryServerFlags uint32 = FlgNegRequestTarget |
 	FlgNegNtLm |
 	FlgNegExtendedSessionSecurity |
 	FlgNegVersion
+
+// orDefaultStr returns v when it is non-empty, otherwise def.
+func orDefaultStr(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
 
 // silence unused-import warning when only some symbols are exported.
 var _ = bytes.Equal

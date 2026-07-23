@@ -25,6 +25,7 @@ package server
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"time"
 
@@ -171,6 +172,20 @@ func (c *Conn) handleNegotiate(ctx pduCtx, raw []byte, h *smb.Header) error {
 
 	res, err := c.buildNegotiateRes(&req)
 	if err != nil {
+		// No common dialect is a client-facing condition: reply with
+		// STATUS_NOT_SUPPORTED (MS-SMB2 §3.3.5.4) so the peer gets an
+		// actionable status instead of an unexplained connection drop. The
+		// connection is still torn down afterwards by returning the error.
+		// Detach the chain so the error PDU hits the wire immediately —
+		// returning err below skips flushChain, and Negotiate is never
+		// compounded, so the queue accumulator must be bypassed here.
+		if errors.Is(err, errNoCommonDialect) {
+			detached := ctx
+			detached.chain = nil
+			if werr := c.writeRawError(detached, h, smb.StatusNotSupported); werr != nil {
+				return werr
+			}
+		}
 		return err
 	}
 
@@ -242,6 +257,12 @@ func encodeForWire(res any) ([]byte, error) {
 	return encoder.Marshal(res)
 }
 
+// errNoCommonDialect is returned by buildNegotiateRes when none of the
+// client's offered dialects intersect the server's allowed set. handleNegotiate
+// translates it into a STATUS_NOT_SUPPORTED error response (MS-SMB2 §3.3.5.4)
+// rather than silently dropping the connection.
+var errNoCommonDialect = errors.New("no mutually supported dialect")
+
 // buildNegotiateRes picks the highest mutually-supported dialect and assembles
 // a NegotiateRes. It does NOT populate MessageID/SessionID — handleNegotiate
 // fills those from the inbound header.
@@ -262,8 +283,8 @@ search:
 		}
 	}
 	if chosen == 0 {
-		logger.Errorf("no mutually supported dialect; client offered %v, we allow %v", req.Dialects, allowed)
-		return nil, fmt.Errorf("no mutually supported dialect")
+		logger.Errorf("no mutually supported dialect; client offered %v, we allow %v", smb.DialectsString(req.Dialects), smb.DialectsString(allowed))
+		return nil, errNoCommonDialect
 	}
 
 	res := smb.NewNegotiateRes()
@@ -364,12 +385,11 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 	logger := c.logger()
 
 	var (
-		chosenCipher    uint16
-		chosenSign      uint16 = smb.AES_CMAC
-		chosenHash      uint16
-		clientSalt      []byte
-		clientNetName   []byte // raw bytes from NetNameNegotiateContextId
-		compressionSeen bool
+		chosenCipher  uint16
+		chosenSign    uint16 = smb.AES_CMAC
+		chosenHash    uint16
+		clientSalt    []byte
+		clientNetName []byte // raw bytes from NetNameNegotiateContextId
 	)
 
 	for _, ctx := range req.ContextList {
@@ -435,10 +455,10 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 			clientNetName = append([]byte(nil), ctx.Data...)
 
 		case smb.CompressionCapabilities:
-			// MS-SMB2 §2.2.3.1.3: client offers compression algorithms. We
-			// don't implement compression but the spec lets us reply with
-			// an empty algorithm list so the client knows we considered it.
-			compressionSeen = true
+			// MS-SMB2 §2.2.3.1.3: the client offers compression algorithms.
+			// Parsed and ignored — we implement no compression, and the reply
+			// for "none" is to omit the context entirely (an empty algorithm
+			// list is invalid; see the omission note below).
 		}
 	}
 
@@ -515,19 +535,11 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 		Padd:        make([]byte, padTo8(len(scBuf))),
 	})
 
-	// CompressionCapabilities: reply with an empty algorithm list when the
-	// client offered one. ServerCompressionContext layout (MS-SMB2 §2.2.3.1.3):
-	// CompressionAlgorithmCount(2) + Padding(2) + Flags(4) + Algorithms[].
-	if compressionSeen {
-		comp := make([]byte, 8)
-		// CompressionAlgorithmCount=0, Padding=0, Flags=0 → all zero.
-		res.ContextList = append(res.ContextList, smb.NegContext{
-			ContextType: smb.CompressionCapabilities,
-			Data:        comp,
-			DataLength:  uint16(len(comp)),
-			Padd:        make([]byte, padTo8(len(comp))),
-		})
-	}
+	// CompressionCapabilities: OMITTED ON PURPOSE. MS-SMB2 §2.2.3.1.3 requires
+	// CompressionAlgorithmCount > 0; a context with count=0 is invalid and
+	// Windows RSTs the connection on reading it. The way a server says "no
+	// compression" is to send no compression context at all. If go-smb ever
+	// implements a compression algorithm, emit the context with a real count.
 
 	// NetNameNegotiateContextId: echo client-supplied bytes verbatim. Wire
 	// format is just the UTF-16 server name, no length prefix.

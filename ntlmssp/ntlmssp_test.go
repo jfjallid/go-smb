@@ -84,3 +84,74 @@ func TestChallengeValidTargetInfo(t *testing.T) {
 		t.Fatalf("expected 2 AV pairs, got %v", chall.TargetInfo)
 	}
 }
+
+// acceptNegotiate marshals a NEGOTIATE with the given flags, drives it through
+// Server.AcceptNegotiate, and returns the parsed CHALLENGE.
+func acceptNegotiate(t *testing.T, s *Server, flags uint32) Challenge {
+	t.Helper()
+	neg := Negotiate{
+		Header:         Header{Signature: []byte(Signature), MessageType: TypeNtLmNegotiate},
+		NegotiateFlags: flags,
+	}
+	negBuf, err := encoder.Marshal(neg)
+	if err != nil {
+		t.Fatalf("marshal Negotiate: %v", err)
+	}
+	challBuf, err := s.AcceptNegotiate(negBuf)
+	if err != nil {
+		t.Fatalf("AcceptNegotiate: %v", err)
+	}
+	chall := NewChallenge()
+	if err := encoder.Unmarshal(challBuf, &chall); err != nil {
+		t.Fatalf("unmarshal Challenge: %v", err)
+	}
+	return chall
+}
+
+// TestChallengeDropsLmKey verifies that when a client requests both LM_KEY and
+// EXTENDED_SESSIONSECURITY (as Windows clients do), the server's CHALLENGE
+// clears LM_KEY. MS-NLMP §2.2.2.5 makes the two mutually exclusive.
+func TestChallengeDropsLmKey(t *testing.T) {
+	s := &Server{NetBIOSName: "SERVER"}
+	chall := acceptNegotiate(t, s,
+		FlgNegUnicode|FlgNegNtLm|FlgNegLmKey|FlgNegExtendedSessionSecurity)
+
+	if chall.NegotiateFlags&FlgNegLmKey != 0 {
+		t.Errorf("CHALLENGE must not set FlgNegLmKey alongside EXTENDED_SESSIONSECURITY (flags=0x%08x)", chall.NegotiateFlags)
+	}
+	if chall.NegotiateFlags&FlgNegExtendedSessionSecurity == 0 {
+		t.Errorf("CHALLENGE must retain EXTENDED_SESSIONSECURITY (flags=0x%08x)", chall.NegotiateFlags)
+	}
+}
+
+// TestChallengeTargetInfoDefaultsFromNetBIOSName verifies that a Server
+// configured with only NetBIOSName still emits the full set of TargetInfo AV
+// pairs Windows requires — the domain and DNS names default to NetBIOSName
+// rather than being omitted. A CHALLENGE missing these is rejected by Windows
+// before AUTHENTICATE.
+func TestChallengeTargetInfoDefaultsFromNetBIOSName(t *testing.T) {
+	s := &Server{NetBIOSName: "PXESERVER"}
+	chall := acceptNegotiate(t, s,
+		FlgNegUnicode|FlgNegNtLm|FlgNegExtendedSessionSecurity)
+
+	if chall.TargetInfo == nil {
+		t.Fatal("CHALLENGE has no TargetInfo")
+	}
+	want := map[uint16]bool{
+		MsvAvNbDomainName:    false,
+		MsvAvNbComputerName:  false,
+		MsvAvDnsDomainName:   false,
+		MsvAvDnsComputerName: false,
+		MsvAvTimestamp:       false,
+	}
+	for _, av := range *chall.TargetInfo {
+		if _, ok := want[av.AvID]; ok {
+			want[av.AvID] = true
+		}
+	}
+	for id, seen := range want {
+		if !seen {
+			t.Errorf("CHALLENGE TargetInfo missing required AV pair 0x%04x", id)
+		}
+	}
+}

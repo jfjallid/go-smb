@@ -16,11 +16,14 @@ import (
 	"github.com/jfjallid/go-smb/smb/server"
 )
 
-// TestNegotiateContextEchoes drives a 3.1.1 Negotiate that includes
+// TestNegotiateContextEchoes drives a 3.1.1 Negotiate that includes both
 // NetNameNegotiateContextId and CompressionCapabilities and verifies the
-// server echoes both back. This is the spec-compliance fix for clients
-// (notably some macOS builds) that drop the connection if NetName isn't
-// echoed.
+// server echoes NetName back (a spec-compliance fix for clients — notably some
+// macOS builds — that drop the connection if NetName isn't echoed) while it
+// does NOT emit a CompressionCapabilities context. MS-SMB2 §2.2.3.1.3 requires
+// CompressionAlgorithmCount > 0, so the reply for "no compression" is to omit
+// the context entirely; Windows RSTs the connection on reading a count=0
+// context.
 func TestNegotiateContextEchoes(t *testing.T) {
 	srv := &server.Server{Config: &server.ServerConfig{}}
 	addr, shutdown := startTestServer(t, srv)
@@ -149,8 +152,8 @@ func TestNegotiateContextEchoes(t *testing.T) {
 	if !sawNetName {
 		t.Error("server did not echo NetNameNegotiateContextId")
 	}
-	if !sawCompression {
-		t.Error("server did not reply with CompressionCapabilities")
+	if sawCompression {
+		t.Error("server emitted a CompressionCapabilities context; MS-SMB2 §2.2.3.1.3 requires it be omitted when no algorithm is offered")
 	}
 }
 
