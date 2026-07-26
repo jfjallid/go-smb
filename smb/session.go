@@ -23,6 +23,7 @@
 package smb
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -1454,8 +1455,13 @@ func (f *File) IsOpen() bool {
 // connection-level keepalive that probes the server is still responsive
 // without touching any share or file.
 func (c *Connection) Echo() error {
+	return c.EchoContext(context.Background())
+}
+
+// EchoContext is Echo with cancellation.
+func (c *Connection) EchoContext(ctx context.Context) error {
 	req := c.NewEchoReq()
-	buf, err := c.sendrecv(req)
+	buf, err := c.sendrecvContext(ctx, req)
 	if err != nil {
 		log.Debugln(err)
 		return err
@@ -1469,11 +1475,16 @@ func (c *Connection) Echo() error {
 // confirmation. Call it after a sequence of WriteFile calls when durability
 // must be guaranteed before proceeding.
 func (f *File) Flush() error {
+	return f.FlushContext(context.Background())
+}
+
+// FlushContext is Flush with cancellation.
+func (f *File) FlushContext(ctx context.Context) error {
 	if f.fd == nil {
 		return fmt.Errorf("can't operate on a closed file")
 	}
 	req := f.NewFlushReq(f.share, f.fd)
-	buf, err := f.sendrecv(req)
+	buf, err := f.sendrecvContext(ctx, req)
 	if err != nil {
 		log.Debugln(err)
 		return err
@@ -1515,7 +1526,14 @@ func (f *File) CloseFile() error {
 	return nil
 }
 
+// QueryDirectory enumerates one buffer's worth of directory entries. See
+// QueryDirectoryContext for the cancellable form.
 func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, bufferSize uint32) (sf []SharedFile, err error) {
+	return f.QueryDirectoryContext(context.Background(), pattern, flags, fileIndex, bufferSize)
+}
+
+// QueryDirectoryContext is QueryDirectory with cancellation.
+func (f *File) QueryDirectoryContext(ctx context.Context, pattern string, flags byte, fileIndex uint32, bufferSize uint32) (sf []SharedFile, err error) {
 	if f.fd == nil {
 		return nil, fmt.Errorf("can't operate on a closed file")
 	}
@@ -1534,7 +1552,7 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 		return
 	}
 
-	buf, err := f.sendrecv(req)
+	buf, err := f.sendrecvContext(ctx, req)
 	if err != nil {
 		log.Debugln(err)
 		return
@@ -1943,7 +1961,16 @@ func (s *Connection) connectToTree(share string) (bool, error) {
 	return true, nil
 }
 
+// RetrieveFile streams a remote file to callback. See RetrieveFileContext for
+// the cancellable form.
 func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, callback func([]byte) (int, error)) (err error) {
+	return s.RetrieveFileContext(context.Background(), share, filepath, offset, callback)
+}
+
+// RetrieveFileContext is RetrieveFile with cancellation. The context is checked
+// between chunks and threaded into every round trip, so a cancelled transfer
+// stops promptly instead of running to completion.
+func (s *Connection) RetrieveFileContext(ctx context.Context, share string, filepath string, offset uint64, callback func([]byte) (int, error)) (err error) {
 
 	if callback == nil {
 		err = fmt.Errorf("must specify a callback function to handle retrieved data")
@@ -1976,7 +2003,7 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 		return
 	}
 
-	buf, err := s.sendrecv(req)
+	buf, err := s.sendrecvContext(ctx, req)
 	if err != nil {
 		log.Debugln(err)
 		return
@@ -2017,7 +2044,13 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 
 	readOffset := offset
 	for readOffset < fileSize {
-		n, err := f.ReadFile(data, readOffset)
+		// Check between chunks as well as inside each round trip: a cancelled
+		// transfer should stop at the next boundary even if the current READ
+		// happened to complete first.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		n, err := f.ReadFileContext(ctx, data, readOffset)
 		if err != nil {
 			if err == io.EOF {
 				err = fmt.Errorf("got EOF before finished reading")
@@ -2041,7 +2074,15 @@ func (s *Connection) RetrieveFile(share string, filepath string, offset uint64, 
 	return err
 }
 
+// ReadFile reads into b starting at offset, returning the number of bytes
+// read. See ReadFileContext for the cancellable form.
 func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
+	return f.ReadFileContext(context.Background(), b, offset)
+}
+
+// ReadFileContext is ReadFile with cancellation. Cancelling ctx abandons the
+// in-flight READ and sends an SMB2 CANCEL for it.
+func (f *File) ReadFileContext(ctx context.Context, b []byte, offset uint64) (n int, err error) {
 	if f.fd == nil {
 		return 0, fmt.Errorf("can't operate on a closed file")
 	}
@@ -2080,7 +2121,7 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 		return
 	}
 
-	buf, err := f.sendrecv(req)
+	buf, err := f.sendrecvContext(ctx, req)
 	if err != nil {
 		log.Debugln(err)
 		return
@@ -2142,7 +2183,15 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 	return
 }
 
+// PutFile streams data from callback into a remote file. See PutFileContext
+// for the cancellable form.
 func (s *Connection) PutFile(share string, filepath string, offset uint64, callback func([]byte) (int, error)) (err error) {
+	return s.PutFileContext(context.Background(), share, filepath, offset, callback)
+}
+
+// PutFileContext is PutFile with cancellation. The context is checked between
+// chunks and threaded into every round trip.
+func (s *Connection) PutFileContext(ctx context.Context, share string, filepath string, offset uint64, callback func([]byte) (int, error)) (err error) {
 	disconnectFromTree, err := s.connectToTree(share)
 	if err != nil {
 		log.Debugln(err)
@@ -2178,7 +2227,7 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 		return
 	}
 
-	buf, err := s.sendrecv(req)
+	buf, err := s.sendrecvContext(ctx, req)
 	if err != nil {
 		log.Debugln(err)
 		return
@@ -2213,6 +2262,11 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 
 	writeOffset := offset
 	for {
+		// See RetrieveFileContext: stop at the next chunk boundary on
+		// cancellation rather than pulling more data from the callback.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		outBuffer := make([]byte, s.maxWriteSize)
 		nr, err := callback(outBuffer)
 		if err != nil {
@@ -2222,7 +2276,7 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 			return err
 		}
 
-		n, err := f.WriteFile(outBuffer[:nr], writeOffset)
+		n, err := f.WriteFileContext(ctx, outBuffer[:nr], writeOffset)
 		if err != nil {
 			log.Debugln(err)
 			return err
@@ -2233,7 +2287,15 @@ func (s *Connection) PutFile(share string, filepath string, offset uint64, callb
 	return
 }
 
+// WriteFile writes data at offset, returning the number of bytes written. See
+// WriteFileContext for the cancellable form.
 func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
+	return f.WriteFileContext(context.Background(), data, offset)
+}
+
+// WriteFileContext is WriteFile with cancellation. Cancelling ctx abandons the
+// in-flight WRITE and sends an SMB2 CANCEL for it.
+func (f *File) WriteFileContext(ctx context.Context, data []byte, offset uint64) (n int, err error) {
 	if f.fd == nil {
 		return 0, fmt.Errorf("can't operate on a closed file")
 	}
@@ -2277,7 +2339,7 @@ func (f *File) WriteFile(data []byte, offset uint64) (n int, err error) {
 			return n, err
 		}
 
-		buf, err := f.sendrecv(req)
+		buf, err := f.sendrecvContext(ctx, req)
 		if err != nil {
 			log.Debugln(err)
 			return n, err
@@ -2638,4 +2700,27 @@ func (c *Session) AuthResult() SessionAuthResult {
 	default:
 		return AuthResultUser
 	}
+}
+
+// FileID returns the 16-byte SMB2 FileId of an open handle, or nil once the
+// file has been closed. Exposed for callers that need to address the handle in
+// a hand-built PDU (see Connection.SendRawPDU) — for example commands this
+// client does not model natively.
+func (f *File) FileID() []byte {
+	if f.fd == nil {
+		return nil
+	}
+	return append([]byte(nil), f.fd...)
+}
+
+// SessionID returns the negotiated SMB2 SessionId of this connection. Zero
+// before SessionSetup completes.
+func (c *Connection) SessionID() uint64 {
+	return c.sessionID
+}
+
+// TreeID returns the TreeId of a connected share, or 0 when the share is not
+// currently connected.
+func (c *Connection) TreeID(share string) uint32 {
+	return c.treeId(share)
 }

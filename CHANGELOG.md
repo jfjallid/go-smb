@@ -254,6 +254,30 @@ error. Dialect revisions are logged as friendly version strings.
   caller's goroutine. A truncated response no longer reaches `sign`/`verify`
   either.
 
+### `context.Context` support (client)
+
+- **New `XxxContext` variants** on the blocking calls: `ReadFileContext`,
+  `WriteFileContext`, `RetrieveFileContext`, `PutFileContext`, `EchoContext`,
+  `FlushContext` and `QueryDirectoryContext`. The existing methods are
+  unchanged and now delegate with `context.Background()`, so this is not a
+  breaking change.
+- Cancellation reaches all three places a call can block: the credit reserve,
+  the handoff to the sender, and the wait for the response. The credit wait is
+  built on a `sync.Cond`, which only wakes on a Broadcast, so a cancelled
+  context is translated into one — previously a caller blocked on a starved
+  credit window ignored cancellation entirely and hung for the full reserve
+  timeout (60s by default).
+- When a cancelled request has already gone out, an **SMB2 CANCEL** is sent for
+  it (MS-SMB2 §3.2.4.24) rather than leaving the server working for a caller
+  that has walked away. Long transfers also check the context between chunks,
+  so they stop at the next boundary instead of running to completion.
+- Awaiting a response on a connection that is being torn down now reports an
+  error instead of returning `(nil, nil)`, which every caller previously had to
+  special-case before parsing a response that did not exist.
+- New accessors `File.FileID`, `Connection.SessionID` and `Connection.TreeID`
+  expose what is needed to address an open handle in a hand-built PDU via
+  `Connection.SendRawPDU`.
+
 ## [0.11.0] — 2026-07-06
 
 Headline items this cycle are a logging and error-handling overhaul, a pass

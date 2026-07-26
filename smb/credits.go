@@ -15,6 +15,7 @@
 package smb
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -64,10 +65,32 @@ func (cm *creditManager) grant(n uint16) {
 // for, or an unfair wakeup that keeps losing the balance to other senders —
 // into a loud error instead of a silent deadlock.
 func (cm *creditManager) reserve(charge uint16, timeout time.Duration) error {
+	return cm.reserveContext(context.Background(), charge, timeout)
+}
+
+// reserveContext is reserve with cancellation. Because the wait is built on a
+// sync.Cond — which can only be woken by a Broadcast — a cancellable wait needs
+// a watcher goroutine to issue that Broadcast when ctx fires; the loop then
+// re-evaluates and returns ctx.Err(). The watcher is torn down on every exit
+// path so a satisfied reserve leaves nothing running.
+func (cm *creditManager) reserveContext(ctx context.Context, charge uint16, timeout time.Duration) error {
 	need := uint64(charge)
 	if need == 0 {
 		need = 1
 	}
+
+	if done := ctx.Done(); done != nil {
+		stop := make(chan struct{})
+		defer close(stop)
+		go func() {
+			select {
+			case <-done:
+				cm.cond.Broadcast()
+			case <-stop:
+			}
+		}()
+	}
+
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -83,6 +106,9 @@ func (cm *creditManager) reserve(charge uint16, timeout time.Duration) error {
 	}
 
 	for cm.balance < need {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("waiting for %d credits: %w", need, err)
+		}
 		if cm.closed {
 			return fmt.Errorf("connection closed while waiting for %d credits", need)
 		}

@@ -23,11 +23,14 @@
 package smb
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // TestParseAccessMaskGenericBits pins every generic/standard bit to its name.
@@ -173,5 +176,88 @@ func TestHeaderStatusShortBuffer(t *testing.T) {
 	}
 	if _, err := headerStatus("Echo", shortHeaderResponse(StatusAccessDenied)); err == nil {
 		t.Error("headerStatus on STATUS_ACCESS_DENIED returned nil, want an error")
+	}
+}
+
+// TestReserveContextCancels covers the cancellable credit wait. reserve is
+// built on a sync.Cond, which can only be woken by a Broadcast, so a cancelled
+// context must be translated into one — otherwise a caller blocked on a starved
+// credit window would ignore cancellation entirely and hang for the full
+// reserve timeout (60s by default).
+func TestReserveContextCancels(t *testing.T) {
+	cm := newCreditManager(0) // no credits: any reserve blocks
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- cm.reserveContext(ctx, 1, 0) }()
+
+	// Give the reserve a moment to park on the cond.
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("reserveContext returned %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("reserveContext ignored cancellation")
+	}
+}
+
+// TestReserveContextDeadline is the same guarantee via a deadline.
+func TestReserveContextDeadline(t *testing.T) {
+	cm := newCreditManager(0)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := cm.reserveContext(ctx, 1, 0)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("reserveContext returned %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("reserveContext took %v to honor a 30ms deadline", elapsed)
+	}
+}
+
+// TestReserveContextSucceedsWhenCreditsAvailable checks the happy path still
+// works and that the watcher goroutine does not interfere.
+func TestReserveContextSucceedsWhenCreditsAvailable(t *testing.T) {
+	cm := newCreditManager(4)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := cm.reserveContext(ctx, 2, 0); err != nil {
+		t.Fatalf("reserveContext with sufficient credits: %v", err)
+	}
+	if got := cm.available(); got != 2 {
+		t.Errorf("balance after reserving 2 of 4 = %d, want 2", got)
+	}
+}
+
+// TestSendrecvContextPreCancelled checks the cheap early-out: an
+// already-cancelled context must fail before any bytes are put on the wire.
+func TestSendrecvContextPreCancelled(t *testing.T) {
+	c := &Connection{
+		outstandingRequests: newOutstandingRequests(),
+		rdone:               make(chan struct{}, 1),
+		wdone:               make(chan struct{}, 1),
+		write:               make(chan []byte, 1),
+		werr:                make(chan error, 1),
+	}
+	c.Session = &Session{trees: make(map[string]*treeConnect), creditMgr: newCreditManager(1)}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := c.sendrecvContext(ctx, &EchoReq{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("sendrecvContext with a cancelled context returned %v, want context.Canceled", err)
+	}
+	// Nothing may have been queued for the sender.
+	select {
+	case pkt := <-c.write:
+		t.Fatalf("a cancelled sendrecvContext still queued %d bytes for sending", len(pkt))
+	default:
 	}
 }

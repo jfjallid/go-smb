@@ -647,6 +647,14 @@ func (c *Connection) makeRequestResponse(buf []byte, credited bool) (rr *request
 }
 
 func (c *Connection) sendrecv(req any) (buf []byte, err error) {
+	return c.sendrecvContext(context.Background(), req)
+}
+
+// sendrecvContext is sendrecv with cancellation. Cancelling releases the caller
+// immediately; if the request had already gone out, an SMB2 CANCEL is sent so
+// the server can abandon it rather than replying into a request nobody is
+// waiting on (MS-SMB2 §3.2.4.24).
+func (c *Connection) sendrecvContext(ctx context.Context, req any) (buf []byte, err error) {
 	// Debug breadcrumb at the layer seam: every smb session operation
 	// passes through here, so a single hook shows where errors originate
 	// without duplicate Error logging at each call site.
@@ -655,11 +663,14 @@ func (c *Connection) sendrecv(req any) (buf []byte, err error) {
 			log.Debugln(err)
 		}
 	}()
-	rr, err := c.send(req)
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	rr, err := c.sendContext(ctx, req)
 	if err != nil {
 		return
 	}
-	return c.recv(rr)
+	return c.recvContext(ctx, rr)
 }
 
 // SendRawPDU forwards an opaque SMB2 PDU (header + body) on this Connection
@@ -703,7 +714,7 @@ func peekSMB2Header(buf []byte) (command, creditCharge uint16) {
 // whether a reservation was made; SMB1 and the NEGOTIATE / SESSION_SETUP
 // handshake are exempt (they run inside the initial sequence window, and gating
 // them would deadlock connection setup).
-func (c *Connection) reserveForSend(buf []byte) (charge uint16, credited bool, err error) {
+func (c *Connection) reserveForSend(ctx context.Context, buf []byte) (charge uint16, credited bool, err error) {
 	if len(buf) < 64 || buf[0] == 0xff {
 		return 0, false, nil
 	}
@@ -715,7 +726,7 @@ func (c *Connection) reserveForSend(buf []byte) (charge uint16, credited bool, e
 	case CommandNegotiate, CommandSessionSetup:
 		return 0, false, nil
 	}
-	if err = c.Session.creditMgr.reserve(creditCharge, c.Session.creditReserveTimeout()); err != nil {
+	if err = c.Session.creditMgr.reserveContext(ctx, creditCharge, c.Session.creditReserveTimeout()); err != nil {
 		return 0, false, err
 	}
 	return creditCharge, true, nil
@@ -725,7 +736,11 @@ func (c *Connection) reserveForSend(buf []byte) (charge uint16, credited bool, e
 // step (caller has already produced the wire bytes) and lets
 // makeRequestResponse stamp the MessageID / signature / encryption in place.
 func (c *Connection) sendRawBytes(buf []byte) (*requestResponse, error) {
-	charge, credited, err := c.reserveForSend(buf)
+	return c.sendRawBytesContext(context.Background(), buf)
+}
+
+func (c *Connection) sendRawBytesContext(ctx context.Context, buf []byte) (*requestResponse, error) {
+	charge, credited, err := c.reserveForSend(ctx, buf)
 	if err != nil {
 		return nil, err
 	}
@@ -783,13 +798,17 @@ func (c *Connection) sendRawBytes(buf []byte) (*requestResponse, error) {
 }
 
 func (c *Connection) send(req any) (rr *requestResponse, err error) {
+	return c.sendContext(context.Background(), req)
+}
+
+func (c *Connection) sendContext(ctx context.Context, req any) (rr *requestResponse, err error) {
 	buf, err := encoder.Marshal(req)
 	if err != nil {
 		log.Debugln(err)
 		return nil, err
 	}
 
-	charge, credited, err := c.reserveForSend(buf)
+	charge, credited, err := c.reserveForSend(ctx, buf)
 	if err != nil {
 		log.Debugln(err)
 		return nil, err
@@ -850,10 +869,25 @@ func (c *Connection) send(req any) (rr *requestResponse, err error) {
 }
 
 func (c *Connection) recv(rr *requestResponse) (buf []byte, err error) {
+	return c.recvContext(context.Background(), rr)
+}
+
+// recvContext is recv with cancellation. On cancellation the request is dropped
+// from the outstanding set and an SMB2 CANCEL is sent for it: the server has
+// already been handed the request, so telling it to stop is both the protocol's
+// answer (MS-SMB2 §3.2.4.24) and what keeps a long operation from continuing to
+// consume server resources for a caller that has walked away.
+func (c *Connection) recvContext(ctx context.Context, rr *requestResponse) (buf []byte, err error) {
 	if rr == nil {
 		return nil, fmt.Errorf("remote connection has closed")
 	}
 	select {
+	case <-ctx.Done():
+		c.outstandingRequests.pop(rr.msgId)
+		if cerr := c.SendCancel(rr.msgId, rr.asyncId); cerr != nil {
+			log.Debugf("failed to cancel message %d after context cancellation: %v\n", rr.msgId, cerr)
+		}
+		return nil, ctx.Err()
 	case <-c.rdone:
 		c.outstandingRequests.pop(rr.msgId)
 		// The connection is being torn down under us. Report it rather than
