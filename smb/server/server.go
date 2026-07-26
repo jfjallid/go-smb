@@ -133,6 +133,17 @@ type ServerConfig struct {
 	// STATUS_ACCESS_DENIED.
 	RequireEncryption bool
 
+	// Compression advertises SMB2_COMPRESSION_CAPABILITIES on SMB 3.1.1 and
+	// enables compression-transform (0xFCSMB) frames in both directions. When
+	// enabled, an inbound client offer is answered with the intersection of the
+	// client's algorithms and CompressionAlgorithms; when there is no common
+	// algorithm the context is omitted (MS-SMB2 §2.2.3.1.3).
+	Compression bool
+	// CompressionAlgorithms, when non-nil, overrides the supported algorithm set
+	// (preference order). Leaving it nil advertises the default
+	// (LZ77+Huffman, LZ77, Pattern_V1).
+	CompressionAlgorithms []uint16
+
 	// Maximum sizes advertised in NegotiateRes. Defaults: 65536 each.
 	MaxReadSize     uint32
 	MaxWriteSize    uint32

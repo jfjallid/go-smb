@@ -31,6 +31,7 @@ import (
 	"github.com/jfjallid/golog"
 
 	"github.com/jfjallid/go-smb/gss"
+	"github.com/jfjallid/go-smb/smb/compress"
 	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/spnego"
 )
@@ -40,6 +41,7 @@ var log = golog.Get("github.com/jfjallid/go-smb/smb").SetDisplayName("smb")
 const ProtocolSmb = "\xFFSMB"
 const ProtocolSmb2 = "\xFESMB"
 const ProtocolTransformHdr = "\xFDSMB"
+const ProtocolCompressionHdr = "\xFCSMB"
 
 const SHA512 = 0x001
 
@@ -275,6 +277,22 @@ const (
 	TransportCapabilities        uint16 = 0x0006
 	RDMATranformCapabilities     uint16 = 0x0007
 	SigningCapabilities          uint16 = 0x0008
+)
+
+// MS-SMB2 Section 2.2.3.1.3 CompressionAlgorithms
+const (
+	CompressionNone        uint16 = 0x0000
+	CompressionLZNT1       uint16 = 0x0001
+	CompressionLZ77        uint16 = 0x0002
+	CompressionLZ77Huffman uint16 = 0x0003
+	CompressionPatternV1   uint16 = 0x0004
+	CompressionLZ4         uint16 = 0x0005
+)
+
+// MS-SMB2 Section 2.2.3.1.3 SMB2_COMPRESSION_CAPABILITIES Flags
+const (
+	CompressionCapabilitiesFlagNone    uint32 = 0x00000000
+	CompressionCapabilitiesFlagChained uint32 = 0x00000001
 )
 
 // MS-SMB2 Section 2.2.3.1.2 Ciphers
@@ -716,6 +734,16 @@ type PreauthIntegrityContext struct {
 type EncryptionContext struct {
 	CipherCount uint16 `smb:"count:Ciphers"`
 	Ciphers     []uint16
+}
+
+// MS-SMB2 2.2.3.1.3 SMB2_COMPRESSION_CAPABILITIES. Note the extra Padding and
+// Flags fields relative to EncryptionContext; Flags carries
+// CompressionCapabilitiesFlagChained.
+type CompressionContext struct {
+	CompressionAlgorithmCount uint16 `smb:"count:CompressionAlgorithms"`
+	Padding                   uint16
+	Flags                     uint32
+	CompressionAlgorithms     []uint16
 }
 
 // MS-SMB2 2.2.3.1.7 SMB2_SIGNING_CAPABILITIES
@@ -1472,11 +1500,19 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			Padd:        make([]byte, (8-(len(ccBuf)%8))%8),
 		}
 		req.ContextList = append(req.ContextList, n)
+		// Compression is offered only when opted in. When present it becomes the
+		// last context, so SigningCapabilities now needs trailing 8-byte
+		// alignment padding (it was previously last and unpadded).
+		offerCompression := s.options.Compression
+		signingPad := []byte(nil)
+		if offerCompression {
+			signingPad = make([]byte, (8-(len(scBuf)%8))%8)
+		}
 		n = NegContext{
 			ContextType: SigningCapabilities,
 			Data:        scBuf,
 			DataLength:  uint16(len(scBuf)),
-			//Padd:        make([]byte, (8-(len(scBuf)%8))%8), // Padding not needed for the last item in the list.
+			Padd:        signingPad,
 		}
 		/*
 			TODO When rewriting the marshalling, move padding to before instead ot after each context based on alignment.
@@ -1486,6 +1522,28 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			offset following the previous negotiate context.
 		*/
 		req.ContextList = append(req.ContextList, n)
+
+		if offerCompression {
+			algs := s.options.CompressionAlgorithms
+			if algs == nil {
+				algs = compress.DefaultAlgorithms
+			}
+			comp := CompressionContext{
+				CompressionAlgorithmCount: uint16(len(algs)),
+				Flags:                     CompressionCapabilitiesFlagChained,
+				CompressionAlgorithms:     algs,
+			}
+			compBuf, err := encoder.Marshal(comp)
+			if err != nil {
+				return NegotiateReq{}, err
+			}
+			req.ContextList = append(req.ContextList, NegContext{
+				ContextType: CompressionCapabilities,
+				Data:        compBuf,
+				DataLength:  uint16(len(compBuf)),
+				// Last context: no trailing padding required.
+			})
+		}
 
 		req.NegotiateContextCount = uint16(len(req.ContextList))
 	}

@@ -27,6 +27,7 @@ import (
 	"fmt"
 
 	"github.com/jfjallid/go-smb/smb"
+	"github.com/jfjallid/go-smb/smb/compress"
 	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
@@ -69,10 +70,29 @@ func (c *Conn) dispatch(raw []byte) error {
 			logger.Errorf("decrypt failed for %s: %v", c.RemoteAddr, err)
 			return err
 		}
+		// A decrypted PDU may itself be a compression frame (compress then
+		// encrypt on send); decompress before dispatching.
+		if compress.IsCompressionFrame(plain) {
+			plain, err = c.Compression.Decompress(plain)
+			if err != nil {
+				logger.Errorf("decompress failed for %s: %v", c.RemoteAddr, err)
+				return err
+			}
+		}
 		// MS-SMB2 §3.3.4.1.4: the response to an encrypted request MUST
 		// be encrypted. Carry the flag through dispatch so the reply is
 		// wrapped even when Session.EncryptData isn't set.
 		return c.dispatchSMB2Chain(plain, pduCtx{encrypted: true})
+
+	case smb.ProtocolCompressionHdr:
+		// Compressed (unencrypted) SMB 3.1.1 PDU: decompress and re-dispatch
+		// the reconstructed SMB2 frame.
+		plain, err := c.Compression.Decompress(raw)
+		if err != nil {
+			logger.Errorf("decompress failed for %s: %v", c.RemoteAddr, err)
+			return err
+		}
+		return c.dispatchSMB2Chain(plain, pduCtx{})
 
 	default:
 		logger.Errorf("unknown protocol id: %x", raw[:4])

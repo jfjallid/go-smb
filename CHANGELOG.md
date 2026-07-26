@@ -204,6 +204,26 @@ error. Dialect revisions are logged as friendly version strings.
   unsigned responses after observing one encrypted exchange. The flag is now
   per-PDU.
 
+### SMB2/3 compression
+
+- **Compression is implemented for both client and server** (MS-SMB2 §2.2.42,
+  MS-XCA): LZ77 (Plain), LZ77+Huffman, and Pattern_V1 in the new
+  `smb/compress` package, with both the chained and unchained transform wire
+  forms. Opt in with `smb.Options.Compression` on the client and
+  `server.ServerConfig.Compression` on the server; `CompressionAlgorithms`
+  overrides the offered set on either side.
+- Compression is applied before encryption and after signing, per MS-SMB2
+  §3.1.4.1. Inbound frames are rejected outright until compression has actually
+  been negotiated, so an unnegotiated peer cannot drive the decompressor, and a
+  frame's declared original size is bounded (16 MiB) so a small frame cannot
+  force a large allocation.
+- Because a single-payload chained frame may legally leave
+  `SMB2_COMPRESSION_FLAG_CHAINED` clear, the two wire forms cannot be told
+  apart by inspection; the decoder parses with the negotiated form and retries
+  the other on failure. Both forms verify the reconstructed length against the
+  size the sender declared, so a wrong guess errors rather than yielding wrong
+  bytes.
+
 ## [0.11.0] — 2026-07-06
 
 Headline items this cycle are a logging and error-handling overhaul, a pass

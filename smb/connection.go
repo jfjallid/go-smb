@@ -39,6 +39,7 @@ import (
 	"sync/atomic"
 
 	"github.com/jfjallid/go-smb/gss"
+	"github.com/jfjallid/go-smb/smb/compress"
 	"github.com/jfjallid/go-smb/smb/encoder"
 	"golang.org/x/net/proxy"
 )
@@ -67,14 +68,19 @@ type Connection struct {
 	cipherId                  uint16
 	signingId                 uint16 // For windows 11 and windows server 2022 and later
 	offeredDialects           []uint16
-	wdone                     chan struct{}
-	rdone                     chan struct{}
-	write                     chan []byte
-	werr                      chan error
-	m                         sync.Mutex
-	err                       error
-	useProxy                  bool
-	_useSession               int32
+	// compression carries the negotiated compression state (algorithm set,
+	// chained wire form, outbound policy) and both framing operations. It is
+	// inactive until NegotiateProtocol configures it, so an unnegotiated peer
+	// cannot drive the decompressor.
+	compression compress.Codec
+	wdone       chan struct{}
+	rdone       chan struct{}
+	write       chan []byte
+	werr        chan error
+	m           sync.Mutex
+	err         error
+	useProxy    bool
+	_useSession int32
 }
 
 func (c *Connection) useSession() bool {
@@ -199,6 +205,7 @@ func (c *Connection) runReceiver() {
 		case ProtocolSmb:
 		case ProtocolSmb2:
 		case ProtocolTransformHdr:
+		case ProtocolCompressionHdr:
 		}
 
 		var h Header
@@ -209,8 +216,20 @@ func (c *Connection) runReceiver() {
 		var encrypted bool
 
 		if hasSession {
-			switch string(protID) {
-			case ProtocolTransformHdr:
+			// SMB1 is only ever legitimate as the very first multi-protocol
+			// negotiate exchange, before a session exists. Once one does, a
+			// 0xFFSMB frame is either a stray or an attempt to talk us back
+			// down to a protocol we do not implement — drop it.
+			if string(protID) == ProtocolSmb {
+				log.Errorln("Skip: Received an SMB1 packet on an established session")
+				continue
+			}
+
+			// Peel the outer layers in wire order: decrypt, then decompress,
+			// then parse the SMB2 header. Both wrappers are optional and a
+			// decrypted PDU may itself be compressed (compress-then-encrypt on
+			// send), so this is a straight-line sequence rather than a switch.
+			if string(protID) == ProtocolTransformHdr {
 				if len(data) < 52 {
 					log.Errorln("Skip: Packet too short to contain a transform header")
 					continue
@@ -237,27 +256,36 @@ func (c *Connection) runReceiver() {
 					continue
 				}
 				encrypted = true
+			}
 
-				fallthrough
-			case ProtocolSmb2:
-				if len(data) < 64 {
-					log.Errorln("Skip: Packet too short to contain an SMB2 header")
+			// Compression frame, either at the top level or revealed by the
+			// decryption above. Decompress rejects the frame outright when
+			// compression was never negotiated.
+			if compress.IsCompressionFrame(data) {
+				data, err = c.compression.Decompress(data)
+				if err != nil {
+					log.Errorf("Skip: Failed to decompress packet: %s\n", err)
 					continue
 				}
-				if err = encoder.Unmarshal(data[:64], &h); err != nil {
-					log.Errorln("Skip: Failed to decode header of packet")
-					continue
-				}
-				// Check structure size
-				if h.StructureSize != 64 {
-					log.Errorln("Skip: Invalid structure size of packet")
-					continue
-				}
-				// Check sessionID
-				if h.SessionID != c.sessionID {
-					log.Errorf("Skip: Unknown session id %d expected %d\n", h.SessionID, c.sessionID)
-					continue
-				}
+			}
+
+			if len(data) < 64 {
+				log.Errorln("Skip: Packet too short to contain an SMB2 header")
+				continue
+			}
+			if err = encoder.Unmarshal(data[:64], &h); err != nil {
+				log.Errorln("Skip: Failed to decode header of packet")
+				continue
+			}
+			// Check structure size
+			if h.StructureSize != 64 {
+				log.Errorln("Skip: Invalid structure size of packet")
+				continue
+			}
+			// Check sessionID
+			if h.SessionID != c.sessionID {
+				log.Errorf("Skip: Unknown session id %d expected %d\n", h.SessionID, c.sessionID)
+				continue
 			}
 
 			/*
@@ -566,21 +594,30 @@ func (c *Connection) makeRequestResponse(buf []byte, credited bool) (rr *request
 			encrypt := c.Session.sessionFlags&SessionFlagEncryptData != 0 ||
 				(c.Session.treeIdEncrypts(h.TreeID) && c.Session.canEncrypt())
 			if encrypt {
+				// Order (MS-SMB2 §3.1.4.1): compress the plaintext SMB2 PDU,
+				// then encrypt the (possibly) compressed frame. Signing is
+				// skipped — the AEAD tag carries integrity.
+				buf = c.compression.Compress(buf)
 				buf, err = c.encrypt(buf)
 				if err != nil {
 					return
 				}
-			} else if !c.Session.isSigningDisabled || (c.dialect == DialectSmb_3_1_1) {
-				// Must sign or encrypt with SMB 3.1.1
-				// TODO fix this control to check if encryption is performed instead.
-				if c.Session.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {
-					if c.signer != nil {
-						buf, err = c.sign(buf)
-						if err != nil {
-							return
+			} else {
+				if !c.Session.isSigningDisabled || (c.dialect == DialectSmb_3_1_1) {
+					// Must sign or encrypt with SMB 3.1.1
+					// TODO fix this control to check if encryption is performed instead.
+					if c.Session.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {
+						if c.signer != nil {
+							buf, err = c.sign(buf)
+							if err != nil {
+								return
+							}
 						}
 					}
 				}
+				// Sign first, then compress (the compression frame preserves the
+				// signed SMB2 bytes verbatim).
+				buf = c.compression.Compress(buf)
 			}
 		}
 	}

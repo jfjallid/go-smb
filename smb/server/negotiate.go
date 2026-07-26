@@ -34,6 +34,7 @@ import (
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb"
+	"github.com/jfjallid/go-smb/smb/compress"
 	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
@@ -385,11 +386,13 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 	logger := c.logger()
 
 	var (
-		chosenCipher  uint16
-		chosenSign    uint16 = smb.AES_CMAC
-		chosenHash    uint16
-		clientSalt    []byte
-		clientNetName []byte // raw bytes from NetNameNegotiateContextId
+		chosenCipher      uint16
+		chosenSign        uint16 = smb.AES_CMAC
+		chosenHash        uint16
+		clientSalt        []byte
+		clientNetName     []byte   // raw bytes from NetNameNegotiateContextId
+		clientCompression []uint16 // algorithms offered in CompressionCapabilities
+		clientChained     bool     // client set the chained flag
 	)
 
 	for _, ctx := range req.ContextList {
@@ -455,10 +458,16 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 			clientNetName = append([]byte(nil), ctx.Data...)
 
 		case smb.CompressionCapabilities:
-			// MS-SMB2 §2.2.3.1.3: the client offers compression algorithms.
-			// Parsed and ignored — we implement no compression, and the reply
-			// for "none" is to omit the context entirely (an empty algorithm
-			// list is invalid; see the omission note below).
+			// MS-SMB2 §2.2.3.1.3: the client offers compression algorithms. We
+			// record them; whether we answer depends on cfg.Compression and
+			// whether there is a common algorithm (see below).
+			var cc smb.CompressionContext
+			if err := encoder.Unmarshal(ctx.Data, &cc); err != nil {
+				logger.Errorf("decode CompressionContext: %v", err)
+				return fmt.Errorf("decode CompressionContext: %w", err)
+			}
+			clientCompression = cc.CompressionAlgorithms
+			clientChained = cc.Flags&smb.CompressionCapabilitiesFlagChained != 0
 		}
 	}
 
@@ -469,6 +478,31 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 	c.PreauthHashID = chosenHash
 	c.CipherID = chosenCipher
 	c.SigningID = chosenSign
+
+	// Compression: answer only when enabled and the client and server share at
+	// least one algorithm. Preference follows the server's configured order.
+	var chosenCompression []uint16
+	if cfg.Compression && len(clientCompression) > 0 {
+		serverAlgs := cfg.CompressionAlgorithms
+		if serverAlgs == nil {
+			serverAlgs = compress.DefaultAlgorithms
+		}
+		for _, sa := range serverAlgs {
+			if !compress.IsSupported(sa) {
+				continue
+			}
+			for _, ca := range clientCompression {
+				if ca == sa {
+					chosenCompression = append(chosenCompression, sa)
+					break
+				}
+			}
+		}
+	}
+	// Chained only when both peers set it (needed for Pattern_V1 chains).
+	// Configure also builds the outbound policy and, until it is called with a
+	// non-empty set, leaves the codec refusing inbound compression frames.
+	c.Compression.Configure(chosenCompression, clientChained && len(chosenCompression) > 0, compress.DefaultMinSize)
 	// Preauth anti-downgrade (MS-SMB2 §3.3.5.4 + §3.3.5.5.3): the chain is
 	// fed through updatePreauthChainConn (Negotiate req+res) and
 	// updatePreauthChainSession (each SessionSetup leg) and consumed by
@@ -535,11 +569,30 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 		Padd:        make([]byte, padTo8(len(scBuf))),
 	})
 
-	// CompressionCapabilities: OMITTED ON PURPOSE. MS-SMB2 §2.2.3.1.3 requires
-	// CompressionAlgorithmCount > 0; a context with count=0 is invalid and
-	// Windows RSTs the connection on reading it. The way a server says "no
-	// compression" is to send no compression context at all. If go-smb ever
-	// implements a compression algorithm, emit the context with a real count.
+	// CompressionCapabilities: emitted only when we negotiated at least one
+	// algorithm (chosenCompression). MS-SMB2 §2.2.3.1.3 requires
+	// CompressionAlgorithmCount > 0, so "no compression" is expressed by
+	// omitting the context — a count=0 context is invalid and Windows RSTs on
+	// reading it (see GO-SMB-NEGOTIATE-CONTEXTS.md).
+	if len(chosenCompression) > 0 {
+		comp := smb.CompressionContext{
+			CompressionAlgorithmCount: uint16(len(chosenCompression)),
+			CompressionAlgorithms:     chosenCompression,
+		}
+		if c.Compression.Chained {
+			comp.Flags = smb.CompressionCapabilitiesFlagChained
+		}
+		compBuf, err := encoder.Marshal(comp)
+		if err != nil {
+			return formatErr("marshal CompressionContext", err)
+		}
+		res.ContextList = append(res.ContextList, smb.NegContext{
+			ContextType: smb.CompressionCapabilities,
+			Data:        compBuf,
+			DataLength:  uint16(len(compBuf)),
+			Padd:        make([]byte, padTo8(len(compBuf))),
+		})
+	}
 
 	// NetNameNegotiateContextId: echo client-supplied bytes verbatim. Wire
 	// format is just the UTF-16 server name, no length prefix.

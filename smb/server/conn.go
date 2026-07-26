@@ -31,6 +31,7 @@ import (
 	"sync"
 
 	"github.com/jfjallid/go-smb/smb"
+	"github.com/jfjallid/go-smb/smb/compress"
 	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/golog"
 )
@@ -55,6 +56,12 @@ type Conn struct {
 	SigningID          uint16
 	PreauthHashID      uint16
 	ClientGUID         [16]byte
+
+	// Compression carries the negotiated compression state (filled by the
+	// Negotiate handler when both the server config and the client offered
+	// SMB2_COMPRESSION_CAPABILITIES). It starts inactive, so a client cannot
+	// drive the decompressor before compression has actually been negotiated.
+	Compression compress.Codec
 
 	// NegotiatedCapabilities and NegotiatedSecurityMode capture the exact
 	// values emitted in NegotiateRes (post-OnNegotiate-hook). They are the
@@ -337,8 +344,11 @@ func (c *Conn) sendPacket(ctx pduCtx, buf []byte) error {
 		return err
 	}
 	if !encrypted {
+		// Order (MS-SMB2 §3.1.4.1): sign the SMB2 PDU in place, then compress
+		// the signed bytes. (The encrypted branch compresses inside
+		// maybeEncrypt, before the AEAD seal.)
 		c.maybeSign(ctx, buf)
-		out = buf
+		out = c.Compression.Compress(buf)
 	}
 	return c.sendPacketUnsigned(out)
 }
@@ -415,6 +425,10 @@ func (c *Conn) maybeEncrypt(ctx pduCtx, buf []byte) ([]byte, bool, error) {
 	if !ctx.encrypted && (cmd == smb.CommandNegotiate || cmd == smb.CommandSessionSetup) {
 		return buf, false, nil
 	}
+	// Compress the plaintext SMB2 PDU, then AEAD-seal the compressed frame
+	// (MS-SMB2 §3.1.4.1: compress before encrypt). The sid/cmd decisions above
+	// were taken from the SMB2 header, so this must happen after them.
+	buf = c.Compression.Compress(buf)
 	out, err := encryptOutbound(sess, buf)
 	if err != nil {
 		return nil, false, err
@@ -657,7 +671,8 @@ func (c *Conn) flushChain(ctx pduCtx, cs *chainState) error {
 		return err
 	}
 	if !encrypted {
-		encOut = out
+		// Compound already signed per-PDU above; compress the signed bytes.
+		encOut = c.Compression.Compress(out)
 	}
 	return c.sendPacketUnsigned(encOut)
 }
@@ -686,6 +701,7 @@ func (c *Conn) maybeEncryptCompound(ctx pduCtx, buf []byte) ([]byte, bool, error
 	if !ctx.encrypted && (cmd == smb.CommandNegotiate || cmd == smb.CommandSessionSetup) {
 		return buf, false, nil
 	}
+	buf = c.Compression.Compress(buf)
 	out, err := encryptOutbound(sess, buf)
 	if err != nil {
 		return nil, false, err

@@ -43,6 +43,7 @@ import (
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/go-smb/ntlmssp"
+	"github.com/jfjallid/go-smb/smb/compress"
 	"github.com/jfjallid/go-smb/smb/crypto/ccm"
 	"github.com/jfjallid/go-smb/smb/crypto/cmac"
 	"github.com/jfjallid/go-smb/smb/encoder"
@@ -192,6 +193,16 @@ type Options struct {
 	// defaultCreditTarget. One credit covers 64 KiB of a single READ/WRITE, so
 	// the target also bounds the largest un-split transfer (target × 64 KiB).
 	CreditTarget uint16
+	// Compression opts the SMB 3.1.1 client into offering an
+	// SMB2_COMPRESSION_CAPABILITIES context. When the server also supports it,
+	// the connection may send and receive compression-transform (0xFCSMB)
+	// frames. Once offered, the server may send us compressed frames, so
+	// decompression is always active for a negotiated connection.
+	Compression bool
+	// CompressionAlgorithms, when non-nil, overrides the offered algorithm set
+	// (preference order). Leaving it nil offers the default
+	// (LZ77+Huffman, LZ77, Pattern_V1).
+	CompressionAlgorithms []uint16
 }
 
 // defaultCreditReserveTimeout is the ceiling on how long a single request waits
@@ -578,6 +589,30 @@ func (c *Connection) NegotiateProtocol() (err error) {
 			}
 
 			foundSigningContext = true
+
+		case CompressionCapabilities:
+			// Only meaningful if we actually offered compression; a server that
+			// volunteers the context unasked does not get to switch it on.
+			if !c.options.Compression {
+				log.Debugln("Ignoring CompressionCapabilities context: compression was not offered")
+				break
+			}
+			cc := CompressionContext{}
+			if err = encoder.Unmarshal(context.Data, &cc); err != nil {
+				return err
+			}
+			// Keep only algorithms we can actually handle. Pattern_V1 is
+			// decode-only for us but valid to accept inside chained frames.
+			var negotiated []uint16
+			for _, alg := range cc.CompressionAlgorithms {
+				switch alg {
+				case CompressionLZ77, CompressionLZ77Huffman, CompressionPatternV1:
+					negotiated = append(negotiated, alg)
+				}
+			}
+			chained := cc.Flags&CompressionCapabilitiesFlagChained != 0
+			c.compression.Configure(negotiated, chained, compress.DefaultMinSize)
+			log.Debugf("negotiated compression algorithms %v (chained=%v)\n", negotiated, chained)
 
 		default:
 			log.Debugf("Unsupported context type (%d)\n", context.ContextType)
