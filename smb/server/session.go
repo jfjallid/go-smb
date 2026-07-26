@@ -194,6 +194,9 @@ func (c *Conn) cleanupSession(sess *Session) {
 	sess.mu.Unlock()
 	logger := c.logger()
 	for _, t := range trees {
-		t.closeOpenHandles(context.Background(), logger)
+		// Handles with a live durable grant are parked for reconnect rather
+		// than closed; everything else is released normally.
+		parked := c.parkDurableHandles(t.openHandles())
+		t.closeOpenHandlesExcept(context.Background(), logger, parked)
 	}
 }

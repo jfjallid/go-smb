@@ -315,6 +315,30 @@ error. Dialect revisions are logged as friendly version strings.
   replies sign from their own goroutine and would otherwise interleave into a
   corrupt MAC.
 
+### Server: durable handles
+
+- **Durable handles (MS-SMB2 §3.3.5.9.6) are now supported**, opt-in via
+  `ServerConfig.DurableHandles`. A handle whose CREATE carried a durable
+  request survives the loss of its connection and can be reclaimed on a later
+  one, so a transient network blip no longer aborts an in-progress transfer.
+  The lifecycle is: grant on CREATE, park on connection loss with a deadline,
+  reclaim on a CREATE carrying the matching reconnect context, and close
+  through the VFS once the deadline passes.
+- `DurableHandleTimeout` and `MaxDurableHandleTimeout` bound how long a parked
+  handle is retained (defaults 60s and 10min). A client-requested timeout is
+  clamped rather than honored blindly — a handle parked indefinitely is a
+  resource leak any client could trigger by connecting and disappearing.
+- A parked handle is only ever returned to the same user and domain, on the
+  same share. Without that check any authenticated user could take over
+  another's handle by presenting a guessed FileId.
+- This also adds SMB2 **CREATE-context parsing and emission** (MS-SMB2
+  §2.2.13.2), which the server did not have at all: `DHnQ`, `DH2Q`, `DHnC` and
+  `DH2C`. A malformed context list is rejected with STATUS_INVALID_PARAMETER
+  rather than partially parsed, since contexts drive handle semantics.
+- Persistent handles are **not** granted: surviving a server restart requires
+  durable storage for the handle table. The durable part of a v2 request is
+  granted and the persistent flag left clear, which is a valid response.
+
 ## [0.11.0] — 2026-07-06
 
 Headline items this cycle are a logging and error-handling overhaul, a pass

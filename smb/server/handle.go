@@ -108,7 +108,19 @@ func (t *Tree) drainHandles() []Handle {
 // share's VFS.Close. Errors are logged and otherwise swallowed —
 // teardown is best-effort.
 func (t *Tree) closeOpenHandles(ctx context.Context, log Logger) {
+	t.closeOpenHandlesExcept(ctx, log, nil)
+}
+
+// closeOpenHandlesExcept is closeOpenHandles with a skip set. Handles in
+// skip have been parked as durable — they must stay open for a reconnect, so
+// the teardown path releases the tree's reference without closing the
+// underlying resource. The durable table owns them from that point and its
+// reaper closes them when the grant expires.
+func (t *Tree) closeOpenHandlesExcept(ctx context.Context, log Logger, skip map[Handle]bool) {
 	for _, h := range t.drainHandles() {
+		if skip[h] {
+			continue
+		}
 		if ph, ok := h.(*pipeHandle); ok {
 			if err := ph.closeOnce(ctx); err != nil {
 				log.Debugf("pipe Close on teardown: %v", err)
@@ -122,4 +134,16 @@ func (t *Tree) closeOpenHandles(ctx context.Context, log Logger) {
 			log.Debugf("VFS.Close on teardown: %v", err)
 		}
 	}
+}
+
+// openHandles snapshots the tree's currently-open handles without removing
+// them. Used to decide which are durable before teardown drains the table.
+func (t *Tree) openHandles() []Handle {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make([]Handle, 0, len(t.handles))
+	for _, h := range t.handles {
+		out = append(out, h)
+	}
+	return out
 }

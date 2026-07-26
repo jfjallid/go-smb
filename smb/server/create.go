@@ -81,6 +81,23 @@ func (c *Conn) handleCreate(ctx pduCtx, raw []byte, h *smb.Header) error {
 	logger.Debugf("Create from %s: tree=%d share=%q path=%q disposition=%d options=0x%08x desiredAccess=0x%08x",
 		c.RemoteAddr, tree.ID, tree.Share.Name, name, req.CreateDisposition, req.CreateOptions, req.DesiredAccess)
 
+	// CREATE contexts carry the durable-handle request/reconnect blobs. They are
+	// decoded before the VFS is consulted because a reconnect must bypass
+	// VFS.Create entirely — the handle already exists.
+	rawCtxs, err := req.CreateReqContexts()
+	if err != nil {
+		logger.Debugf("Create: create-context blob out of range: %v", err)
+		return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
+	}
+	createCtxs, err := parseCreateContexts(rawCtxs)
+	if err != nil {
+		logger.Debugf("Create: malformed create contexts: %v", err)
+		return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
+	}
+	if handled, rerr := c.tryDurableReconnect(ctx, h, sess, tree, createCtxs); handled {
+		return rerr
+	}
+
 	if tree.Share.Type == smb.ShareTypePipe {
 		return c.handleCreatePipe(ctx, h, tree, name)
 	}
@@ -134,6 +151,13 @@ func (c *Conn) handleCreate(ctx pduCtx, raw []byte, h *smb.Header) error {
 	logger.Debugf("Create from %s: tree=%d path=%q action=%d -> volatileFID=%d",
 		c.RemoteAddr, tree.ID, name, result.CreateAction, volatile)
 
+	fileID := fileIDBytes(volatile)
+
+	// Durability is granted only if the client asked and the server is
+	// configured for it. The response must echo a grant context, otherwise the
+	// client assumes the handle is not durable and will not attempt reconnect.
+	respCtxs := c.grantDurable(sess, tree, result.Handle, fileID, createCtxs)
+
 	res := smb.CreateRes{
 		Header:         buildResponseHeader(h, smb.StatusOk, h.SessionID, smb.CommandCreate),
 		StructureSize:  89,
@@ -147,8 +171,11 @@ func (c *Conn) handleCreate(ctx pduCtx, raw []byte, h *smb.Header) error {
 		AllocationSize: uint64(result.Info.AllocationSize),
 		EndOfFile:      uint64(result.Info.Size),
 		FileAttributes: result.Info.Attributes,
-		FileId:         fileIDBytes(volatile),
-		Buffer:         []byte{},
+		FileId:         fileID,
+		Buffer:         marshalCreateContexts(respCtxs),
+	}
+	if res.Buffer == nil {
+		res.Buffer = []byte{}
 	}
 	res.Header.TreeID = h.TreeID
 	return c.writeReply(ctx, &res)
@@ -236,6 +263,11 @@ func (c *Conn) handleClose(ctx pduCtx, raw []byte, h *smb.Header) error {
 			logger.Debugf("Close: Stat for POSTQUERY_ATTRIB failed: %v", statErr)
 		}
 	}
+
+	// An explicit Close relinquishes the handle, so any durable grant covering
+	// it must go too — otherwise it would sit in the table waiting for a
+	// reconnect that is never coming, holding a VFS handle until it expires.
+	c.releaseDurableForHandle(hndl)
 
 	if ph, ok := hndl.(*pipeHandle); ok {
 		if err := ph.closeOnce(context.Background()); err != nil {

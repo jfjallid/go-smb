@@ -145,6 +145,21 @@ type ServerConfig struct {
 	// (LZ77+Huffman, LZ77, Pattern_V1).
 	CompressionAlgorithms []uint16
 
+	// DurableHandles enables SMB2 durable handles (MS-SMB2 §3.3.5.9.6): a
+	// handle whose CREATE carried a durable request survives the loss of its
+	// connection and can be reclaimed by the same principal on a later one,
+	// so a transient network blip does not abort an in-progress transfer.
+	// Handles are held open (consuming a VFS handle) for at most
+	// MaxDurableHandleTimeout after the connection drops.
+	DurableHandles bool
+	// DurableHandleTimeout is how long a parked handle is retained when the
+	// client does not request a specific timeout. Default:
+	// DefaultDurableTimeout.
+	DurableHandleTimeout time.Duration
+	// MaxDurableHandleTimeout caps what a client may request. Default:
+	// MaxDurableTimeout.
+	MaxDurableHandleTimeout time.Duration
+
 	// Maximum sizes advertised in NegotiateRes. Defaults: 65536 each.
 	MaxReadSize     uint32
 	MaxWriteSize    uint32
@@ -349,6 +364,9 @@ type Server struct {
 	// Lazily-initialized random ServerGUID when Config.ServerGUID is zero.
 	serverGUIDOnce sync.Once
 	serverGUID     [16]byte
+	// durables holds handles granted durability, both live and parked awaiting
+	// reconnect. See durable.go.
+	durables durableTable
 }
 
 // resolvedServerGUID returns the configured ServerGUID, or a process-stable
@@ -549,6 +567,9 @@ func (s *Server) Serve(l net.Listener) error {
 // to drain (or until ctx is done).
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.inShutdown.Store(true)
+	// Parked durable handles hold VFS resources and are meaningless once the
+	// Server is going away.
+	s.stopDurables()
 
 	s.mu.Lock()
 	for l := range s.listeners {
@@ -618,6 +639,7 @@ func (s *Server) evictPreviousSession(prevID uint64, user, domain string, newCon
 // Close immediately tears down all listeners and active connections.
 func (s *Server) Close() error {
 	s.inShutdown.Store(true)
+	s.stopDurables()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for l := range s.listeners {
