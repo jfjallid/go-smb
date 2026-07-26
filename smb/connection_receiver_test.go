@@ -168,3 +168,118 @@ func TestRunReceiverEncryptedResponseNotSigningRejected(t *testing.T) {
 	server.Close()
 	<-done
 }
+
+// TestRunReceiverSigningCheckNotStickyAfterEncrypted is the regression guard for
+// the sticky-`encrypted` bug. The flag that suppresses the plaintext signature
+// check for an encrypted PDU used to be declared at runReceiver's function
+// scope, so it was never reset between packets: once ANY encrypted PDU arrived,
+// every subsequent PLAINTEXT PDU on that connection skipped both the
+// SMB2_FLAGS_SIGNED check and signature verification, for the life of the
+// connection. On a per-tree-encrypted share encrypted and plaintext PDUs
+// interleave normally, so this was reachable in ordinary use and accepted
+// injected, unsigned responses.
+//
+// The test drives exactly that sequence on a signing-required session: one
+// encrypted PDU (which must be delivered), then one plaintext UNSIGNED PDU
+// (which must be rejected and tear the connection down).
+func TestRunReceiverSigningCheckNotStickyAfterEncrypted(t *testing.T) {
+	const (
+		sessionID  = uint64(0x1122334455667788)
+		encMsgID   = uint64(7)
+		plainMsgID = uint64(8)
+	)
+
+	block, err := aes.NewCipher(bytes.Repeat([]byte{0x5a}, 16))
+	if err != nil {
+		t.Fatalf("new cipher: %v", err)
+	}
+	aead, err := ccm.NewCCMWithNonceAndTagSizes(block, 11, 16)
+	if err != nil {
+		t.Fatalf("new ccm: %v", err)
+	}
+
+	sess := &Session{
+		sessionID: sessionID,
+		dialect:   DialectSmb_3_0,
+		encrypter: aead,
+		decrypter: aead,
+	}
+	sess.isSigningRequired.Store(true)
+
+	mkPDU := func(msgID uint64) []byte {
+		p := make([]byte, 64)
+		p[0], p[1], p[2], p[3] = 0xFE, 'S', 'M', 'B'
+		binary.LittleEndian.PutUint16(p[4:6], 64) // StructureSize
+		binary.LittleEndian.PutUint16(p[12:14], CommandTreeConnect)
+		binary.LittleEndian.PutUint32(p[16:20], SMB2_FLAGS_SERVER_TO_REDIR)
+		binary.LittleEndian.PutUint64(p[24:32], msgID)
+		binary.LittleEndian.PutUint64(p[40:48], sessionID)
+		return p
+	}
+
+	encPlain := mkPDU(encMsgID)
+	encFrame, err := sess.encrypt(encPlain)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	// The injected PDU: plaintext, and deliberately NOT signed.
+	injected := mkPDU(plainMsgID)
+
+	client, server := net.Pipe()
+	c := &Connection{
+		Session:             sess,
+		outstandingRequests: newOutstandingRequests(),
+		rdone:               make(chan struct{}, 1),
+		wdone:               make(chan struct{}, 1),
+		conn:                client,
+	}
+	c.enableSession()
+
+	rrEnc := &requestResponse{msgId: encMsgID, recv: make(chan []byte, 1)}
+	rrPlain := &requestResponse{msgId: plainMsgID, recv: make(chan []byte, 1)}
+	c.outstandingRequests.set(encMsgID, rrEnc)
+	c.outstandingRequests.set(plainMsgID, rrPlain)
+
+	done := make(chan struct{})
+	go func() {
+		c.runReceiver()
+		close(done)
+	}()
+
+	// 1. The encrypted PDU is legitimate and must be delivered.
+	if _, err := server.Write(frameNetBIOS(encFrame)); err != nil {
+		t.Fatalf("write encrypted frame: %v", err)
+	}
+	select {
+	case got := <-rrEnc.recv:
+		if !bytes.Equal(got, encPlain) {
+			t.Fatalf("encrypted PDU mismatch:\n got  % x\n want % x", got, encPlain)
+		}
+	case <-done:
+		t.Fatal("runReceiver exited before delivering the encrypted response")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the encrypted response")
+	}
+
+	// 2. The following plaintext, unsigned PDU must NOT be accepted. Signing is
+	// required on this session, so the reader must reject it and tear the
+	// connection down.
+	if _, err := server.Write(frameNetBIOS(injected)); err != nil {
+		t.Fatalf("write plaintext frame: %v", err)
+	}
+	select {
+	case got, ok := <-rrPlain.recv:
+		if ok && len(got) > 0 {
+			t.Fatal("unsigned plaintext PDU was delivered after an encrypted one: " +
+				"the signature check is being skipped (sticky `encrypted` flag)")
+		}
+		// Channel closed by shutdown — the request was failed, which is correct.
+	case <-done:
+		// runReceiver tore the connection down, which is the expected outcome.
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out; expected the unsigned PDU to be rejected")
+	}
+
+	server.Close()
+	<-done
+}

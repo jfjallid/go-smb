@@ -191,6 +191,19 @@ error. Dialect revisions are logged as friendly version strings.
   their own AEAD integrity and never set `SMB2_FLAGS_SIGNED`) and tore the
   connection down. The check is now skipped for encrypted PDUs.
 
+### Security
+
+- **The client stopped verifying signatures after the first encrypted PDU.**
+  The flag that suppresses the plaintext signature check for an encrypted PDU
+  was scoped to the whole receive loop rather than to a single packet, so once
+  any encrypted PDU arrived, every subsequent *plaintext* PDU on that
+  connection skipped both the `SMB2_FLAGS_SIGNED` check and signature
+  verification — for the life of the connection. This was reachable in ordinary
+  use: on a share flagged `SMB2_SHAREFLAG_ENCRYPT_DATA`, encrypted and
+  plaintext PDUs interleave normally, so an on-path attacker could inject
+  unsigned responses after observing one encrypted exchange. The flag is now
+  per-PDU.
+
 ## [0.11.0] — 2026-07-06
 
 Headline items this cycle are a logging and error-handling overhaul, a pass

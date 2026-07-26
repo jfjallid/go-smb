@@ -161,7 +161,6 @@ packet down the recv channel.
 */
 func (c *Connection) runReceiver() {
 	var err error
-	var encrypted bool
 	defer func() {
 		// A malformed packet from a malicious or buggy server could drive a
 		// parser into a panic (e.g. an out-of-range slice). Recover here so a
@@ -203,6 +202,11 @@ func (c *Connection) runReceiver() {
 		}
 
 		var h Header
+		// encrypted MUST be scoped to this one PDU. It gates the signature
+		// check below, so hoisting it out of the loop would let a single
+		// encrypted response permanently disable signature verification for
+		// every plaintext PDU that follows on this connection.
+		var encrypted bool
 
 		if hasSession {
 			switch string(protID) {
