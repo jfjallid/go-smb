@@ -31,6 +31,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -148,6 +149,26 @@ type ServerConfig struct {
 	MaxReadSize     uint32
 	MaxWriteSize    uint32
 	MaxTransactSize uint32
+
+	// IdleTimeout bounds how long a connection may sit without sending a
+	// complete request before the server closes it. Without it a peer that
+	// opens a socket and never speaks — or dribbles a PDU one byte at a time —
+	// holds a goroutine and its buffers indefinitely. The deadline is armed
+	// before each read and cleared while a request is being handled, so a slow
+	// handler is never mistaken for an idle client. Default:
+	// DefaultIdleTimeout. Set a negative value to disable.
+	IdleTimeout time.Duration
+
+	// WriteTimeout bounds a single reply write. A peer that stops reading
+	// would otherwise block the writing goroutine forever once the socket
+	// buffers fill. Default: DefaultWriteTimeout. Set a negative value to
+	// disable.
+	WriteTimeout time.Duration
+
+	// MaxConnections caps concurrently served connections. Accepted
+	// connections beyond the cap are closed immediately. Default:
+	// DefaultMaxConnections. Set a negative value for no limit.
+	MaxConnections int
 
 	// Shares maps the wire-visible share name (case-insensitive) to the
 	// share definition. Use (*Server).RegisterShare to populate this without
@@ -379,6 +400,68 @@ func (s *Server) trackConn(c *Conn, add bool) {
 	}
 }
 
+// Timeout and capacity defaults. They exist so that a server constructed with a
+// zero ServerConfig is still bounded: an unauthenticated peer must not be able
+// to consume a goroutine, a socket, and read buffers indefinitely just by
+// connecting and going quiet.
+const (
+	// DefaultIdleTimeout is how long a connection may go without completing a
+	// request before it is closed. Generous enough for a real client that is
+	// simply idle between operations, short enough to reclaim abandoned and
+	// slow-loris connections.
+	DefaultIdleTimeout = 5 * time.Minute
+	// DefaultWriteTimeout bounds a single reply write.
+	DefaultWriteTimeout = 30 * time.Second
+	// DefaultMaxConnections caps concurrently served connections.
+	DefaultMaxConnections = 512
+)
+
+// idleTimeout resolves the configured idle timeout, applying the default and
+// honoring a negative value as "disabled" (returns 0).
+func (cfg *ServerConfig) idleTimeout() time.Duration {
+	switch {
+	case cfg.IdleTimeout < 0:
+		return 0
+	case cfg.IdleTimeout == 0:
+		return DefaultIdleTimeout
+	default:
+		return cfg.IdleTimeout
+	}
+}
+
+// writeTimeout resolves the configured write timeout, with the same
+// zero-means-default / negative-means-disabled convention as idleTimeout.
+func (cfg *ServerConfig) writeTimeout() time.Duration {
+	switch {
+	case cfg.WriteTimeout < 0:
+		return 0
+	case cfg.WriteTimeout == 0:
+		return DefaultWriteTimeout
+	default:
+		return cfg.WriteTimeout
+	}
+}
+
+// maxConnections resolves the configured connection cap, with the same
+// convention (0 means default, negative means unlimited).
+func (cfg *ServerConfig) maxConnections() int {
+	switch {
+	case cfg.MaxConnections < 0:
+		return 0
+	case cfg.MaxConnections == 0:
+		return DefaultMaxConnections
+	default:
+		return cfg.MaxConnections
+	}
+}
+
+// connCount reports the number of connections currently being served.
+func (s *Server) connCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.conns)
+}
+
 // ListenAndServe listens on the given TCP address (":445" if empty) and
 // serves SMB connections until Shutdown or Close is called.
 func (s *Server) ListenAndServe(addr string) error {
@@ -408,13 +491,41 @@ func (s *Server) Serve(l net.Listener) error {
 	logger := s.Config.logger()
 	logger.Noticef("accepting on %s", l.Addr())
 
+	// acceptDelay backs off on temporary accept errors instead of spinning.
+	// Running out of file descriptors (EMFILE) is transient — some other
+	// connection will close — so tearing the listener down over it would turn a
+	// momentary resource shortage into a permanent outage.
+	var acceptDelay time.Duration
+	const maxAcceptDelay = time.Second
+
 	for {
 		nc, err := l.Accept()
 		if err != nil {
 			if s.inShutdown.Load() {
 				return ErrServerClosed
 			}
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
+				if acceptDelay == 0 {
+					acceptDelay = 5 * time.Millisecond
+				} else if acceptDelay *= 2; acceptDelay > maxAcceptDelay {
+					acceptDelay = maxAcceptDelay
+				}
+				logger.Errorf("accept error: %v; retrying in %v", err, acceptDelay)
+				time.Sleep(acceptDelay)
+				continue
+			}
 			return err
+		}
+		acceptDelay = 0
+
+		// Refuse work we cannot bound. Closing immediately is the honest
+		// signal: the client sees a closed connection and can retry, rather
+		// than a connection that is accepted and then never serviced.
+		if max := s.Config.maxConnections(); max > 0 && s.connCount() >= max {
+			logger.Errorf("refusing connection from %s: at capacity (%d)", nc.RemoteAddr(), max)
+			nc.Close()
+			continue
 		}
 
 		c := newConn(s, nc)

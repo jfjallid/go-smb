@@ -29,6 +29,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/jfjallid/go-smb/smb"
 	"github.com/jfjallid/go-smb/smb/compress"
@@ -281,13 +282,34 @@ func (c *Conn) serve() {
 		}
 	}
 
+	idle := c.Server.Config.idleTimeout()
+
 	for {
+		// Arm the idle deadline around the read only. A request that takes a
+		// long time to service (a large write to slow storage, a pipe RPC)
+		// must not count against the client's idle budget, so the deadline is
+		// cleared once a full PDU is in hand and re-armed for the next read.
+		if idle > 0 {
+			if err := c.nc.SetReadDeadline(time.Now().Add(idle)); err != nil {
+				logger.Debugf("set read deadline: %v", err)
+			}
+		}
 		pkt, err := readPacket(c.nc)
 		if err != nil {
-			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+			var ne net.Error
+			switch {
+			case errors.As(err, &ne) && ne.Timeout():
+				logger.Debugf("closing idle connection after %v", idle)
+			case errors.Is(err, io.EOF), errors.Is(err, net.ErrClosed):
+			default:
 				logger.Debugf("read error: %v", err)
 			}
 			return
+		}
+		if idle > 0 {
+			if err := c.nc.SetReadDeadline(time.Time{}); err != nil {
+				logger.Debugf("clear read deadline: %v", err)
+			}
 		}
 		if len(pkt) == 0 {
 			continue
@@ -366,6 +388,19 @@ func (c *Conn) sendPacketUnsigned(buf []byte) error {
 	w.Grow(4 + len(buf))
 	w.Write(hdr)
 	w.Write(buf)
+
+	// Bound the write: a peer that stops reading fills the socket buffer and
+	// would otherwise park this goroutine (holding writeMu) indefinitely.
+	if wt := c.Server.Config.writeTimeout(); wt > 0 {
+		if err := c.nc.SetWriteDeadline(time.Now().Add(wt)); err != nil {
+			c.logger().Debugf("set write deadline: %v", err)
+		}
+		defer func() {
+			if err := c.nc.SetWriteDeadline(time.Time{}); err != nil {
+				c.logger().Debugf("clear write deadline: %v", err)
+			}
+		}()
+	}
 
 	_, err := c.nc.Write(w.Bytes())
 	return err

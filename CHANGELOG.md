@@ -278,6 +278,20 @@ error. Dialect revisions are logged as friendly version strings.
   expose what is needed to address an open handle in a hand-built PDU via
   `Connection.SendRawPDU`.
 
+### Server resource limits
+
+- **Connection resources are now bounded.** New `ServerConfig.IdleTimeout`,
+  `WriteTimeout` and `MaxConnections` (defaults 5min / 30s / 512; a negative
+  value disables each). Previously a peer that connected and then went quiet —
+  or dribbled a PDU a byte at a time — held a goroutine and its buffers
+  indefinitely, and nothing capped how many such connections could accumulate.
+  The read deadline is armed around the read only and cleared while a request
+  is being handled, so a slow VFS or hook is never mistaken for an idle client.
+- **The accept loop no longer dies on a transient error.** `Serve` returned on
+  any accept failure, so a momentary resource shortage (e.g. running out of
+  file descriptors) permanently took the listener down. Temporary errors are
+  now retried with exponential backoff up to one second.
+
 ## [0.11.0] — 2026-07-06
 
 Headline items this cycle are a logging and error-handling overhaul, a pass
