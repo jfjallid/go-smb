@@ -205,6 +205,11 @@ func (s *Session) signPDU(pkt []byte) {
 		log.Errorf("signPDU: refusing to sign non-SMB2 or short PDU (len=%d)\n", len(pkt))
 		return
 	}
+	// The HMAC-SHA256 / AES-CMAC paths below reuse a stateful hash.Hash held on
+	// the Session, so concurrent signers would interleave Reset/Write/Sum into a
+	// corrupt MAC. Asynchronous replies sign from their own goroutine.
+	s.signMu.Lock()
+	defer s.signMu.Unlock()
 	flags := binary.LittleEndian.Uint32(pkt[16:20])
 	flags |= smb.SMB2_FLAGS_SIGNED
 	binary.LittleEndian.PutUint32(pkt[16:20], flags)
@@ -255,6 +260,9 @@ func (s *Session) verifyPDU(pkt []byte) bool {
 		log.Errorf("verifyPDU: refusing to verify non-SMB2 or short PDU (len=%d)\n", len(pkt))
 		return false
 	}
+	// Shares the stateful verifier with signPDU; see the note there.
+	s.signMu.Lock()
+	defer s.signMu.Unlock()
 	var saved [16]byte
 	copy(saved[:], pkt[48:64])
 	for i := 48; i < 64; i++ {

@@ -104,6 +104,14 @@ type Session struct {
 	// guard is what justifies deferring the eviction to leg-2 success.
 	previousSessionID uint64
 
+	// signMu serializes signPDU / verifyPDU. For HMAC-SHA256 and AES-CMAC the
+	// signer/verifier are stateful hash.Hash objects reused across messages
+	// (Reset/Write/Sum), so two goroutines signing at once would interleave
+	// into a corrupt MAC. That was safe while dispatch was strictly
+	// single-goroutine per connection; asynchronous replies (ChangeNotify)
+	// write from a second goroutine, so the lock is now load-bearing.
+	signMu sync.Mutex
+
 	mu sync.Mutex
 	// Tree table — populated by TreeConnect / drained by TreeDisconnect.
 	trees      map[uint32]*Tree

@@ -28,5 +28,13 @@ import (
 // correlate the cancel reply back to their pending request via MessageID,
 // not AsyncID (we don't issue interim async responses).
 func (c *Conn) handleCancel(ctx pduCtx, h *smb.Header) error {
+	// An outstanding asynchronous operation (CHANGE_NOTIFY) is the one case
+	// where there is something real to cancel. Its own goroutine emits the
+	// STATUS_CANCELLED final response once the context takes effect, so
+	// nothing is sent from here — replying now would put two responses on the
+	// wire for one MessageId.
+	if c.cancelAsync(h.MessageID) {
+		return nil
+	}
 	return c.writeRawError(ctx, h, smb.StatusCancelled)
 }

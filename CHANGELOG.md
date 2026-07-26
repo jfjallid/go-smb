@@ -292,6 +292,29 @@ error. Dialect revisions are logged as friendly version strings.
   file descriptors) permanently took the listener down. Temporary errors are
   now retried with exponential backoff up to one second.
 
+### Server: CHANGE_NOTIFY and asynchronous requests
+
+- **CHANGE_NOTIFY (MS-SMB2 §2.2.35) is now served.** Windows Explorer issues one
+  per displayed directory and reissues it as soon as it completes, so a server
+  that never answers leaves the client retrying indefinitely.
+- A VFS opts in by implementing the new `ChangeNotifier` interface; the server
+  then holds the request open and answers when a change arrives. A VFS that
+  does not implement it gets `STATUS_NOT_SUPPORTED`, which — unlike silence —
+  clients accept as "this server does not do notifications".
+- This adds a general **asynchronous request path** (MS-SMB2 §3.3.4.2): an
+  interim `STATUS_PENDING` response carrying a server-assigned AsyncId releases
+  the client immediately, and the final response reuses the same MessageId and
+  AsyncId when the operation completes. A CANCEL aborts an outstanding
+  operation, and connection teardown cancels every one still in flight so no
+  watcher goroutine outlives its connection. Concurrent async operations are
+  capped per connection; beyond the cap the request is refused rather than
+  allowed to accumulate goroutines.
+- `Session.signPDU` / `verifyPDU` are now serialized. The HMAC-SHA256 and
+  AES-CMAC paths share a stateful hash across messages, which was safe only
+  while dispatch was strictly single-goroutine per connection; asynchronous
+  replies sign from their own goroutine and would otherwise interleave into a
+  corrupt MAC.
+
 ## [0.11.0] — 2026-07-06
 
 Headline items this cycle are a logging and error-handling overhaul, a pass

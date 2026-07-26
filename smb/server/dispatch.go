@@ -311,6 +311,8 @@ func (c *Conn) dispatchSMB2Inner(raw []byte, ctx pduCtx) error {
 		return c.handleQueryDirectory(ctx, raw, &h)
 	case smb.CommandIOCtl:
 		return c.handleIoCtl(ctx, raw, &h)
+	case smb.CommandChangeNotify:
+		return c.handleChangeNotify(ctx, raw, &h)
 	case smb.CommandEcho:
 		return c.handleEcho(ctx, &h)
 	case smb.CommandCancel:

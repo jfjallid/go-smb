@@ -88,6 +88,14 @@ type Conn struct {
 	sessions      map[uint64]*Session
 	nextSessionID uint64
 
+	// Asynchronous operations in flight on this connection, keyed by the
+	// MessageId of the request that started them (see async.go). Guarded by
+	// asyncMu because completion runs on a per-operation goroutine while
+	// registration and cancellation run on the dispatch goroutine.
+	asyncMu     sync.Mutex
+	asyncOps    map[uint64]*asyncOp
+	nextAsyncID uint64
+
 	// seenMsgIDs records the MessageIDs we've already accepted on this
 	// connection. MS-SMB2 §3.3.5.2.3 requires the server to reject a
 	// duplicate MessageId — clients that reuse one (or stay at the same
@@ -266,6 +274,9 @@ func (c *Conn) serve() {
 		if r := recover(); r != nil {
 			logger.Errorf("recovered from panic while serving connection: %v", r)
 		}
+		// Abort any async operation still waiting, so no watcher goroutine
+		// outlives the connection that owns it.
+		c.cancelAllAsync()
 		c.cleanupSessions()
 		if cb := c.Server.Config.OnDisconnect; cb != nil {
 			cb(c)
@@ -531,7 +542,15 @@ func (c *Conn) writeRawError(ctx pduCtx, reqHdr *smb.Header, status uint32) erro
 		SessionID:     reqHdr.SessionID,
 		Signature:     make([]byte, 16),
 	}
-	hdrBytes, err := encoder.Marshal(resHdr)
+	return c.writeErrorHeader(ctx, &resHdr)
+}
+
+// writeErrorHeader emits an SMB2 ERROR response for an already-built response
+// header. Split out of writeRawError so callers that need a non-default header
+// shape — notably the asynchronous interim response, which must carry
+// SMB2_FLAGS_ASYNC_COMMAND and an AsyncId — can reuse the body construction.
+func (c *Conn) writeErrorHeader(ctx pduCtx, resHdr *smb.Header) error {
+	hdrBytes, err := encoder.Marshal(*resHdr)
 	if err != nil {
 		return err
 	}
