@@ -287,14 +287,8 @@ func (s *Session) IsSigningRequired() bool {
 // short 9-byte error body, so unmarshalling it as a full NegotiateRes fails
 // with a misleading "unexpected EOF" and masks the real server status.
 func negotiateStatus(buf []byte) error {
-	if len(buf) < 64 {
-		return fmt.Errorf("Negotiate received a response that was too short: %d bytes", len(buf))
-	}
-	var h Header
-	if err := encoder.Unmarshal(buf[:64], &h); err != nil {
-		return err
-	}
-	return statusError("Negotiate", h.Status)
+	_, err := headerStatus("Negotiate", buf)
+	return err
 }
 
 func (c *Connection) NegotiateProtocol() (err error) {
@@ -369,7 +363,7 @@ func (c *Connection) NegotiateProtocol() (err error) {
 			return err
 		}
 
-		if negResBuf[0] == 0xFF {
+		if len(negResBuf) > 0 && negResBuf[0] == 0xFF {
 			// Server does not support or want to use SMB2.
 			err = fmt.Errorf("target %s is only accepting SMBv1, but SMBv1 support is not implemented", c.conn.RemoteAddr().String())
 			return err
@@ -556,17 +550,24 @@ func (c *Connection) NegotiateProtocol() (err error) {
 				err = fmt.Errorf("multiple cipher algorithms")
 				return err
 			}
-			c.cipherId = ec.Ciphers[0]
-			switch c.cipherId {
-			case AES128GCM:
-			case AES256GCM:
-			case AES128CCM:
-			case AES256CCM:
+			switch ec.Ciphers[0] {
+			case AES128GCM, AES256GCM, AES128CCM, AES256CCM:
+				c.cipherId = ec.Ciphers[0]
+				c.supportsEncryption = true
+			case CipherNone:
+				// MS-SMB2 §3.3.5.4: a server that shares no cipher with our
+				// offer answers with a single Cipher of 0x0000. That is a
+				// well-formed "no encryption available", not an error — the
+				// connection continues unencrypted (and signed). Treating it as
+				// a fatal unknown-cipher would refuse to talk to such a server
+				// at all.
+				c.cipherId = CipherNone
+				c.supportsEncryption = false
+				log.Debugln("Server offered no common cipher; continuing without encryption")
 			default:
-				err = fmt.Errorf("unknown cipher algorithm (%d)", c.cipherId)
+				err = fmt.Errorf("unknown cipher algorithm (%d)", ec.Ciphers[0])
 				return err
 			}
-			c.supportsEncryption = true
 
 		case SigningCapabilities: // Only supported by Windows 11/Window Server 2022 and later
 			sc := SigningContext{}
@@ -618,6 +619,7 @@ func (c *Connection) NegotiateProtocol() (err error) {
 			log.Debugf("Unsupported context type (%d)\n", context.ContextType)
 		}
 	}
+
 	if !foundSigningContext && c.dialect > DialectSmb_2_1 {
 		// Default for SMB 3.x when no SigningContent is received is to use AES_CMAC for signing
 		c.signingId = AES_CMAC
@@ -1207,8 +1209,7 @@ func (c *Connection) Logoff() error {
 }
 
 func (s *Session) sign(buf []byte) ([]byte, error) {
-	var hdr Header
-	err := encoder.Unmarshal(buf[:64], &hdr)
+	hdr, err := parseHeader("sign", buf)
 	if err != nil {
 		return nil, err
 	}
@@ -1226,6 +1227,9 @@ func (s *Session) sign(buf []byte) ([]byte, error) {
 }
 
 func (s *Session) verify(buf []byte) (ok bool) {
+	if len(buf) < headerSize {
+		return false
+	}
 	signature := make([]byte, 16)
 	copy(signature, buf[48:64])
 	// Zero the signature field for the MAC computation, then restore it
@@ -1364,17 +1368,8 @@ func (c *Connection) TreeConnect(name string) error {
 		return err
 	}
 
-	if len(buf) < 64 {
-		return fmt.Errorf("TreeConnect received unexpected response from server that was too short")
-	}
-
-	var resHeader Header
 	log.Tracef("Unmarshalling TreeConnect response Header [%s]\n", name)
-	if err := encoder.Unmarshal(buf[:64], &resHeader); err != nil {
-		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
-		return err
-	}
-	if err := statusError("TreeConnect", resHeader.Status); err != nil {
+	if _, err := headerStatus("TreeConnect", buf); err != nil {
 		return err
 	}
 
@@ -1465,15 +1460,8 @@ func (c *Connection) Echo() error {
 		log.Debugln(err)
 		return err
 	}
-	if len(buf) < 64 {
-		return fmt.Errorf("Echo received a response too short to contain a header")
-	}
-	var h Header
-	if err := encoder.Unmarshal(buf[:64], &h); err != nil {
-		log.Debugln(err)
-		return err
-	}
-	return statusError("Echo", h.Status)
+	_, err = headerStatus("Echo", buf)
+	return err
 }
 
 // Flush issues an SMB2 FLUSH (MS-SMB2 §2.2.17) for this open handle, asking the
@@ -1490,15 +1478,8 @@ func (f *File) Flush() error {
 		log.Debugln(err)
 		return err
 	}
-	if len(buf) < 64 {
-		return fmt.Errorf("Flush received a response too short to contain a header")
-	}
-	var h Header
-	if err := encoder.Unmarshal(buf[:64], &h); err != nil {
-		log.Debugln(err)
-		return err
-	}
-	return statusError("Flush", h.Status)
+	_, err = headerStatus("Flush", buf)
+	return err
 }
 
 func (f *File) CloseFile() error {
@@ -1579,19 +1560,42 @@ func (f *File) QueryDirectory(pattern string, flags byte, fileIndex uint32, buff
 		return
 	}
 
-	start, stop := uint32(0), res.OutputBufferLength
-	for {
+	// NextEntryOffset is server-controlled and drives the walk below, so every
+	// entry boundary has to be re-validated: an oversized (or zero-but-repeating)
+	// offset would otherwise slice past the buffer and panic on the caller's
+	// goroutine, where the receiver's recover() cannot help. Clamp the end to
+	// the bytes we actually received, since OutputBufferLength is server-supplied
+	// too and need not match the buffer.
+	stop := res.OutputBufferLength
+	if int(stop) > len(res.Buffer) {
+		stop = uint32(len(res.Buffer))
+	}
+	start := uint32(0)
+	for start < stop {
 		var fs FileBothDirectoryInformationStruct
 		if err = encoder.Unmarshal(res.Buffer[start:stop], &fs); err != nil {
 			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 			return sf, err
+		}
+		if int(fs.FileNameLength) > len(fs.FileName) {
+			return sf, fmt.Errorf("QueryDirectory: entry declares a %d-byte name but only %d bytes are present", fs.FileNameLength, len(fs.FileName))
 		}
 		fileName, err := encoder.FromUnicodeString(fs.FileName[:fs.FileNameLength])
 		if err != nil {
 			log.Debugln(err)
 			return sf, err
 		}
-		start += fs.NextEntryOffset
+		// A zero NextEntryOffset marks the last entry; anything else must move
+		// strictly forward and stay inside the buffer, or the walk would either
+		// spin forever or run off the end.
+		next := start
+		if fs.NextEntryOffset != 0 {
+			next = start + fs.NextEntryOffset
+			if fs.NextEntryOffset > stop || next <= start || next > stop {
+				return sf, fmt.Errorf("QueryDirectory: entry at %d has an out-of-range NextEntryOffset of %d", start, fs.NextEntryOffset)
+			}
+		}
+		start = next
 		if (fileName == ".") || (fileName == "..") {
 			// We don't care about the current and parent dir references
 			if fs.NextEntryOffset == 0 {
@@ -2082,8 +2086,8 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 		return
 	}
 
-	var h Header
-	if err := encoder.Unmarshal(buf[:64], &h); err != nil {
+	h, err := parseHeader("Read", buf)
+	if err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return n, err
 	}
@@ -2110,10 +2114,20 @@ func (f *File) ReadFile(b []byte, offset uint64) (n int, err error) {
 		return n, err
 	}
 
-	// An offset to indicate if the file data is the first thing
-	// in the response buffer or if it begins later.
-	bufferOffset := int(res.DataOffset - 64 - 16)
-	if len(res.Buffer) < bufferOffset {
+	// DataOffset is measured from the start of the SMB2 header and res.Buffer
+	// begins after the 64-byte header plus the 16-byte fixed part of the READ
+	// response, so the index into res.Buffer is DataOffset-80. DataOffset is a
+	// single byte: computing this in byte arithmetic would wrap modulo 256 for
+	// any value below 80 (0 becomes 176) and silently read from the wrong place,
+	// so widen first and reject anything that cannot be a valid offset.
+	const readResFixedLen = headerSize + 16
+	if int(res.DataOffset) < readResFixedLen {
+		err = fmt.Errorf("read response DataOffset %d precedes the response body", res.DataOffset)
+		log.Debugln(err)
+		return
+	}
+	bufferOffset := int(res.DataOffset) - readResFixedLen
+	if bufferOffset > len(res.Buffer) {
 		err = fmt.Errorf("returned offset is outside response buffer")
 		log.Debugln(err)
 		return
@@ -2410,13 +2424,8 @@ func (s *Connection) WriteIoCtlReq(req *IoCtlReq) (res IoCtlRes, err error) {
 	if err != nil {
 		return res, err
 	}
-	var h Header
-	if err = encoder.Unmarshal(buf[:64], &h); err != nil {
+	if _, err = headerStatus("IoCtlRequest", buf); err != nil {
 		return res, err
-	}
-
-	if err = statusError("IoCtlRequest", h.Status); err != nil {
-		return
 	}
 
 	if err = encoder.Unmarshal(buf, &res); err != nil {
@@ -2426,19 +2435,25 @@ func (s *Connection) WriteIoCtlReq(req *IoCtlReq) (res IoCtlRes, err error) {
 	return res, nil
 }
 
+// Close tears down the connection: it disconnects every mounted tree, stops
+// the receiver, and closes the underlying socket. It is safe to call more than
+// once and from multiple goroutines — the common "defer conn.Close()" alongside
+// an explicit Close on an error path would otherwise panic on the second
+// close(c.rdone).
 func (c *Connection) Close() {
-	log.Debug("Closing session")
-	for _, k := range c.treeNames() {
-		c.TreeDisconnect(k)
-	}
-	//c.outstandingRequests.shutdown(nil)
-	close(c.rdone)
+	c.closeOnce.Do(func() {
+		log.Debug("Closing session")
+		for _, k := range c.treeNames() {
+			c.TreeDisconnect(k)
+		}
+		close(c.rdone)
 
-	if c.conn != nil {
-		log.Debug("Closing TCP connection")
-		c.conn.Close()
-	}
-	log.Debug("Session close completed")
+		if c.conn != nil {
+			log.Debug("Closing TCP connection")
+			c.conn.Close()
+		}
+		log.Debug("Session close completed")
+	})
 }
 
 // Create a new directory

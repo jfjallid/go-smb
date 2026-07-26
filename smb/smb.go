@@ -297,10 +297,14 @@ const (
 
 // MS-SMB2 Section 2.2.3.1.2 Ciphers
 const (
-	AES128CCM uint16 = 0x0001
-	AES128GCM uint16 = 0x0002
-	AES256CCM uint16 = 0x0003
-	AES256GCM uint16 = 0x0004
+	// CipherNone is the value a server returns in SMB2_ENCRYPTION_CAPABILITIES
+	// when it shares no cipher with the client's offer (MS-SMB2 §3.3.5.4). It
+	// means "encryption unavailable on this connection", not an error.
+	CipherNone uint16 = 0x0000
+	AES128CCM  uint16 = 0x0001
+	AES128GCM  uint16 = 0x0002
+	AES256CCM  uint16 = 0x0003
+	AES256GCM  uint16 = 0x0004
 )
 
 // MS-SMB2 Section 2.2.3.1.7 SigningAlgorithms
@@ -627,18 +631,23 @@ const (
 )
 
 var (
+	// Keys are the generic/standard access-mask bits of MS-DTYP §2.4.3. They
+	// are written via the FAccMask* constants rather than as literals: the
+	// GENERIC_WRITE entry was previously 0x4000000 (one zero short of
+	// 0x40000000), so ParseAccessMask never reported GENERIC_WRITE and instead
+	// attributed it to the reserved bit 0x04000000.
 	accessMaskMap = map[uint32]string{
-		0x80000000: AccessMaskGenericRead,
-		0x4000000:  AccessMaskGenericWrite,
-		0x20000000: AccessMaskGenericExecute,
-		0x10000000: AccessMaskGenericAll,
-		0x02000000: AccessMaskMaximumAllowed,
-		0x01000000: AccessMaskAccessSystemSecurity,
-		0x00100000: AccessMaskSynchronize,
-		0x00080000: AccessMaskWriteOwner,
-		0x00040000: AccessMaskWriteDACL,
-		0x00020000: AccessMaskReadControl,
-		0x00010000: AccessMaskDelete,
+		FAccMaskGenericRead:          AccessMaskGenericRead,
+		FAccMaskGenericWrite:         AccessMaskGenericWrite,
+		FAccMaskGenericExecute:       AccessMaskGenericExecute,
+		FAccMaskGenericAll:           AccessMaskGenericAll,
+		FAccMaskMaximumAllowed:       AccessMaskMaximumAllowed,
+		FAccMaskAccessSystemSecurity: AccessMaskAccessSystemSecurity,
+		FAccMaskSynchronize:          AccessMaskSynchronize,
+		FAccMaskWriteOwner:           AccessMaskWriteOwner,
+		FAccMaskWriteDac:             AccessMaskWriteDACL,
+		FAccMaskReadControl:          AccessMaskReadControl,
+		FAccMaskDelete:               AccessMaskDelete,
 	}
 )
 
@@ -659,6 +668,35 @@ type Header struct { // 64 bytes
 	TreeID        uint32
 	SessionID     uint64
 	Signature     []byte `smb:"fixed:16"`
+}
+
+// headerSize is the fixed on-wire size of an SMB2 header (MS-SMB2 §2.2.1.2).
+const headerSize = 64
+
+// parseHeader decodes the 64-byte SMB2 header at the front of buf. It exists so
+// that every response path shares one length check: slicing buf[:64] directly
+// panics on a short reply, and a server (or an on-path attacker) controls that
+// length. op names the operation for the error message.
+func parseHeader(op string, buf []byte) (Header, error) {
+	var h Header
+	if len(buf) < headerSize {
+		return h, fmt.Errorf("%s: response too short to contain an SMB2 header (%d bytes)", op, len(buf))
+	}
+	if err := encoder.Unmarshal(buf[:headerSize], &h); err != nil {
+		return h, fmt.Errorf("%s: decoding SMB2 header: %w", op, err)
+	}
+	return h, nil
+}
+
+// headerStatus decodes the response header and converts its NTSTATUS to an
+// error, the pattern used by every operation that cares only about success or
+// failure. okStatuses lists additional codes the caller treats as success.
+func headerStatus(op string, buf []byte, okStatuses ...uint32) (Header, error) {
+	h, err := parseHeader(op, buf)
+	if err != nil {
+		return h, err
+	}
+	return h, statusError(op, h.Status, okStatuses...)
 }
 
 type TransformHeader struct { // 52 bytes
@@ -1015,7 +1053,10 @@ func (s *QueryInfoReq) MarshalBinary(meta *encoder.Metadata) (ret []byte, err er
 
 func (s *QueryInfoRes) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	log.Traceln("In UnmarshalBinary for QueryInfoRes")
-	err := encoder.Unmarshal(buf[:64], &s.Header)
+	if len(buf) < headerSize+8 {
+		return fmt.Errorf("QueryInfoRes: response too short (%d bytes)", len(buf))
+	}
+	err := encoder.Unmarshal(buf[:headerSize], &s.Header)
 	if err != nil {
 		return err
 	}
@@ -1291,7 +1332,11 @@ func (s *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 
 func (s *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	log.Traceln("In UnmarshalBinary for NegotiateReq")
-	err := encoder.Unmarshal(buf[:64], &s.Header)
+	// 64-byte header + 36-byte fixed body before the dialect array.
+	if len(buf) < headerSize+36 {
+		return fmt.Errorf("NegotiateReq: request too short (%d bytes)", len(buf))
+	}
+	err := encoder.Unmarshal(buf[:headerSize], &s.Header)
 	if err != nil {
 		return err
 	}
@@ -1500,6 +1545,7 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 			Padd:        make([]byte, (8-(len(ccBuf)%8))%8),
 		}
 		req.ContextList = append(req.ContextList, n)
+
 		// Compression is offered only when opted in. When present it becomes the
 		// last context, so SigningCapabilities now needs trailing 8-byte
 		// alignment padding (it was previously last and unpadded).

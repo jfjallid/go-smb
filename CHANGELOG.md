@@ -224,6 +224,36 @@ error. Dialect revisions are logged as friendly version strings.
   size the sender declared, so a wrong guess errors rather than yielding wrong
   bytes.
 
+### Client correctness and robustness
+
+- **`ParseAccessMask` never reported `GENERIC_WRITE`.** The lookup table's key
+  was `0x4000000` — one zero short of `0x40000000` — so the bit was never
+  matched, and the reserved bit `0x04000000` was reported as `GENERIC_WRITE`
+  instead. This affected every DACL surfaced through `QueryInfoSecurity`.
+- **A "no common cipher" negotiate response no longer fails the connection.**
+  A server that shares no cipher with our offer answers with
+  `Ciphers[0] = 0x0000` (MS-SMB2 §3.3.5.4); this was treated as an unknown
+  algorithm and aborted `NegotiateProtocol` instead of continuing unencrypted.
+  Exposed as the new `smb.CipherNone`.
+- **`Connection.Close` is now idempotent.** A second call panicked on a closed
+  channel, which the common `defer c.Close()` plus an explicit close on an
+  error path was enough to trigger.
+- **`QueryDirectory` no longer panics on a malformed reply.** The
+  server-controlled `NextEntryOffset` was unbounded and the buffer end was
+  never clamped; entry boundaries are now validated and must move strictly
+  forward. This runs on the caller's goroutine, where the receive loop's
+  `recover` does not apply.
+- **`ReadFile` no longer misreads on a small `DataOffset`.** The offset was
+  computed in `byte` arithmetic and wrapped modulo 256 for any value below 80
+  (0 became 176), silently reading from the wrong place.
+- **An oversized NetBIOS length no longer desynchronizes the stream.** The
+  client skipped the frame without consuming its payload and kept reading,
+  turning every subsequent frame into garbage; it now fails the connection.
+- Response header parsing is centralized behind one length-guarded helper, so a
+  reply too short to contain a header is an error rather than a panic on the
+  caller's goroutine. A truncated response no longer reaches `sign`/`verify`
+  either.
+
 ## [0.11.0] — 2026-07-06
 
 Headline items this cycle are a logging and error-handling overhaul, a pass

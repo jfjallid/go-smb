@@ -81,6 +81,9 @@ type Connection struct {
 	err         error
 	useProxy    bool
 	_useSession int32
+	// closeOnce guards Close so that the idiomatic "defer c.Close()" plus an
+	// explicit Close on an error path does not panic on a double channel close.
+	closeOnce sync.Once
 }
 
 func (c *Connection) useSession() bool {
@@ -142,22 +145,23 @@ func readPacket(conn net.Conn) (packet []byte, err error) {
 	}
 
 	if size > 0x00FFFFFF {
-		log.Errorln("Error: Invalid NetBIOS Session message")
-		// Don't return the error, instead try to read the next packet
-		return
+		// The top byte of the 4-byte prefix is the NetBIOS message type and
+		// must be zero for a session message. A non-zero value means the
+		// stream is not what we think it is; we cannot know how many bytes to
+		// skip, so continuing would read the rest of the connection at a wrong
+		// offset and turn every subsequent frame into garbage. Fail instead.
+		err = fmt.Errorf("invalid NetBIOS session message: length prefix 0x%08x", size)
+		log.Errorln(err)
+		return nil, err
 	}
 
 	packet = make([]byte, size)
-	l, err := io.ReadFull(conn, packet)
-	if err != nil {
-		return
+	// io.ReadFull returns ErrUnexpectedEOF on a short read, so a successful
+	// return already guarantees len(packet) == size.
+	if _, err = io.ReadFull(conn, packet); err != nil {
+		return nil, err
 	}
-	if uint32(l) != size {
-		log.Errorln("Error: Message size invalid")
-		// Don't return the error, instead try to read the next packet
-		return
-	}
-	return
+	return packet, nil
 }
 
 /*
@@ -246,7 +250,7 @@ func (c *Connection) runReceiver() {
 				}
 				// Check sessionID
 				if tHdr.SessionId != c.sessionID {
-					log.Errorf("Skip: Unknown session id %d expected %d\n", h.SessionID, c.sessionID)
+					log.Errorf("Skip: Unknown session id %d expected %d\n", tHdr.SessionId, c.sessionID)
 					continue
 				}
 				// Attempt decryption
@@ -524,6 +528,13 @@ func (c *Connection) makeRequestResponse(buf []byte, credited bool) (rr *request
 	var creditCharge uint16
 	var messageID uint64
 
+	// buf is produced by our own marshalling, so a short buffer means a bug
+	// upstream rather than hostile input — but indexing it blind would turn
+	// that bug into a panic in the caller's goroutine.
+	if len(buf) < 32 {
+		return nil, fmt.Errorf("refusing to send a %d-byte request: too short to contain a header", len(buf))
+	}
+
 	if buf[0] == 0xff {
 		// SMB1 header
 		smb1 = true
@@ -532,6 +543,8 @@ func (c *Connection) makeRequestResponse(buf []byte, credited bool) (rr *request
 			log.Debugln(err)
 			return
 		}
+	} else if len(buf) < headerSize {
+		return nil, fmt.Errorf("refusing to send a %d-byte SMB2 request: too short to contain a header", len(buf))
 	} else {
 		// SMB2 header
 		err = encoder.Unmarshal(buf[:64], &h)
@@ -843,6 +856,10 @@ func (c *Connection) recv(rr *requestResponse) (buf []byte, err error) {
 	select {
 	case <-c.rdone:
 		c.outstandingRequests.pop(rr.msgId)
+		// The connection is being torn down under us. Report it rather than
+		// returning (nil, nil), which every caller would then have to
+		// special-case before parsing a response that does not exist.
+		return nil, fmt.Errorf("connection closed while awaiting a response")
 	case buf = <-rr.recv:
 		if rr.err != nil {
 			return nil, rr.err
@@ -853,6 +870,4 @@ func (c *Connection) recv(rr *requestResponse) (buf []byte, err error) {
 		}
 		return buf, nil
 	}
-
-	return
 }
