@@ -29,6 +29,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/jfjallid/go-smb/msdtyp"
 	"github.com/jfjallid/ndr"
@@ -1159,5 +1160,71 @@ func TestDecodeUTF16LE(t *testing.T) {
 	result2 := decodeUTF16LE(inputNull)
 	if result2 != "AB" {
 		t.Errorf("decodeUTF16LE with null: got %q, want %q", result2, "AB")
+	}
+}
+
+// TestDSNAMESetNameNonASCII verifies that NameLen counts WCHARs rather than
+// UTF-8 bytes.
+//
+// DSNAME declares StringName as [size_is(NameLen+1)] WCHAR, so NameLen must
+// equal the number of UTF-16 code units in the name. Deriving it from
+// len(name) yields the UTF-8 byte count, which is only correct for ASCII: any
+// non-ASCII character makes NameLen too large, so the conformant array header
+// claims more WCHARs than are actually encoded. A DRSGetNCChanges request
+// built from such a DSNAME is rejected by the DC with a DCERPC fault carrying
+// RPC_X_BAD_STUB_DATA (0x6f7), which makes every object whose DN contains a
+// non-ASCII character unreplicable.
+//
+// Note that len([]rune(name)) is not correct either: a character outside the
+// BMP is a single rune but two UTF-16 code units (see the emoji case below).
+func TestDSNAMESetNameNonASCII(t *testing.T) {
+	tests := []struct {
+		desc string
+		dn   string
+	}{
+		{"ascii", "CN=Administrator,CN=Users,DC=contoso,DC=com"},
+		{"latin1 accents", "CN=Café Renée,OU=Users,DC=contoso,DC=com"},
+		{"umlauts", "CN=Jürgen Müller,OU=Users,DC=contoso,DC=com"},
+		{"cjk", "CN=日本語,OU=Users,DC=contoso,DC=com"},
+		{"non-bmp surrogate pair", "CN=Test 😀,OU=Users,DC=contoso,DC=com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			d := &DSNAME{}
+			d.SetName(tt.dn)
+
+			wantNameLen := len(utf16.Encode([]rune(tt.dn)))
+			if int(d.NameLen) != wantNameLen {
+				t.Errorf("NameLen = %d, want %d (UTF-16 code units; len(name) is %d bytes)",
+					d.NameLen, wantNameLen, len(tt.dn))
+			}
+
+			// The NDR contract: the conformant array holds NameLen+1 WCHARs,
+			// i.e. the name plus its null terminator.
+			if got, want := len(d.StringName), int(d.NameLen)+1; got != want {
+				t.Errorf("len(StringName) = %d, want NameLen+1 = %d", got, want)
+			}
+
+			if got, want := int(d.StructLen), 56+2*len(d.StringName); got != want {
+				t.Errorf("StructLen = %d, want %d", got, want)
+			}
+
+			// The encoded form must survive a round trip with the name intact.
+			b, err := d.Marshal()
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			var got DSNAME
+			if err := got.Unmarshal(b); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+			if got.Name() != tt.dn {
+				t.Errorf("round trip name = %q, want %q", got.Name(), tt.dn)
+			}
+			if got.NameLen != d.NameLen {
+				t.Errorf("round trip NameLen = %d, want %d", got.NameLen, d.NameLen)
+			}
+		})
 	}
 }

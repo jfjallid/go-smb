@@ -156,7 +156,12 @@ func (d *DSNAME) Name() string {
 // and recomputes NameLen and StructLen so they are consistent for marshaling.
 func (d *DSNAME) SetName(name string) {
 	d.StringName = append(utf16.Encode([]rune(name)), 0)
-	d.NameLen = uint32(len(name))
+	// NameLen is a count of WCHARs, so it must be derived from the encoded
+	// UTF-16 sequence rather than from len(name), which is a count of UTF-8
+	// bytes. The two only agree for ASCII; for any other character the value
+	// is too large and the [size_is(NameLen+1)] conformant array no longer
+	// matches StringName, which the server rejects with RPC_X_BAD_STUB_DATA.
+	d.NameLen = uint32(len(d.StringName) - 1)
 	d.StructLen = 56 + 2*uint32(len(d.StringName))
 }
 
