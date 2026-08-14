@@ -32,7 +32,7 @@ import (
 
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/smb/compress"
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 	"github.com/jfjallid/go-smb/spnego"
 )
 
@@ -1777,7 +1777,7 @@ func (s *Session) NewTreeConnectReq(name string) (TreeConnectReq, error) {
 		Reserved:      0,
 		PathOffset:    0,
 		PathLength:    0,
-		Path:          encoder.ToUnicode(path),
+		Path:          unicode.ToUnicode(path),
 	}, nil
 }
 
@@ -1820,7 +1820,7 @@ func (s *Session) NewCreateReq(share, name string,
 	var buf []byte
 	var nameLen uint16
 	if len(name) > 0 {
-		uname := encoder.ToUnicode(name)
+		uname := unicode.ToUnicode(name)
 		nameLen = uint16(len(uname))
 		buf = make([]byte, nameLen)
 		copy(buf, uname)
@@ -1970,7 +1970,7 @@ func (s *Session) NewQueryDirectoryReq(share, pattern string, fileId []byte,
 		pattern = "*"
 	}
 	var buf []byte
-	upattern := encoder.ToUnicode(pattern)
+	upattern := unicode.ToUnicode(pattern)
 	patternLen := uint16(len(upattern))
 	buf = make([]byte, patternLen)
 	copy(buf, upattern)

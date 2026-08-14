@@ -22,7 +22,7 @@ import (
 
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/ntlmssp"
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 // Acceptor is the server-side counterpart to Client: it processes inbound
@@ -253,13 +253,13 @@ func (a *NTLMAcceptor) finishAuthenticate(auth *ntlmssp.Authenticate) {
 	// rest of authentication proceeds (the Verify callback gets the raw
 	// bytes via the auth message).
 	var fuErr error
-	if a.user, fuErr = encoder.FromUnicodeString(auth.UserName); fuErr != nil {
+	if a.user, fuErr = unicode.FromUnicodeString(auth.UserName); fuErr != nil {
 		log.Debugf("spnego.NTLMAcceptor: decode UserName: %v", fuErr)
 	}
-	if a.domain, fuErr = encoder.FromUnicodeString(auth.DomainName); fuErr != nil {
+	if a.domain, fuErr = unicode.FromUnicodeString(auth.DomainName); fuErr != nil {
 		log.Debugf("spnego.NTLMAcceptor: decode DomainName: %v", fuErr)
 	}
-	if a.workstation, fuErr = encoder.FromUnicodeString(auth.Workstation); fuErr != nil {
+	if a.workstation, fuErr = unicode.FromUnicodeString(auth.Workstation); fuErr != nil {
 		log.Debugf("spnego.NTLMAcceptor: decode Workstation: %v", fuErr)
 	}
 

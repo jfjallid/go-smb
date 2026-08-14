@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 // TestNegotiateContextEchoes drives a 3.1.1 Negotiate that includes both
@@ -52,7 +52,7 @@ func TestNegotiateContextEchoes(t *testing.T) {
 	}
 	ecBuf, _ := ec.MarshalBinary()
 
-	netName := encoder.ToUnicode("SERVER")
+	netName := unicode.ToUnicode("SERVER")
 	// Compression context: minimal 8-byte body with count=0
 	compBuf := make([]byte, 8)
 

@@ -26,7 +26,7 @@ import (
 	"crypto/md5"
 	"strings"
 
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 	// NTLM (MS-NLMP) mandates MD4 for the NT hash (NTOWFv1 = MD4(UTF-16LE(password))).
 	// MD4 is cryptographically broken, but this is a protocol-compatibility
 	// requirement, not a security choice; it cannot be replaced.
@@ -36,19 +36,19 @@ import (
 
 func Ntowfv1(pass string) []byte {
 	hash := md4.New()
-	hash.Write(encoder.ToUnicode(pass))
+	hash.Write(unicode.ToUnicode(pass))
 	return hash.Sum(nil)
 }
 
 func Ntowfv2(pass, user, domain string) []byte {
 	h := hmac.New(md5.New, Ntowfv1(pass))
-	h.Write(encoder.ToUnicode(strings.ToUpper(user) + domain))
+	h.Write(unicode.ToUnicode(strings.ToUpper(user) + domain))
 	return h.Sum(nil)
 }
 
 func Ntowfv2Hash(user, domain string, hash []byte) []byte {
 	h := hmac.New(md5.New, hash)
-	h.Write(encoder.ToUnicode(strings.ToUpper(user) + domain))
+	h.Write(unicode.ToUnicode(strings.ToUpper(user) + domain))
 	return h.Sum(nil)
 }
 

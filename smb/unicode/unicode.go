@@ -20,15 +20,19 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// Package encoder holds the UTF-16LE conversion helpers used across the SMB,
+// Package unicode holds the UTF-16LE conversion helpers used across the SMB,
 // NTLMSSP and DCERPC layers.
 //
-// It no longer contains an encoder. The reflection-based `smb:"..."` tag engine
-// that gave the package its name has been retired in favour of hand-written
-// MarshalBinary/UnmarshalBinary methods on each structure (see smb/marshal.go,
-// smb/marshal_server.go and ntlmssp/marshal.go). The import path is kept as-is
-// so the widely-used ToUnicode / FromUnicodeString helpers do not move.
-package encoder
+// It was previously smb/encoder, which also housed a reflection-based
+// `smb:"..."` tag engine. That engine has been retired in favour of
+// hand-written MarshalBinary/UnmarshalBinary methods on each structure (see
+// smb/marshal.go, smb/marshal_server.go and ntlmssp/marshal.go), leaving only
+// the conversion helpers here — hence the name.
+//
+// It stays a leaf package deliberately: ntlmssp depends on it and smb depends
+// on ntlmssp, so folding these helpers into smb would introduce an import
+// cycle.
+package unicode
 
 import (
 	"bytes"

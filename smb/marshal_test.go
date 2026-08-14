@@ -12,7 +12,7 @@ import (
 	"github.com/jfjallid/gofork/encoding/asn1"
 
 	"github.com/jfjallid/go-smb/gss"
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 func pat(n int, seed byte) []byte {
@@ -124,7 +124,7 @@ func TestMarshalGolden(t *testing.T) {
 		{"SetInfoRes", &SetInfoRes{Header: h, StructureSize: 2}, goldenHeaderHex + "0200"},
 		{
 			"TreeConnectReq",
-			&TreeConnectReq{Header: h, StructureSize: 9, Path: encoder.ToUnicode(`\\srv\IPC$`)},
+			&TreeConnectReq{Header: h, StructureSize: 9, Path: unicode.ToUnicode(`\\srv\IPC$`)},
 			goldenHeaderHex + "09000000480014005c005c007300720076005c004900500043002400",
 		},
 		{
@@ -176,7 +176,7 @@ func TestMarshalGolden(t *testing.T) {
 			"QueryDirectoryReq",
 			&QueryDirectoryReq{
 				Header: h, StructureSize: 33, FileInformationClass: 3,
-				FileID: pat(16, 0x70), OutputBufferLength: 0x10000, Buffer: encoder.ToUnicode("*"),
+				FileID: pat(16, 0x70), OutputBufferLength: 0x10000, Buffer: unicode.ToUnicode("*"),
 			},
 			goldenHeaderHex + "2100030000000000707172737475767778797a7b7c7d7e7f60000200000001002a00",
 		},
@@ -191,7 +191,7 @@ func TestMarshalGolden(t *testing.T) {
 				NextEntryOffset: 104, CreationTime: 0x11, LastAccessTime: 0x22,
 				LastWriteTime: 0x33, ChangeTime: 0x44, EndOfFile: 0x800, AllocationSize: 0x1000,
 				FileAttributes: 0x20, ShortName: pat(24, 0),
-				FileName: encoder.ToUnicode("test.txt"),
+				FileName: unicode.ToUnicode("test.txt"),
 			},
 			"6800000000000000110000000000000022000000000000003300000000000000" +
 				"440000000000000000080000000000000010000000000000200000001000000000000000" +
@@ -376,7 +376,7 @@ func TestUnmarshalRejectsOutOfRangePayload(t *testing.T) {
 	h := goldenHeader()
 
 	// A well-formed PDU whose payload offset/length are then pushed out of range.
-	req := TreeConnectReq{Header: h, StructureSize: 9, Path: encoder.ToUnicode(`\\srv\IPC$`)}
+	req := TreeConnectReq{Header: h, StructureSize: 9, Path: unicode.ToUnicode(`\\srv\IPC$`)}
 	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatalf("MarshalBinary: %v", err)
@@ -563,7 +563,7 @@ func TestRoundTrip(t *testing.T) {
 	t.Run("FileBothDirectoryInformationStruct", func(t *testing.T) {
 		in := FileBothDirectoryInformationStruct{
 			NextEntryOffset: 104, EndOfFile: 0x800, FileAttributes: 0x20,
-			ShortName: pat(24, 0), FileName: encoder.ToUnicode("test.txt"),
+			ShortName: pat(24, 0), FileName: unicode.ToUnicode("test.txt"),
 		}
 		buf, err := in.MarshalBinary()
 		if err != nil {

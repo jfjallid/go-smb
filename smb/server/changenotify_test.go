@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 func TestParseChangeNotifyReq(t *testing.T) {
@@ -79,7 +79,7 @@ func TestMarshalFileNotifyInformation(t *testing.T) {
 		t.Errorf("first Action = %d, want %d", act, FileActionAdded)
 	}
 	nameLen := binary.LittleEndian.Uint32(buf[8:12])
-	name, err := encoder.FromUnicodeString(buf[12 : 12+nameLen])
+	name, err := unicode.FromUnicodeString(buf[12 : 12+nameLen])
 	if err != nil {
 		t.Fatalf("decode first name: %v", err)
 	}

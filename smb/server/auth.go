@@ -25,7 +25,7 @@ import (
 
 	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 // Authenticator verifies an NTLMSSP AUTHENTICATE message. Returning a
@@ -75,12 +75,12 @@ func (m *MapAuthenticator) Verify(c *Conn, auth *ntlmssp.Authenticate, serverCha
 	if auth == nil || len(auth.NtChallengeResponse) < 16 {
 		return nil, smb.StatusLogonFailure
 	}
-	user, err := encoder.FromUnicodeString(auth.UserName)
+	user, err := unicode.FromUnicodeString(auth.UserName)
 	if err != nil {
 		logger.Debugf("auth: failed to decode username: %v", err)
 		return nil, smb.StatusLogonFailure
 	}
-	domain, err := encoder.FromUnicodeString(auth.DomainName)
+	domain, err := unicode.FromUnicodeString(auth.DomainName)
 	if err != nil {
 		logger.Debugf("auth: failed to decode domain: %v", err)
 		return nil, smb.StatusLogonFailure
@@ -160,13 +160,13 @@ func BuildCredential(c *Conn, auth *ntlmssp.Authenticate, chal [8]byte) *Credent
 		RemoteAddr:      c.RemoteAddr,
 	}
 	var err error
-	if cred.Username, err = encoder.FromUnicodeString(auth.UserName); err != nil {
+	if cred.Username, err = unicode.FromUnicodeString(auth.UserName); err != nil {
 		c.logger().Debugf("BuildCredential: decode username: %v", err)
 	}
-	if cred.Domain, err = encoder.FromUnicodeString(auth.DomainName); err != nil {
+	if cred.Domain, err = unicode.FromUnicodeString(auth.DomainName); err != nil {
 		c.logger().Debugf("BuildCredential: decode domain: %v", err)
 	}
-	if cred.Workstation, err = encoder.FromUnicodeString(auth.Workstation); err != nil {
+	if cred.Workstation, err = unicode.FromUnicodeString(auth.Workstation); err != nil {
 		c.logger().Debugf("BuildCredential: decode workstation: %v", err)
 	}
 

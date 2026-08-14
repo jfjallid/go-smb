@@ -21,7 +21,7 @@ import (
 
 	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 // File attribute bits used by the Create/QueryInfo handlers. Only those
@@ -71,7 +71,7 @@ func (c *Conn) handleCreate(ctx pduCtx, raw []byte, h *smb.Header) error {
 		logger.Errorf("Create: CreateReqName: %v", err)
 		return formatErr("CreateReq name", err)
 	}
-	name, err := encoder.FromUnicodeString(nameBytes)
+	name, err := unicode.FromUnicodeString(nameBytes)
 	if err != nil {
 		logger.Errorf("Create: decode name: %v", err)
 		return formatErr("CreateReq decode name", err)

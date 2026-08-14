@@ -27,7 +27,7 @@ import (
 	"strings"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 // defaultMaximalAccess advertised when Share.MaximalAccess is zero. This is
@@ -54,7 +54,7 @@ func (c *Conn) handleTreeConnect(ctx pduCtx, raw []byte, h *smb.Header) error {
 		return formatErr("decode TreeConnectReq", err)
 	}
 
-	pathStr, err := encoder.FromUnicodeString(req.Path)
+	pathStr, err := unicode.FromUnicodeString(req.Path)
 	if err != nil {
 		logger.Errorf("TreeConnect: decode path: %v", err)
 		return c.writeRawError(ctx, h, smb.StatusInvalidParameter)

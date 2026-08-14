@@ -29,7 +29,7 @@ import (
 	"fmt"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 // handleQueryInfo processes SMB2 QUERY_INFO. Three InfoTypes are supported:
@@ -215,7 +215,7 @@ func serializeFileInfo(class byte, fi FileInfo, hndl Handle) ([]byte, uint32) {
 	case smb.FileNameInformation: // 0x09 — name relative to share root
 		var nameBytes []byte
 		if hndl != nil {
-			nameBytes = encoder.ToUnicode("\\" + hndl.Path())
+			nameBytes = unicode.ToUnicode("\\" + hndl.Path())
 		}
 		buf := make([]byte, 4+len(nameBytes))
 		binary.LittleEndian.PutUint32(buf[0:], uint32(len(nameBytes)))
@@ -291,7 +291,7 @@ func defaultFsInfo(class byte, label string) ([]byte, uint32) {
 	case 0x01: // FileFsVolumeInformation
 		// VolumeCreationTime(8) + VolumeSerialNumber(4) + VolumeLabelLength(4)
 		// + SupportsObjects(1) + Reserved(1) + VolumeLabel(*)
-		labelBytes := encoder.ToUnicode(label)
+		labelBytes := unicode.ToUnicode(label)
 		buf := make([]byte, 18+len(labelBytes))
 		// CreationTime stays zero
 		binary.LittleEndian.PutUint32(buf[8:], 0xdeadbeef)
@@ -311,7 +311,7 @@ func defaultFsInfo(class byte, label string) ([]byte, uint32) {
 		return buf, smb.StatusOk
 
 	case 0x05: // FileFsAttributeInformation
-		fsName := encoder.ToUnicode("NTFS")
+		fsName := unicode.ToUnicode("NTFS")
 		// FileSystemAttributes(4) + MaxComponentNameLength(4) + FileSystemNameLength(4) + FileSystemName(*)
 		buf := make([]byte, 12+len(fsName))
 		binary.LittleEndian.PutUint32(buf[0:], 0x00000003) // CASE_PRESERVED + UNICODE_ON_DISK

@@ -32,8 +32,8 @@ import (
 	"testing"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 func newFS(t *testing.T, ro bool) (*FS, string) {
@@ -239,7 +239,7 @@ func TestRename(t *testing.T) {
 
 	// Build a FileRenameInformation buffer: ReplaceIfExists(1) + Reserved(7)
 	// + RootDirectory(8) + FileNameLength(4) + FileName(*).
-	name := encoder.ToUnicode("after")
+	name := unicode.ToUnicode("after")
 	buf := make([]byte, 20+len(name))
 	buf[0] = 0
 	binary.LittleEndian.PutUint32(buf[16:20], uint32(len(name)))

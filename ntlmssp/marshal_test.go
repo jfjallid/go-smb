@@ -9,7 +9,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 func genpat(n int, seed byte) []byte {
@@ -27,8 +27,8 @@ func genpat(n int, seed byte) []byte {
 func TestMarshalGolden(t *testing.T) {
 	hdr := Header{Signature: []byte(Signature), MessageType: TypeNtLmNegotiate}
 	avs := AvPairSlice{
-		{AvID: MsvAvNbDomainName, Value: encoder.ToUnicode("DOM")},
-		{AvID: MsvAvNbComputerName, Value: encoder.ToUnicode("SRV")},
+		{AvID: MsvAvNbDomainName, Value: unicode.ToUnicode("DOM")},
+		{AvID: MsvAvNbComputerName, Value: unicode.ToUnicode("SRV")},
 		{AvID: MsvAvEOL, Value: []byte{}},
 	}
 
@@ -42,7 +42,7 @@ func TestMarshalGolden(t *testing.T) {
 		{"Header", &hdr, "4e544c4d5353500001000000"},
 		{
 			"AvPair",
-			&AvPair{AvID: MsvAvNbDomainName, Value: encoder.ToUnicode("DOM")},
+			&AvPair{AvID: MsvAvNbDomainName, Value: unicode.ToUnicode("DOM")},
 			"0200060044004f004d00",
 		},
 		{
@@ -90,7 +90,7 @@ func TestMarshalGolden(t *testing.T) {
 				NegotiateFlags:  FlgNegUnicode | FlgNegNtLm | FlgNegTargetInfo | FlgNegVersion,
 				ServerChallenge: 0x0102030405060708,
 				Version:         0x0a0000000f000000,
-				TargetName:      encoder.ToUnicode("SRV"),
+				TargetName:      unicode.ToUnicode("SRV"),
 				TargetInfo:      &avs,
 			},
 			"4e544c4d535350000200000006000600380000000102800208070605040302010000000000000000" +
@@ -104,9 +104,9 @@ func TestMarshalGolden(t *testing.T) {
 				NegotiateFlags:            FlgNegUnicode | FlgNegNtLm | FlgNegVersion | FlgNegKeyExch,
 				Version:                   0x0a0000000f000000,
 				MIC:                       genpat(16, 0x90),
-				DomainName:                encoder.ToUnicode("DOM"),
-				UserName:                  encoder.ToUnicode("user"),
-				Workstation:               encoder.ToUnicode("WKS"),
+				DomainName:                unicode.ToUnicode("DOM"),
+				UserName:                  unicode.ToUnicode("user"),
+				Workstation:               unicode.ToUnicode("WKS"),
 				LmChallengeResponse:       genpat(24, 0x10),
 				NtChallengeResponse:       genpat(48, 0x30),
 				EncryptedRandomSessionKey: genpat(16, 0x70),
@@ -177,9 +177,9 @@ func TestChallengeRoundTrip(t *testing.T) {
 		Header:          Header{Signature: []byte(Signature), MessageType: TypeNtLmChallenge},
 		NegotiateFlags:  FlgNegUnicode | FlgNegTargetInfo,
 		ServerChallenge: 0x0102030405060708,
-		TargetName:      encoder.ToUnicode("SRV"),
+		TargetName:      unicode.ToUnicode("SRV"),
 		TargetInfo: &AvPairSlice{
-			{AvID: MsvAvNbDomainName, Value: encoder.ToUnicode("DOM")},
+			{AvID: MsvAvNbDomainName, Value: unicode.ToUnicode("DOM")},
 			{AvID: MsvAvEOL, Value: []byte{}},
 		},
 	}
@@ -211,7 +211,7 @@ func TestChallengeRoundTrip(t *testing.T) {
 func TestChallengeRejectsOutOfRangePayload(t *testing.T) {
 	in := Challenge{
 		Header:     Header{Signature: []byte(Signature), MessageType: TypeNtLmChallenge},
-		TargetName: encoder.ToUnicode("SRV"),
+		TargetName: unicode.ToUnicode("SRV"),
 		TargetInfo: new(AvPairSlice),
 	}
 	buf, err := in.MarshalBinary()

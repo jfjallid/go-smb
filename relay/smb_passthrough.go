@@ -39,8 +39,8 @@ import (
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 // SMBPassthrough handles a SOCKS-fronted SMB conversation by raw-forwarding
@@ -632,8 +632,8 @@ func extractAuthUser(req []byte) (domain, user string, err error) {
 	if err = auth.UnmarshalBinary(resp.ResponseToken); err != nil {
 		return "", "", fmt.Errorf("decode NTLMSSP Authenticate: %w", err)
 	}
-	user, _ = encoder.FromUnicodeString(auth.UserName)
-	domain, _ = encoder.FromUnicodeString(auth.DomainName)
+	user, _ = unicode.FromUnicodeString(auth.UserName)
+	domain, _ = unicode.FromUnicodeString(auth.DomainName)
 	return domain, user, nil
 }
 

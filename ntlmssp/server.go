@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 // Server is the acceptor side of an NTLMSSP exchange. It parses an inbound
@@ -92,7 +92,7 @@ func (s *Server) AcceptNegotiate(neg []byte) ([]byte, error) {
 
 	// TargetName (NetBIOS server name) — Windows servers always populate this.
 	if s.TargetName != "" {
-		chall.TargetName = encoder.ToUnicode(s.TargetName)
+		chall.TargetName = unicode.ToUnicode(s.TargetName)
 	}
 
 	// TargetInfo: a sequence of AVPairs providing identity / time stamps.
@@ -110,16 +110,16 @@ func (s *Server) AcceptNegotiate(neg []byte) ([]byte, error) {
 	dnsDomain := orDefaultStr(s.DnsDomainName, s.NetBIOSName)
 	dnsComputer := orDefaultStr(s.DnsComputerName, s.NetBIOSName)
 	if nbDomain != "" {
-		addAv(MsvAvNbDomainName, encoder.ToUnicode(nbDomain))
+		addAv(MsvAvNbDomainName, unicode.ToUnicode(nbDomain))
 	}
 	if s.NetBIOSName != "" {
-		addAv(MsvAvNbComputerName, encoder.ToUnicode(s.NetBIOSName))
+		addAv(MsvAvNbComputerName, unicode.ToUnicode(s.NetBIOSName))
 	}
 	if dnsDomain != "" {
-		addAv(MsvAvDnsDomainName, encoder.ToUnicode(dnsDomain))
+		addAv(MsvAvDnsDomainName, unicode.ToUnicode(dnsDomain))
 	}
 	if dnsComputer != "" {
-		addAv(MsvAvDnsComputerName, encoder.ToUnicode(dnsComputer))
+		addAv(MsvAvDnsComputerName, unicode.ToUnicode(dnsComputer))
 	}
 	tsBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(tsBuf, ConvertToFileTime(time.Now()))

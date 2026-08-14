@@ -47,7 +47,7 @@ import (
 	"github.com/jfjallid/go-smb/smb/compress"
 	"github.com/jfjallid/go-smb/smb/crypto/ccm"
 	"github.com/jfjallid/go-smb/smb/crypto/cmac"
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 	"github.com/jfjallid/go-smb/spnego"
 	"golang.org/x/net/proxy"
 )
@@ -396,7 +396,7 @@ func (c *Connection) NegotiateProtocol() (err error) {
 			log.Debugln("Sending SMB2 NegotiateProtocol request")
 			// Reuse rr variable for the second neg protocol req to keep
 			// reference for calculation of the pre-auth integrity hash.
-			// Address-of so encoder.Marshal sees the pointer-receiver
+			// Address-of so unicode.Marshal sees the pointer-receiver
 			// MarshalBinary and emits 8-byte-aligned NegotiateContextOffset.
 			rr, err = c.send(&negReq)
 			if err != nil {
@@ -750,26 +750,26 @@ func (c *Connection) SessionSetup() (err error) {
 		for _, av := range *challenge.TargetInfo {
 			switch av.AvID {
 			case ntlmssp.MsvAvDnsDomainName:
-				c.targetInfo.DnsDomainName, err = encoder.FromUnicodeString(av.Value)
+				c.targetInfo.DnsDomainName, err = unicode.FromUnicodeString(av.Value)
 				if err != nil {
 					// Informational fields only, not a reason to fail the session setup.
 					log.Warningf("Failed to decode DNS Domain Name from AV Pair with error: %s\n", err)
 					err = nil
 				}
 			case ntlmssp.MsvAvDnsComputerName:
-				c.targetInfo.DnsComputerName, err = encoder.FromUnicodeString(av.Value)
+				c.targetInfo.DnsComputerName, err = unicode.FromUnicodeString(av.Value)
 				if err != nil {
 					log.Warningf("Failed to decode DNS Computer Name from AV Pair with error: %s\n", err)
 					err = nil
 				}
 			case ntlmssp.MsvAvNbDomainName:
-				c.targetInfo.NBDomainName, err = encoder.FromUnicodeString(av.Value)
+				c.targetInfo.NBDomainName, err = unicode.FromUnicodeString(av.Value)
 				if err != nil {
 					log.Warningf("Failed to decode NB Domain Name from AV Pair with error: %s\n", err)
 					err = nil
 				}
 			case ntlmssp.MsvAvNbComputerName:
-				c.targetInfo.NBComputerName, err = encoder.FromUnicodeString(av.Value)
+				c.targetInfo.NBComputerName, err = unicode.FromUnicodeString(av.Value)
 				if err != nil {
 					log.Warningf("Failed to decode NB Computer Name from AV Pair with error: %s\n", err)
 					err = nil
@@ -1598,7 +1598,7 @@ func (f *File) QueryDirectoryContext(ctx context.Context, pattern string, flags 
 		if int(fs.FileNameLength) > len(fs.FileName) {
 			return sf, fmt.Errorf("QueryDirectory: entry declares a %d-byte name but only %d bytes are present", fs.FileNameLength, len(fs.FileName))
 		}
-		fileName, err := encoder.FromUnicodeString(fs.FileName[:fs.FileNameLength])
+		fileName, err := unicode.FromUnicodeString(fs.FileName[:fs.FileNameLength])
 		if err != nil {
 			log.Debugln(err)
 			return sf, err

@@ -731,7 +731,7 @@ func (c *Connection) reserveForSend(ctx context.Context, buf []byte) (charge uin
 	return creditCharge, true, nil
 }
 
-// sendRawBytes is the bytes-only twin of send: it skips the encoder.Marshal
+// sendRawBytes is the bytes-only twin of send: it skips the MarshalBinary
 // step (caller has already produced the wire bytes) and lets
 // makeRequestResponse stamp the MessageID / signature / encryption in place.
 func (c *Connection) sendRawBytes(buf []byte) (*requestResponse, error) {

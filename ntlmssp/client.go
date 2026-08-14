@@ -37,7 +37,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 	"github.com/jfjallid/golog"
 )
 
@@ -216,13 +216,13 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	// Assumes domain, user, and workstation are not unicode
 	var domain []byte
 	if c.Domain != "" {
-		domain = encoder.ToUnicode(c.Domain)
+		domain = unicode.ToUnicode(c.Domain)
 	} else if !c.LocalUser {
-		c.Domain, _ = encoder.FromUnicodeString(targetName)
+		c.Domain, _ = unicode.FromUnicodeString(targetName)
 		domain = targetName
 	}
 
-	domainstr, err := encoder.FromUnicodeString(domain)
+	domainstr, err := unicode.FromUnicodeString(domain)
 	if err != nil {
 		return
 	}
@@ -250,7 +250,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 				le.PutUint32(av.Value, le.Uint32(av.Value)|0x02)
 			}
 		} else if av.AvID == MsvAvNbComputerName {
-			nbComputerName, err = encoder.FromUnicodeString(av.Value)
+			nbComputerName, err = unicode.FromUnicodeString(av.Value)
 			if err != nil {
 				// Can't use computer name for MsvAvTargetName but no reason to fail
 				log.Debugln(err)
@@ -316,7 +316,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 		if c.TargetSPN != "" {
 			temp = make([]byte, 2)
 			le.PutUint16(temp, MsvAvTargetName)
-			spn := encoder.ToUnicode(c.TargetSPN)
+			spn := unicode.ToUnicode(c.TargetSPN)
 			temp = le.AppendUint16(temp, uint16(len(spn)))
 			temp = append(temp, spn...)
 			binary.Write(w, binary.LittleEndian, temp)
@@ -324,7 +324,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 			// Might cause a problem if the target server does not accept the NETBIOS computer name as a valid SPN
 			temp = make([]byte, 2)
 			le.PutUint16(temp, MsvAvTargetName)
-			spn := encoder.ToUnicode("cifs/" + nbComputerName)
+			spn := unicode.ToUnicode("cifs/" + nbComputerName)
 			temp = le.AppendUint16(temp, uint16(len(spn)))
 			temp = append(temp, spn...)
 			binary.Write(w, binary.LittleEndian, temp)
@@ -400,7 +400,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 			MessageType: TypeNtLmAuthenticate,
 		},
 		DomainName:  domain,
-		Workstation: encoder.ToUnicode(c.Workstation),
+		Workstation: unicode.ToUnicode(c.Workstation),
 		MIC:         make([]byte, 16),
 	}
 	// Build the LM/NT response fields according to the resolved auth mode.
@@ -416,7 +416,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	default: // NTLMAuthCredentials
 		auth.NtChallengeResponse = response
 		auth.LmChallengeResponse = lmChallengeResponse
-		auth.UserName = encoder.ToUnicode(c.User)
+		auth.UserName = unicode.ToUnicode(c.User)
 	}
 
 	session := new(Session)

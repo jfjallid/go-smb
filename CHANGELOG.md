@@ -122,14 +122,33 @@ inconsistent with MS-NLMP — that flag denotes a credential-less session. The
 flag is now set only for a true anonymous/null session. This changes the bytes
 on the wire for the guest path but not the Go API.
 
-**3. `smb/encoder` no longer contains an encoder.**
+**3. `smb/encoder` is gone; the UTF-16 helpers now live in `smb/unicode`.**
 
 The reflection-based `smb:"..."` tag engine has been retired (see *Wire
-marshalling* below). `encoder.Marshal`, `encoder.Unmarshal`,
-`encoder.Metadata` and `encoder.BinaryMarshallable` are gone. The import path
-itself stays, and the UTF-16LE helpers (`ToUnicode`, `FromUnicodeString`,
-`FromUnicode`, `Utf16ToUtf8`, `Utf8ToUtf16`) are untouched, so code using only
-those needs no change.
+marshalling* below), so `encoder.Marshal`, `encoder.Unmarshal`,
+`encoder.Metadata` and `encoder.BinaryMarshallable` no longer exist. With only
+the UTF-16LE conversion helpers left, the package was renamed to match what it
+actually contains:
+
+```go
+// Before
+import "github.com/jfjallid/go-smb/smb/encoder"
+name := encoder.ToUnicode("share")
+// After
+import "github.com/jfjallid/go-smb/smb/unicode"
+name := unicode.ToUnicode("share")
+```
+
+The helpers themselves — `ToUnicode`, `FromUnicodeString`, `FromUnicode`,
+`Utf16ToUtf8`, `Utf8ToUtf16` — are unchanged in both signature and behaviour,
+so this is an import-line edit. Note that a file importing both this package
+and stdlib `unicode` will need an alias; no file in this repo does.
+
+The package stays a leaf deliberately: `ntlmssp` depends on it and `smb`
+depends on `ntlmssp`, so folding these helpers into `smb` would introduce an
+import cycle.
+
+For the marshalling API itself:
 
 ```go
 // Before
@@ -388,9 +407,9 @@ The reflection-based encoder that drove SMB2 and NTLMSSP serialization from
 `smb:"..."` struct tags has been replaced by hand-written methods on each
 structure. See *Breaking changes* above for the API migration.
 
-- **`smb/encoder/encoder.go` is deleted** (809 lines, plus its tests). The
-  package keeps its import path and its UTF-16LE helpers; only the encoder is
-  gone. Marshalling now lives in `smb/marshal.go` (every SMB2 PDU, negotiate
+- **`smb/encoder/encoder.go` is deleted** (809 lines, plus its tests), and the
+  surviving UTF-16LE helpers move to `smb/unicode` (see *Breaking changes*
+  above). Marshalling now lives in `smb/marshal.go` (every SMB2 PDU, negotiate
   context, `TransformHeader` and `SMB1Header`), the pre-existing
   `smb/marshal_server.go`, and the new `ntlmssp/marshal.go`.
 - **The wire format is unchanged and pinned by tests.** Goldens were captured

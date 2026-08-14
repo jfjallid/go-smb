@@ -34,8 +34,8 @@ import (
 	"time"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
+	"github.com/jfjallid/go-smb/smb/unicode"
 	"github.com/jfjallid/golog"
 )
 
@@ -467,7 +467,7 @@ func (fs *FS) SetFileInfo(ctx context.Context, h server.Handle, infoClass byte, 
 		if int(nameLen)+20 > len(raw) {
 			return smb.StatusInfoLengthMismatch, nil
 		}
-		newDisplay, err := encoder.FromUnicodeString(raw[20 : 20+nameLen])
+		newDisplay, err := unicode.FromUnicodeString(raw[20 : 20+nameLen])
 		if err != nil {
 			log.Debugf("memvfs SetFileInfo rename: decode new name: %v -> StatusInvalidParameter", err)
 			return smb.StatusInvalidParameter, nil

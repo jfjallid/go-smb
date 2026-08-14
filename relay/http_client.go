@@ -37,8 +37,8 @@ import (
 
 	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 // httpUpstream wraps a single TCP/TLS connection on which NTLM authentication
@@ -331,9 +331,9 @@ func buildCredentialFromAuth(auth *ntlmssp.Authenticate, chal [8]byte, remote ne
 		ServerChallenge: chal,
 		RemoteAddr:      remote,
 	}
-	cred.Username, _ = encoder.FromUnicodeString(auth.UserName)
-	cred.Domain, _ = encoder.FromUnicodeString(auth.DomainName)
-	cred.Workstation, _ = encoder.FromUnicodeString(auth.Workstation)
+	cred.Username, _ = unicode.FromUnicodeString(auth.UserName)
+	cred.Domain, _ = unicode.FromUnicodeString(auth.DomainName)
+	cred.Workstation, _ = unicode.FromUnicodeString(auth.Workstation)
 	if len(auth.NtChallengeResponse) > 24 {
 		cred.Format = "Net-NTLMv2"
 		cred.Hashcat = fmt.Sprintf("%s::%s:%x:%x:%x",

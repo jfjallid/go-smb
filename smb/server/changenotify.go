@@ -28,7 +28,7 @@ import (
 	"fmt"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 // SMB2 CHANGE_NOTIFY (MS-SMB2 §2.2.35 / §2.2.36 / §3.3.5.19).
@@ -149,7 +149,7 @@ func parseChangeNotifyReq(raw []byte) (*changeNotifyReq, error) {
 func marshalFileNotifyInformation(changes []FileNotifyChange, maxLen uint32) ([]byte, bool) {
 	var out []byte
 	for i, ch := range changes {
-		name := encoder.ToUnicode(ch.Name)
+		name := unicode.ToUnicode(ch.Name)
 		entry := make([]byte, 12+len(name))
 		binary.LittleEndian.PutUint32(entry[4:8], ch.Action)
 		binary.LittleEndian.PutUint32(entry[8:12], uint32(len(name)))

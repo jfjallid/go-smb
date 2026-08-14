@@ -29,7 +29,7 @@ import (
 	"fmt"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
+	"github.com/jfjallid/go-smb/smb/unicode"
 )
 
 // handleQueryDirectory enumerates a directory handle. Supported info classes
@@ -61,7 +61,7 @@ func (c *Conn) handleQueryDirectory(ctx pduCtx, raw []byte, h *smb.Header) error
 		return c.writeRawError(ctx, h, smb.StatusFileClosed)
 	}
 
-	pattern, err := encoder.FromUnicodeString(req.Buffer)
+	pattern, err := unicode.FromUnicodeString(req.Buffer)
 	if err != nil {
 		logger.Debugf("QueryDirectory: decode search pattern: %v (defaulting to *)", err)
 	}
@@ -211,7 +211,7 @@ func isSupportedDirInfoClass(class byte) bool {
 // padded to an 8-byte boundary. The leading 4 bytes are NextEntryOffset
 // (filled in by the caller) followed by the class-specific fields.
 func serializeDirEntry(class byte, e DirEntry) []byte {
-	nameU := encoder.ToUnicode(e.Name)
+	nameU := unicode.ToUnicode(e.Name)
 	switch class {
 	case smb.FileBothDirectoryInformation: // 0x03 — 94 bytes fixed + name + pad
 		fixed := 94
