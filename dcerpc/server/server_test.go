@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -18,18 +19,32 @@ import (
 // requests by abstract syntax UUID and opnum. Opnum 7 returns the input
 // bytes back; opnum 99 returns an error to exercise the fault path.
 type fakeService struct {
-	uuid       string
-	major      uint16
-	minor      uint16
+	uuid  string
+	major uint16
+	minor uint16
+
+	// mu guards the call-recording fields: TestPipeHandlerConcurrentTransceive
+	// dispatches from several goroutines at once.
+	mu         sync.Mutex
 	lastOpnum  uint16
 	lastBuffer []byte
 }
 
 func (s *fakeService) InterfaceUUID() string              { return s.uuid }
 func (s *fakeService) InterfaceVersion() (uint16, uint16) { return s.major, s.minor }
+
+// last returns the opnum and stub of the most recent Dispatch call.
+func (s *fakeService) last() (uint16, []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastOpnum, s.lastBuffer
+}
+
 func (s *fakeService) Dispatch(_ context.Context, op uint16, in []byte) ([]byte, error) {
+	s.mu.Lock()
 	s.lastOpnum = op
 	s.lastBuffer = append([]byte(nil), in...)
+	s.mu.Unlock()
 	switch op {
 	case 7:
 		return append([]byte("ok:"), in...), nil
@@ -170,8 +185,8 @@ func TestPipeHandlerBindAndRequest(t *testing.T) {
 	if !bytes.Equal(reqRes.Buffer, append([]byte("ok:"), reqStub...)) {
 		t.Fatalf("response stub = %q", reqRes.Buffer)
 	}
-	if svc.lastOpnum != 7 || !bytes.Equal(svc.lastBuffer, reqStub) {
-		t.Fatalf("Service.Dispatch was not called as expected: op=%d buf=%q", svc.lastOpnum, svc.lastBuffer)
+	if gotOp, gotBuf := svc.last(); gotOp != 7 || !bytes.Equal(gotBuf, reqStub) {
+		t.Fatalf("Service.Dispatch was not called as expected: op=%d buf=%q", gotOp, gotBuf)
 	}
 
 	// 3) Request on a context that was never bound -> fault PDU.

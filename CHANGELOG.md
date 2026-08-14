@@ -426,6 +426,16 @@ structure. See *Breaking changes* above for the API migration.
   length. Peers accept it, and changing it was out of scope for a
   wire-preserving migration.
 
+### Testing
+
+- **The tree is verified clean under `-race`.** `go test -race ./...` reports
+  no data races in any package, which covers the asynchronous request path,
+  durable handles and the `context.Context` client work added this cycle. The
+  one race the run did find was in a test fixture rather than library code:
+  `dcerpc/server`'s `fakeService` recorded the last dispatched opnum and stub
+  without synchronisation while `TestPipeHandlerConcurrentTransceive` drove it
+  from eight goroutines. The production `PipeHandler` was correct.
+
 ## [0.11.0] — 2026-07-06
 
 Headline items this cycle are a logging and error-handling overhaul, a pass
