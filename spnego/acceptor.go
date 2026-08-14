@@ -140,7 +140,7 @@ func (a *NTLMAcceptor) acceptRawAuthenticate(buf []byte) ([]byte, bool, error) {
 // and wraps the resulting Challenge in a NegTokenResp.
 func (a *NTLMAcceptor) acceptInit(buf []byte) ([]byte, bool, error) {
 	var init gss.NegTokenInit
-	if err := encoder.Unmarshal(buf, &init); err != nil {
+	if err := init.UnmarshalBinary(buf); err != nil {
 		return nil, false, fmt.Errorf("spnego.NTLMAcceptor: decode NegTokenInit: %w", err)
 	}
 
@@ -171,7 +171,7 @@ func (a *NTLMAcceptor) acceptInit(buf []byte) ([]byte, bool, error) {
 		SupportedMech: gss.NtLmSSPMechTypeOid,
 		ResponseToken: chall,
 	}
-	out, err := encoder.Marshal(&resp)
+	out, err := resp.MarshalBinary()
 	if err != nil {
 		return nil, false, fmt.Errorf("spnego.NTLMAcceptor: marshal NegTokenResp: %w", err)
 	}
@@ -185,7 +185,7 @@ func (a *NTLMAcceptor) acceptInit(buf []byte) ([]byte, bool, error) {
 // accept-completed or reject.
 func (a *NTLMAcceptor) acceptResp(buf []byte) ([]byte, bool, error) {
 	var resp gss.NegTokenResp
-	if err := encoder.Unmarshal(buf, &resp); err != nil {
+	if err := resp.UnmarshalBinary(buf); err != nil {
 		return nil, false, fmt.Errorf("spnego.NTLMAcceptor: decode NegTokenResp: %w", err)
 	}
 	if len(resp.ResponseToken) == 0 {

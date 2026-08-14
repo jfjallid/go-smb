@@ -230,7 +230,7 @@ func (c *Conn) handleChangeNotify(ctx pduCtx, raw []byte, h *smb.Header) error {
 	watchTree := req.Flags&smb2WatchTree != 0
 	outMax := req.OutputBufferLen
 
-	started, err := c.startAsync(ctx, h, h.SessionID, func(opCtx context.Context) (any, error) {
+	started, err := c.startAsync(ctx, h, h.SessionID, func(opCtx context.Context) (smb.Marshaller, error) {
 		changes, werr := notifier.WatchChanges(opCtx, handle, req.CompletionFilter, watchTree)
 
 		// Cancellation wins over whatever the notifier returned: the client is

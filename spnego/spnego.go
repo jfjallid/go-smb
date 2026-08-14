@@ -5,7 +5,6 @@ import (
 	"github.com/jfjallid/gofork/encoding/asn1"
 
 	"github.com/jfjallid/go-smb/gss"
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // MS-SPNG
@@ -51,7 +50,7 @@ func (c *Client) InitSecContext(inputToken []byte) (res []byte, err error) {
 		var token gss.NegTokenResp
 		var responseToken []byte
 		var ms []byte
-		err = encoder.Unmarshal(inputToken, &token)
+		err = token.UnmarshalBinary(inputToken)
 		if err != nil {
 			return
 		}
@@ -79,7 +78,7 @@ func (c *Client) InitSecContext(inputToken []byte) (res []byte, err error) {
 		}
 
 		negTokenRes.MechListMIC = c.selectedMech.Sum(ms)
-		return encoder.Marshal(&negTokenRes)
+		return negTokenRes.MarshalBinary()
 	}
 }
 

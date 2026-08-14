@@ -61,7 +61,7 @@ func (c *Conn) handleCreate(ctx pduCtx, raw []byte, h *smb.Header) error {
 	}
 
 	var req smb.CreateReq
-	if err := encoder.Unmarshal(raw, &req); err != nil {
+	if err := req.UnmarshalBinary(raw); err != nil {
 		logger.Errorf("Create: decode CreateReq: %v", err)
 		return formatErr("decode CreateReq", err)
 	}
@@ -243,7 +243,7 @@ func (c *Conn) handleClose(ctx pduCtx, raw []byte, h *smb.Header) error {
 	}
 
 	var req smb.CloseReq
-	if err := encoder.Unmarshal(raw, &req); err != nil {
+	if err := req.UnmarshalBinary(raw); err != nil {
 		logger.Errorf("Close: decode CloseReq: %v", err)
 		return formatErr("decode CloseReq", err)
 	}

@@ -49,7 +49,7 @@ func (c *Conn) handleTreeConnect(ctx pduCtx, raw []byte, h *smb.Header) error {
 	}
 
 	var req smb.TreeConnectReq
-	if err := encoder.Unmarshal(raw, &req); err != nil {
+	if err := req.UnmarshalBinary(raw); err != nil {
 		logger.Errorf("TreeConnect: decode TreeConnectReq: %v", err)
 		return formatErr("decode TreeConnectReq", err)
 	}

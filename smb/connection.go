@@ -40,7 +40,6 @@ import (
 
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/smb/compress"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"golang.org/x/net/proxy"
 )
 
@@ -239,7 +238,7 @@ func (c *Connection) runReceiver() {
 					continue
 				}
 				tHdr := NewTransformHeader()
-				if err = encoder.Unmarshal(data[:52], &tHdr); err != nil {
+				if err = tHdr.UnmarshalBinary(data[:52]); err != nil {
 					log.Errorln("Skip: Failed to decode transform header of packet")
 					continue
 				}
@@ -277,7 +276,7 @@ func (c *Connection) runReceiver() {
 				log.Errorln("Skip: Packet too short to contain an SMB2 header")
 				continue
 			}
-			if err = encoder.Unmarshal(data[:64], &h); err != nil {
+			if err = h.UnmarshalBinary(data[:64]); err != nil {
 				log.Errorln("Skip: Failed to decode header of packet")
 				continue
 			}
@@ -328,7 +327,7 @@ func (c *Connection) runReceiver() {
 					log.Errorln("Skip: Packet too short to contain an SMB2 header")
 					continue
 				}
-				if err = encoder.Unmarshal(data[:64], &h); err != nil {
+				if err = h.UnmarshalBinary(data[:64]); err != nil {
 					log.Errorln("Skip: Failed to decode header of packet")
 					continue
 				}
@@ -538,7 +537,7 @@ func (c *Connection) makeRequestResponse(buf []byte, credited bool) (rr *request
 	if buf[0] == 0xff {
 		// SMB1 header
 		smb1 = true
-		err = encoder.Unmarshal(buf[:32], &h1)
+		err = h1.UnmarshalBinary(buf[:32])
 		if err != nil {
 			log.Debugln(err)
 			return
@@ -547,7 +546,7 @@ func (c *Connection) makeRequestResponse(buf []byte, credited bool) (rr *request
 		return nil, fmt.Errorf("refusing to send a %d-byte SMB2 request: too short to contain a header", len(buf))
 	} else {
 		// SMB2 header
-		err = encoder.Unmarshal(buf[:64], &h)
+		err = h.UnmarshalBinary(buf[:64])
 		if err != nil {
 			log.Debugln(err)
 			log.Noticeln(err)
@@ -590,7 +589,7 @@ func (c *Connection) makeRequestResponse(buf []byte, credited bool) (rr *request
 
 	if !smb1 {
 		var hBuf []byte
-		hBuf, err = encoder.Marshal(h)
+		hBuf, err = h.MarshalBinary()
 		if err != nil {
 			log.Debugln(err)
 			return rr, err
@@ -646,7 +645,7 @@ func (c *Connection) makeRequestResponse(buf []byte, credited bool) (rr *request
 	return
 }
 
-func (c *Connection) sendrecv(req any) (buf []byte, err error) {
+func (c *Connection) sendrecv(req Marshaller) (buf []byte, err error) {
 	return c.sendrecvContext(context.Background(), req)
 }
 
@@ -654,7 +653,7 @@ func (c *Connection) sendrecv(req any) (buf []byte, err error) {
 // immediately; if the request had already gone out, an SMB2 CANCEL is sent so
 // the server can abandon it rather than replying into a request nobody is
 // waiting on (MS-SMB2 §3.2.4.24).
-func (c *Connection) sendrecvContext(ctx context.Context, req any) (buf []byte, err error) {
+func (c *Connection) sendrecvContext(ctx context.Context, req Marshaller) (buf []byte, err error) {
 	// Debug breadcrumb at the layer seam: every smb session operation
 	// passes through here, so a single hook shows where errors originate
 	// without duplicate Error logging at each call site.
@@ -797,12 +796,12 @@ func (c *Connection) sendRawBytesContext(ctx context.Context, buf []byte) (*requ
 	return rr, nil
 }
 
-func (c *Connection) send(req any) (rr *requestResponse, err error) {
+func (c *Connection) send(req Marshaller) (rr *requestResponse, err error) {
 	return c.sendContext(context.Background(), req)
 }
 
-func (c *Connection) sendContext(ctx context.Context, req any) (rr *requestResponse, err error) {
-	buf, err := encoder.Marshal(req)
+func (c *Connection) sendContext(ctx context.Context, req Marshaller) (rr *requestResponse, err error) {
+	buf, err := req.MarshalBinary()
 	if err != nil {
 		log.Debugln(err)
 		return nil, err

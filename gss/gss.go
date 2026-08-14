@@ -5,7 +5,6 @@ import (
 
 	"github.com/jfjallid/gofork/encoding/asn1"
 
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/golog"
 )
 
@@ -85,9 +84,9 @@ type NegTokenResp struct {
 	MechListMIC   []byte                `asn1:"explicit,optional,omitempty,tag:3"`
 }
 
-// gsswrapped used to force ASN1 encoding to include explicit sequence tags
-// Type does not fulfill the BinaryMarshallable interfce and is used only as a
-// helper to marshal a NegTokenResp
+// gsswrapped used to force ASN1 encoding to include explicit sequence tags.
+// It carries no marshalling methods of its own and is used only as a helper to
+// marshal a NegTokenResp.
 type gsswrapped struct{ G any }
 
 func NewNegTokenInit(types []asn1.ObjectIdentifier, token []byte) ([]byte, error) {
@@ -101,14 +100,14 @@ func NewNegTokenInit(types []asn1.ObjectIdentifier, token []byte) ([]byte, error
 		},
 	}
 
-	return encoder.Marshal(&req)
+	return req.MarshalBinary()
 }
 
 func NewNegTokenResp() (NegTokenResp, error) {
 	return NegTokenResp{}, nil
 }
 
-func (n *NegTokenInit) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+func (n *NegTokenInit) MarshalBinary() ([]byte, error) {
 	buf, err := asn1.Marshal(*n)
 	if err != nil {
 		return nil, fmt.Errorf("marshal NegTokenInit: %w", err)
@@ -120,7 +119,7 @@ func (n *NegTokenInit) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 	return buf, nil
 }
 
-func (n *NegTokenInit) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (n *NegTokenInit) UnmarshalBinary(buf []byte) error {
 	data := NegTokenInit{}
 	if _, err := asn1.UnmarshalWithParams(buf, &data, "application"); err != nil {
 		log.Debugln(err)
@@ -130,15 +129,15 @@ func (n *NegTokenInit) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 	return nil
 }
 
-func (r *NegTokenResp) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+func (r *NegTokenResp) MarshalBinary() ([]byte, error) {
 	// Oddities in Go's ASN1 package vs SMB encoding mean we have to wrap our
 	// struct in another struct to ensure proper tags and lengths are added
 	// to encoded data
 	wrapped := &gsswrapped{*r}
-	return wrapped.MarshalBinary(meta)
+	return wrapped.MarshalBinary()
 }
 
-func (r *NegTokenResp) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (r *NegTokenResp) UnmarshalBinary(buf []byte) error {
 	if len(buf) == 0 {
 		return nil
 	}
@@ -150,7 +149,7 @@ func (r *NegTokenResp) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 	return nil
 }
 
-func (g *gsswrapped) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+func (g *gsswrapped) MarshalBinary() ([]byte, error) {
 	buf, err := asn1.Marshal(*g)
 	if err != nil {
 		return nil, err

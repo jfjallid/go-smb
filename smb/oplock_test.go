@@ -19,8 +19,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"testing"
-
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // TestOplockBreakRoundTrip verifies the OPLOCK_BREAK wire format: a 64-byte
@@ -31,7 +29,7 @@ func TestOplockBreakRoundTrip(t *testing.T) {
 	fileId := bytes.Repeat([]byte{0xAB}, 16)
 	ack := s.NewOplockBreakAck(fileId, OpLockLevelII)
 
-	buf, err := encoder.Marshal(ack)
+	buf, err := ack.MarshalBinary()
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -43,7 +41,7 @@ func TestOplockBreakRoundTrip(t *testing.T) {
 	}
 
 	var got OplockBreak
-	if err := encoder.Unmarshal(buf, &got); err != nil {
+	if err := got.UnmarshalBinary(buf); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if got.OplockLevel != OpLockLevelII {
@@ -59,7 +57,8 @@ func TestOplockBreakRoundTrip(t *testing.T) {
 // rejected so the read loop ignores them rather than mis-decoding.
 func TestParseOplockBreak(t *testing.T) {
 	s := &Session{}
-	valid, err := encoder.Marshal(s.NewOplockBreakAck(bytes.Repeat([]byte{1}, 16), OpLockLevelNone))
+	ack := s.NewOplockBreakAck(bytes.Repeat([]byte{1}, 16), OpLockLevelNone)
+	valid, err := ack.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +97,7 @@ func TestHandleServerBreakInvokesHandler(t *testing.T) {
 
 	notification := sess.NewOplockBreakAck(fileId, OpLockLevelII)
 	notification.Header.MessageID = unsolicitedMessageID
-	raw, err := encoder.Marshal(notification)
+	raw, err := notification.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}

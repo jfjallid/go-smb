@@ -14,7 +14,10 @@ conformance work (SMB 3.0/3.0.2 dialects, credit-based flow control with the
 Windows request/grow/split strategy, per-share encryption, and oplock-break /
 CANCEL handling), an explicit NTLM authentication mode, reliable detection of
 accepted guest/null sessions, and the removal of the long-unused credential
-fields on `smb.Options`.
+fields on `smb.Options`. This cycle also retires the reflection-based
+`smb/encoder` engine in favour of hand-written `MarshalBinary` /
+`UnmarshalBinary` methods, which changes the marshalling API without changing
+the bytes on the wire.
 
 ### SMB2/3 client protocol conformance
 
@@ -118,6 +121,46 @@ An NTLM guest attempt (empty username, real NTLMv2 response) previously set the
 inconsistent with MS-NLMP — that flag denotes a credential-less session. The
 flag is now set only for a true anonymous/null session. This changes the bytes
 on the wire for the guest path but not the Go API.
+
+**3. `smb/encoder` no longer contains an encoder.**
+
+The reflection-based `smb:"..."` tag engine has been retired (see *Wire
+marshalling* below). `encoder.Marshal`, `encoder.Unmarshal`,
+`encoder.Metadata` and `encoder.BinaryMarshallable` are gone. The import path
+itself stays, and the UTF-16LE helpers (`ToUnicode`, `FromUnicodeString`,
+`FromUnicode`, `Utf16ToUtf8`, `Utf8ToUtf16`) are untouched, so code using only
+those needs no change.
+
+```go
+// Before
+buf, err := encoder.Marshal(req)          // req or &req, both accepted
+err = encoder.Unmarshal(buf, &res)
+
+// After — methods on the structure itself
+buf, err := req.MarshalBinary()           // pointer receiver: use &req
+err = res.UnmarshalBinary(buf)
+```
+
+Types that implemented `encoder.BinaryMarshallable` must drop the
+`*encoder.Metadata` argument. There is no successor interface requiring both
+directions — a type now implements only the direction it is actually used in:
+
+```go
+// Before
+func (s *T) MarshalBinary(meta *encoder.Metadata) ([]byte, error)
+func (s *T) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
+// After
+func (s *T) MarshalBinary() ([]byte, error)
+func (s *T) UnmarshalBinary(buf []byte) error
+```
+
+`Connection.send`, `Connection.sendrecv` and the server reply helpers now take
+the exported `smb.Marshaller` (`MarshalBinary() ([]byte, error)`) instead of
+`any`. Passing a struct value where a pointer is required is a compile error
+rather than a silently wrong encoding.
+
+`NegContext.Padd` has been removed; inter-context alignment is now derived
+during marshalling and must no longer be supplied by the caller.
 
 ### New features
 
@@ -338,6 +381,50 @@ error. Dialect revisions are logged as friendly version strings.
 - Persistent handles are **not** granted: surviving a server restart requires
   durable storage for the handle table. The durable part of a v2 request is
   granted and the persistent flag left clear, which is a valid response.
+
+### Wire marshalling
+
+The reflection-based encoder that drove SMB2 and NTLMSSP serialization from
+`smb:"..."` struct tags has been replaced by hand-written methods on each
+structure. See *Breaking changes* above for the API migration.
+
+- **`smb/encoder/encoder.go` is deleted** (809 lines, plus its tests). The
+  package keeps its import path and its UTF-16LE helpers; only the encoder is
+  gone. Marshalling now lives in `smb/marshal.go` (every SMB2 PDU, negotiate
+  context, `TransformHeader` and `SMB1Header`), the pre-existing
+  `smb/marshal_server.go`, and the new `ntlmssp/marshal.go`.
+- **The wire format is unchanged and pinned by tests.** Goldens were captured
+  from the reflection engine before any change and asserted against the new
+  output: 35 SMB structures plus 9 NTLMSSP structures, byte-identical. Two
+  deliberate deviations, both unreachable from callers in this repo:
+  `ReadRes.DataOffset` is now derived rather than caller-supplied (it was
+  always set to 80), and fixed-width fields — GUIDs, FileIds, signatures — are
+  padded or truncated to their spec length instead of being emitted at whatever
+  length the caller passed, which can only change output that was already an
+  invalid PDU.
+- **Bounds checking is now uniform.** Every decoder runs through a single
+  `reader` cursor that records the first error and no-ops afterwards, so
+  peer-controlled offset/length pairs are widened to `uint64` and range-checked
+  in one place. Previously only two paths were guarded and the rest could panic
+  on hostile input.
+- **Negotiate-context padding is fixed, not just moved.** Alignment is derived
+  per context position in `marshalNegContextList` and emitted *between*
+  contexts per MS-SMB2 §3.3.5.4, replacing `NegContext.Padd`, eight duplicated
+  `make([]byte, (8-len(x)%8)%8)` computations, the server's `padTo8` helper and
+  the trailing-context workaround that stopped stray zeros being emitted after
+  the final context. Output is byte-identical;
+  `TestNegContextListAlignment` pins it.
+- **Known encoder defects go with it:** offsets computed by re-marshalling
+  every preceding field (O(n²), and derived from marshalled lengths rather than
+  the spec's fixed offsets, so the two could silently disagree); a zero-length
+  `[]struct` emitting four zero bytes from a DCERPC null-pointer hack; the
+  disabled alignment logic and its `//TODO Should this be x2?` comments; and
+  stringly-typed errors with no field path.
+- One asymmetry was found and **deliberately preserved**: an empty `[]byte`
+  payload gets offset 0, but a non-nil-but-empty NTLMSSP `TargetInfo` gets a
+  real offset, because the old emptiness test checked pointer-nil rather than
+  length. Peers accept it, and changing it was out of scope for a
+  wire-preserving migration.
 
 ## [0.11.0] — 2026-07-06
 

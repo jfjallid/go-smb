@@ -15,7 +15,6 @@ import (
 
 	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
 	"github.com/jfjallid/go-smb/smb/server/memvfs"
 	"github.com/jfjallid/go-smb/spnego"
@@ -198,16 +197,16 @@ func TestNegotiateCompressionEnabled(t *testing.T) {
 		SaltLength:         32,
 		Salt:               make([]byte, 32),
 	}
-	picBuf, _ := encoder.Marshal(pic)
+	picBuf, _ := pic.MarshalBinary()
 	comp := smb.CompressionContext{
 		CompressionAlgorithmCount: 2,
 		Flags:                     smb.CompressionCapabilitiesFlagChained,
 		CompressionAlgorithms:     []uint16{smb.CompressionLZ77Huffman, smb.CompressionLZ77},
 	}
-	compBuf, _ := encoder.Marshal(comp)
+	compBuf, _ := comp.MarshalBinary()
 
 	contexts := []smb.NegContext{
-		{ContextType: smb.PreauthIntegrityCapabilities, Data: picBuf, DataLength: uint16(len(picBuf)), Padd: make([]byte, (8-len(picBuf)%8)%8)},
+		{ContextType: smb.PreauthIntegrityCapabilities, Data: picBuf, DataLength: uint16(len(picBuf))},
 		{ContextType: smb.CompressionCapabilities, Data: compBuf, DataLength: uint16(len(compBuf))},
 	}
 	req := smb.NegotiateReq{
@@ -224,7 +223,7 @@ func TestNegotiateCompressionEnabled(t *testing.T) {
 		ContextList:           contexts,
 		NegotiateContextCount: uint16(len(contexts)),
 	}
-	body, err := encoder.Marshal(&req)
+	body, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -273,7 +272,7 @@ func TestNegotiateCompressionEnabled(t *testing.T) {
 		t.Fatal("server did not emit a CompressionCapabilities context")
 	}
 	var rc smb.CompressionContext
-	if err := encoder.Unmarshal(compData, &rc); err != nil {
+	if err := rc.UnmarshalBinary(compData); err != nil {
 		t.Fatalf("decode response CompressionContext: %v", err)
 	}
 	if rc.CompressionAlgorithmCount == 0 || len(rc.CompressionAlgorithms) == 0 {

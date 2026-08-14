@@ -54,7 +54,7 @@ func (s *Server) AcceptNegotiate(neg []byte) ([]byte, error) {
 		return nil, fmt.Errorf("ntlmssp: AcceptNegotiate: not an NTLMSSP message")
 	}
 	hdr := Header{}
-	if err := encoder.Unmarshal(neg[:12], &hdr); err != nil {
+	if err := hdr.UnmarshalBinary(neg[:12]); err != nil {
 		return nil, fmt.Errorf("ntlmssp: AcceptNegotiate: header decode: %w", err)
 	}
 	if hdr.MessageType != TypeNtLmNegotiate {
@@ -62,7 +62,7 @@ func (s *Server) AcceptNegotiate(neg []byte) ([]byte, error) {
 	}
 
 	parsed := &Negotiate{}
-	if err := encoder.Unmarshal(neg, parsed); err != nil {
+	if err := parsed.UnmarshalBinary(neg); err != nil {
 		return nil, fmt.Errorf("ntlmssp: AcceptNegotiate: decode Negotiate: %w", err)
 	}
 	s.Negotiate = parsed
@@ -135,7 +135,7 @@ func (s *Server) AcceptNegotiate(neg []byte) ([]byte, error) {
 		uint64(19041)<<16 |
 		uint64(NTLMSSP_REVISION_W2K3)<<56
 
-	out, err := encoder.Marshal(chall)
+	out, err := chall.MarshalBinary()
 	if err != nil {
 		return nil, fmt.Errorf("ntlmssp: AcceptNegotiate: marshal Challenge: %w", err)
 	}
@@ -152,7 +152,7 @@ func (s *Server) AcceptAuthenticate(auth []byte) (*Authenticate, error) {
 		return nil, fmt.Errorf("ntlmssp: AcceptAuthenticate: not an NTLMSSP message")
 	}
 	hdr := Header{}
-	if err := encoder.Unmarshal(auth[:12], &hdr); err != nil {
+	if err := hdr.UnmarshalBinary(auth[:12]); err != nil {
 		return nil, fmt.Errorf("ntlmssp: AcceptAuthenticate: header decode: %w", err)
 	}
 	if hdr.MessageType != TypeNtLmAuthenticate {
@@ -160,7 +160,7 @@ func (s *Server) AcceptAuthenticate(auth []byte) (*Authenticate, error) {
 	}
 
 	parsed := &Authenticate{}
-	if err := encoder.Unmarshal(auth, parsed); err != nil {
+	if err := parsed.UnmarshalBinary(auth); err != nil {
 		return nil, fmt.Errorf("ntlmssp: AcceptAuthenticate: decode Authenticate: %w", err)
 	}
 	s.Authenticate = parsed

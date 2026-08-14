@@ -35,7 +35,6 @@ import (
 	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb"
 	"github.com/jfjallid/go-smb/smb/compress"
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // validateNegotiateAlignment enforces the MS-SMB2 §2.2.3 wire-format
@@ -153,7 +152,7 @@ func (c *Conn) handleNegotiate(ctx pduCtx, raw []byte, h *smb.Header) error {
 		return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
 	}
 	var req smb.NegotiateReq
-	if err := encoder.Unmarshal(raw, &req); err != nil {
+	if err := req.UnmarshalBinary(raw); err != nil {
 		return formatErr("decode NegotiateReq", err)
 	}
 	logger.Debugf("NegotiateReq: dialects=%v", req.Dialects)
@@ -230,7 +229,7 @@ func (c *Conn) handleNegotiate(ctx pduCtx, raw []byte, h *smb.Header) error {
 // chain in practice (clients send Negotiate/SessionSetup standalone), so we
 // bypass the chain accumulator and write immediately — folding the same
 // bytes into the preauth hash that go onto the wire.
-func (c *Conn) writeReplyPreauth(ctx pduCtx, res any, chain *[64]byte) error {
+func (c *Conn) writeReplyPreauth(ctx pduCtx, res smb.Marshaller, chain *[64]byte) error {
 	buf, err := encodeForWire(res)
 	if err != nil {
 		return err
@@ -254,8 +253,8 @@ func (c *Conn) writeReplyPreauth(ctx pduCtx, res any, chain *[64]byte) error {
 
 // encodeForWire is a tiny indirection so handlers can share the marshal call
 // even when they need to inspect the bytes (preauth hash, signing).
-func encodeForWire(res any) ([]byte, error) {
-	return encoder.Marshal(res)
+func encodeForWire(res smb.Marshaller) ([]byte, error) {
+	return res.MarshalBinary()
 }
 
 // errNoCommonDialect is returned by buildNegotiateRes when none of the
@@ -370,8 +369,8 @@ search:
 // marshalLen returns the marshaled byte length of v without retaining the
 // buffer. Used for offset/alignment calculations against variable-length
 // fields like SecurityBlob.
-func marshalLen(v any) (int, error) {
-	buf, err := encoder.Marshal(v)
+func marshalLen(v smb.Marshaller) (int, error) {
+	buf, err := v.MarshalBinary()
 	if err != nil {
 		return 0, err
 	}
@@ -399,7 +398,7 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 		switch ctx.ContextType {
 		case smb.PreauthIntegrityCapabilities:
 			var pic smb.PreauthIntegrityContext
-			if err := encoder.Unmarshal(ctx.Data, &pic); err != nil {
+			if err := pic.UnmarshalBinary(ctx.Data); err != nil {
 				// MS-SMB2 §3.3.5.4: a malformed negotiate context fails
 				// negotiation rather than silently degrading.
 				logger.Errorf("decode PreauthIntegrityContext: %v", err)
@@ -415,7 +414,7 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 
 		case smb.EncryptionCapabilities:
 			var ec smb.EncryptionContext
-			if err := encoder.Unmarshal(ctx.Data, &ec); err != nil {
+			if err := ec.UnmarshalBinary(ctx.Data); err != nil {
 				logger.Errorf("decode EncryptionContext: %v", err)
 				return fmt.Errorf("decode EncryptionContext: %w", err)
 			}
@@ -434,7 +433,7 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 
 		case smb.SigningCapabilities:
 			var sc smb.SigningContext
-			if err := encoder.Unmarshal(ctx.Data, &sc); err != nil {
+			if err := sc.UnmarshalBinary(ctx.Data); err != nil {
 				logger.Errorf("decode SigningContext: %v", err)
 				return fmt.Errorf("decode SigningContext: %w", err)
 			}
@@ -462,7 +461,7 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 			// record them; whether we answer depends on cfg.Compression and
 			// whether there is a common algorithm (see below).
 			var cc smb.CompressionContext
-			if err := encoder.Unmarshal(ctx.Data, &cc); err != nil {
+			if err := cc.UnmarshalBinary(ctx.Data); err != nil {
 				logger.Errorf("decode CompressionContext: %v", err)
 				return fmt.Errorf("decode CompressionContext: %w", err)
 			}
@@ -526,7 +525,7 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 	if _, err := rand.Read(pic.Salt); err != nil {
 		return formatErr("rand for preauth salt", err)
 	}
-	picBuf, err := encoder.Marshal(pic)
+	picBuf, err := pic.MarshalBinary()
 	if err != nil {
 		return formatErr("marshal PreauthIntegrityContext", err)
 	}
@@ -534,7 +533,6 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 		ContextType: smb.PreauthIntegrityCapabilities,
 		Data:        picBuf,
 		DataLength:  uint16(len(picBuf)),
-		Padd:        make([]byte, padTo8(len(picBuf))),
 	})
 
 	if chosenCipher != 0 {
@@ -542,7 +540,7 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 			CipherCount: 1,
 			Ciphers:     []uint16{chosenCipher},
 		}
-		ecBuf, err := encoder.Marshal(ec)
+		ecBuf, err := ec.MarshalBinary()
 		if err != nil {
 			return formatErr("marshal EncryptionContext", err)
 		}
@@ -550,7 +548,6 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 			ContextType: smb.EncryptionCapabilities,
 			Data:        ecBuf,
 			DataLength:  uint16(len(ecBuf)),
-			Padd:        make([]byte, padTo8(len(ecBuf))),
 		})
 	}
 
@@ -558,7 +555,7 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 		SigningAlgorithmCount: 1,
 		SigningAlgorithms:     []uint16{chosenSign},
 	}
-	scBuf, err := encoder.Marshal(sc)
+	scBuf, err := sc.MarshalBinary()
 	if err != nil {
 		return formatErr("marshal SigningContext", err)
 	}
@@ -566,7 +563,6 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 		ContextType: smb.SigningCapabilities,
 		Data:        scBuf,
 		DataLength:  uint16(len(scBuf)),
-		Padd:        make([]byte, padTo8(len(scBuf))),
 	})
 
 	// CompressionCapabilities: emitted only when we negotiated at least one
@@ -582,7 +578,7 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 		if c.Compression.Chained {
 			comp.Flags = smb.CompressionCapabilitiesFlagChained
 		}
-		compBuf, err := encoder.Marshal(comp)
+		compBuf, err := comp.MarshalBinary()
 		if err != nil {
 			return formatErr("marshal CompressionContext", err)
 		}
@@ -590,7 +586,6 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 			ContextType: smb.CompressionCapabilities,
 			Data:        compBuf,
 			DataLength:  uint16(len(compBuf)),
-			Padd:        make([]byte, padTo8(len(compBuf))),
 		})
 	}
 
@@ -601,14 +596,7 @@ func (c *Conn) populateNegotiateContexts(req *smb.NegotiateReq, res *smb.Negotia
 			ContextType: smb.NetNameNegotiateContextId,
 			Data:        clientNetName,
 			DataLength:  uint16(len(clientNetName)),
-			// Last context overall — strip trailing padding.
 		})
-	}
-
-	// The last context must not have trailing padding; clear it so the
-	// encoder doesn't emit zeros past the final DataLength byte.
-	if n := len(res.ContextList); n > 0 {
-		res.ContextList[n-1].Padd = nil
 	}
 
 	res.NegotiateContextCount = uint16(len(res.ContextList))
@@ -633,12 +621,4 @@ func capBufSize(v uint32) uint32 {
 		return maxAdvertisedBufSize
 	}
 	return v
-}
-
-func padTo8(n int) int {
-	r := n % 8
-	if r == 0 {
-		return 0
-	}
-	return 8 - r
 }

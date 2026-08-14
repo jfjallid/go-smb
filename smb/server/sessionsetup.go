@@ -28,7 +28,6 @@ import (
 
 	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/spnego"
 )
 
@@ -41,7 +40,7 @@ func (c *Conn) handleSessionSetup(ctx pduCtx, raw []byte, h *smb.Header) error {
 	// SessionSetupReq from smb/relay.go has a raw []byte SecurityBlob,
 	// matching the on-wire format regardless of which leg we're in.
 	var req smb.SessionSetupReq
-	if err := encoder.Unmarshal(raw, &req); err != nil {
+	if err := req.UnmarshalBinary(raw); err != nil {
 		return formatErr("decode SessionSetupReq", err)
 	}
 	// MS-SMB2 §3.3.5.5: a server that does not support multichannel

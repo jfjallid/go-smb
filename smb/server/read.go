@@ -26,7 +26,6 @@ import (
 	"context"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // handleRead processes an SMB2 READ. The data is bounded by the negotiated
@@ -46,7 +45,7 @@ func (c *Conn) handleRead(ctx pduCtx, raw []byte, h *smb.Header) error {
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 	var req smb.ReadReq
-	if err := encoder.Unmarshal(raw, &req); err != nil {
+	if err := req.UnmarshalBinary(raw); err != nil {
 		logger.Errorf("Read: decode ReadReq: %v", err)
 		return formatErr("decode ReadReq", err)
 	}

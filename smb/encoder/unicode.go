@@ -19,6 +19,15 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
+
+// Package encoder holds the UTF-16LE conversion helpers used across the SMB,
+// NTLMSSP and DCERPC layers.
+//
+// It no longer contains an encoder. The reflection-based `smb:"..."` tag engine
+// that gave the package its name has been retired in favour of hand-written
+// MarshalBinary/UnmarshalBinary methods on each structure (see smb/marshal.go,
+// smb/marshal_server.go and ntlmssp/marshal.go). The import path is kept as-is
+// so the widely-used ToUnicode / FromUnicodeString helpers do not move.
 package encoder
 
 import (

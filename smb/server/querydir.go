@@ -50,7 +50,7 @@ func (c *Conn) handleQueryDirectory(ctx pduCtx, raw []byte, h *smb.Header) error
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 	var req smb.QueryDirectoryReq
-	if err := encoder.Unmarshal(raw, &req); err != nil {
+	if err := req.UnmarshalBinary(raw); err != nil {
 		logger.Errorf("QueryDirectory: decode QueryDirectoryReq: %v", err)
 		return formatErr("decode QueryDirectoryReq", err)
 	}

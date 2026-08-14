@@ -155,7 +155,7 @@ func (c *Conn) startAsync(
 	ctx pduCtx,
 	reqHdr *smb.Header,
 	sessionID uint64,
-	work func(context.Context) (any, error),
+	work func(context.Context) (smb.Marshaller, error),
 ) (bool, error) {
 	opCtx, cancel := context.WithCancel(context.Background())
 	op := &asyncOp{msgID: reqHdr.MessageID, asyncID: c.nextAsyncOpID(), cancel: cancel}

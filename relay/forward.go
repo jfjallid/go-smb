@@ -29,7 +29,6 @@ import (
 
 	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
 )
 
@@ -110,7 +109,7 @@ func (f *smbForwarder) Negotiate(neg []byte) ([]byte, error) {
 	// Credential.ServerChallenge / Hashcat string identifies the actual
 	// challenge the client signed against.
 	chall := ntlmssp.NewChallenge()
-	if err := encoder.Unmarshal(respToken, &chall); err == nil {
+	if err := chall.UnmarshalBinary(respToken); err == nil {
 		var b [8]byte
 		for i := 0; i < 8; i++ {
 			b[i] = byte(chall.ServerChallenge >> (8 * i))
@@ -138,7 +137,7 @@ func (f *smbForwarder) Authenticate(remote net.Addr, auth, mic []byte) (*Credent
 	}
 
 	var parsed ntlmssp.Authenticate
-	if err := encoder.Unmarshal(auth, &parsed); err != nil {
+	if err := parsed.UnmarshalBinary(auth); err != nil {
 		return nil, 0, fmt.Errorf("decode NTLMSSP Authenticate: %w", err)
 	}
 	cred := buildCredentialFromAuth(&parsed, f.serverChallenge, remote)

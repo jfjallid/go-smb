@@ -27,7 +27,6 @@ import (
 	"github.com/jfjallid/gofork/encoding/asn1"
 
 	"github.com/jfjallid/go-smb/gss"
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // SessionSetupReq is the generic SessionSetup request shape used when the
@@ -41,8 +40,8 @@ type SessionSetupReq struct {
 	SecurityMode         byte
 	Capabilities         uint32
 	Channel              uint32
-	SecurityBufferOffset uint16 `smb:"offset:SecurityBlob"`
-	SecurityBufferLength uint16 `smb:"len:SecurityBlob"`
+	SecurityBufferOffset uint16
+	SecurityBufferLength uint16
 	PreviousSessionID    uint64
 	SecurityBlob         []byte
 }
@@ -54,8 +53,8 @@ type SessionSetupRes struct {
 	Header
 	StructureSize        uint16
 	Flags                uint16
-	SecurityBufferOffset uint16 `smb:"offset:SecurityBlob"`
-	SecurityBufferLength uint16 `smb:"len:SecurityBlob"`
+	SecurityBufferOffset uint16
+	SecurityBufferLength uint16
 	SecurityBlob         []byte
 }
 
@@ -77,7 +76,7 @@ func (c *Connection) SendSessionSetup1WithToken(token []byte) (responseToken []b
 		return
 	}
 	var init gss.NegTokenInit
-	err = encoder.Unmarshal(initBytes, &init)
+	err = init.UnmarshalBinary(initBytes)
 	if err != nil {
 		return
 	}
@@ -104,12 +103,12 @@ func (c *Connection) SendSessionSetup1WithToken(token []byte) (responseToken []b
 		return
 	}
 
-	ssresbuf, err := c.sendrecv(ssreq)
+	ssresbuf, err := c.sendrecv(&ssreq)
 	if err != nil {
 		return
 	}
 
-	if err = encoder.Unmarshal(ssresbuf, &ssres); err != nil {
+	if err = ssres.UnmarshalBinary(ssresbuf); err != nil {
 		log.Debugln(err)
 		return
 	}
@@ -137,7 +136,7 @@ func (c *Connection) SendSessionSetup1WithToken(token []byte) (responseToken []b
 // StatusAccessDenied) mean the credentials were rejected upstream.
 func (c *Connection) SendSessionSetup2WithBlob(blob []byte) (uint32, error) {
 	var resp gss.NegTokenResp
-	if err := encoder.Unmarshal(blob, &resp); err != nil {
+	if err := resp.UnmarshalBinary(blob); err != nil {
 		return 0, fmt.Errorf("decode NegTokenResp: %w", err)
 	}
 
@@ -151,12 +150,12 @@ func (c *Connection) SendSessionSetup2WithBlob(blob []byte) (uint32, error) {
 	req.Header.SessionID = c.sessionID
 	c.applyCreditCharge(&req.Header)
 
-	buf, err := c.sendrecv(req)
+	buf, err := c.sendrecv(&req)
 	if err != nil {
 		return 0, err
 	}
 	var hdr Header
-	if err := encoder.Unmarshal(buf, &hdr); err != nil {
+	if err := hdr.UnmarshalBinary(buf); err != nil {
 		return 0, fmt.Errorf("decode response header: %w", err)
 	}
 	return hdr.Status, nil

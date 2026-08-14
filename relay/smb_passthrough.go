@@ -496,7 +496,7 @@ func (p *SMBPassthrough) replyNegotiate(req []byte) error {
 		},
 	}
 
-	buf, err := encoder.Marshal(&res)
+	buf, err := res.MarshalBinary()
 	if err != nil {
 		return err
 	}
@@ -534,7 +534,7 @@ func (p *SMBPassthrough) writeMultiProtoNeg() error {
 			MechTypes: []asn1.ObjectIdentifier{gss.NtLmSSPMechTypeOid},
 		},
 	}
-	buf, err := encoder.Marshal(&res)
+	buf, err := res.MarshalBinary()
 	if err != nil {
 		return err
 	}
@@ -547,7 +547,7 @@ func (p *SMBPassthrough) writeMultiProtoNeg() error {
 // AUTHENTICATE.
 func (p *SMBPassthrough) replySessionSetup1(req []byte) error {
 	var ssreq smb.SessionSetupReq
-	if err := encoder.Unmarshal(req, &ssreq); err != nil {
+	if err := ssreq.UnmarshalBinary(req); err != nil {
 		return err
 	}
 
@@ -559,7 +559,7 @@ func (p *SMBPassthrough) replySessionSetup1(req []byte) error {
 
 	// Peel the inner NTLMSSP NEGOTIATE token out of NegTokenInit.
 	var init gss.NegTokenInit
-	if err := encoder.Unmarshal(ssreq.SecurityBlob, &init); err != nil {
+	if err := init.UnmarshalBinary(ssreq.SecurityBlob); err != nil {
 		return fmt.Errorf("decode NegTokenInit: %w", err)
 	}
 	if len(init.Data.MechToken) == 0 {
@@ -575,7 +575,7 @@ func (p *SMBPassthrough) replySessionSetup1(req []byte) error {
 		SupportedMech: gss.NtLmSSPMechTypeOid,
 		ResponseToken: chall,
 	}
-	respBytes, err := encoder.Marshal(&resp)
+	respBytes, err := resp.MarshalBinary()
 	if err != nil {
 		return err
 	}
@@ -606,7 +606,7 @@ func (p *SMBPassthrough) replySessionSetup2(req []byte) error {
 	resp := gss.NegTokenResp{
 		State: asn1.Enumerated(gss.GssStateAcceptCompleted),
 	}
-	respBytes, err := encoder.Marshal(&resp)
+	respBytes, err := resp.MarshalBinary()
 	if err != nil {
 		return err
 	}
@@ -618,18 +618,18 @@ func (p *SMBPassthrough) replySessionSetup2(req []byte) error {
 // UTF-8 strings.
 func extractAuthUser(req []byte) (domain, user string, err error) {
 	var ssreq smb.SessionSetupReq
-	if err = encoder.Unmarshal(req, &ssreq); err != nil {
+	if err = ssreq.UnmarshalBinary(req); err != nil {
 		return "", "", fmt.Errorf("decode SessionSetupReq: %w", err)
 	}
 	var resp gss.NegTokenResp
-	if err = encoder.Unmarshal(ssreq.SecurityBlob, &resp); err != nil {
+	if err = resp.UnmarshalBinary(ssreq.SecurityBlob); err != nil {
 		return "", "", fmt.Errorf("decode NegTokenResp: %w", err)
 	}
 	if len(resp.ResponseToken) == 0 {
 		return "", "", fmt.Errorf("empty ResponseToken")
 	}
 	var auth ntlmssp.Authenticate
-	if err = encoder.Unmarshal(resp.ResponseToken, &auth); err != nil {
+	if err = auth.UnmarshalBinary(resp.ResponseToken); err != nil {
 		return "", "", fmt.Errorf("decode NTLMSSP Authenticate: %w", err)
 	}
 	user, _ = encoder.FromUnicodeString(auth.UserName)
@@ -652,7 +652,7 @@ func (p *SMBPassthrough) writeSessionSetupRes(req []byte, status uint32, flags u
 	res.Header.SessionID = sessionID
 	res.Header.Signature = make([]byte, 16)
 
-	buf, err := encoder.Marshal(&res)
+	buf, err := res.MarshalBinary()
 	if err != nil {
 		return err
 	}
@@ -711,7 +711,7 @@ func parseHeader(pkt []byte) smb.Header {
 		log.Errorf("parseHeader called with short pkt (%d bytes)", len(pkt))
 		return h
 	}
-	if err := encoder.Unmarshal(pkt[:64], &h); err != nil {
+	if err := h.UnmarshalBinary(pkt[:64]); err != nil {
 		log.Errorf("parseHeader decode: %v", err)
 	}
 	return h
@@ -734,7 +734,7 @@ func buildResponseHeader(req []byte, command uint16, status uint32, sessionID ui
 		SessionID:     sessionID,
 		Signature:     make([]byte, 16),
 	}
-	buf, err := encoder.Marshal(out)
+	buf, err := out.MarshalBinary()
 	if err != nil {
 		// Caller would already be in trouble; return an empty buffer.
 		return nil

@@ -338,7 +338,7 @@ func (c *Connection) NegotiateProtocol() (err error) {
 		}
 		negRes = NewNegotiateRes()
 		log.Traceln("Unmarshalling SMB2-only NegotiateProtocol response")
-		if err := encoder.Unmarshal(negResBuf, &negRes); err != nil {
+		if err := negRes.UnmarshalBinary(negResBuf); err != nil {
 			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
 			return err
 		}
@@ -376,7 +376,7 @@ func (c *Connection) NegotiateProtocol() (err error) {
 
 		negRes1 := NewNegotiateRes()
 		log.Traceln("Unmarshalling NegotiateProtocol response")
-		if err := encoder.Unmarshal(negResBuf, &negRes1); err != nil {
+		if err := negRes1.UnmarshalBinary(negResBuf); err != nil {
 			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
 			return err
 		}
@@ -414,7 +414,7 @@ func (c *Connection) NegotiateProtocol() (err error) {
 			}
 			negRes = NewNegotiateRes()
 			log.Traceln("Unmarshalling second NegotiateProtocol response")
-			if err := encoder.Unmarshal(negResBuf, &negRes); err != nil {
+			if err := negRes.UnmarshalBinary(negResBuf); err != nil {
 				log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(negResBuf))
 				return err
 			}
@@ -515,7 +515,7 @@ func (c *Connection) NegotiateProtocol() (err error) {
 		switch context.ContextType {
 		case PreauthIntegrityCapabilities:
 			pic := PreauthIntegrityContext{}
-			err = encoder.Unmarshal(context.Data, &pic)
+			err = pic.UnmarshalBinary(context.Data)
 			if err != nil {
 				return err
 			}
@@ -543,7 +543,7 @@ func (c *Connection) NegotiateProtocol() (err error) {
 			}
 		case EncryptionCapabilities:
 			ec := EncryptionContext{}
-			err = encoder.Unmarshal(context.Data, &ec)
+			err = ec.UnmarshalBinary(context.Data)
 			if err != nil {
 				return err
 			}
@@ -572,7 +572,7 @@ func (c *Connection) NegotiateProtocol() (err error) {
 
 		case SigningCapabilities: // Only supported by Windows 11/Window Server 2022 and later
 			sc := SigningContext{}
-			err = encoder.Unmarshal(context.Data, &sc)
+			err = sc.UnmarshalBinary(context.Data)
 			if err != nil {
 				return err
 			}
@@ -600,7 +600,7 @@ func (c *Connection) NegotiateProtocol() (err error) {
 				break
 			}
 			cc := CompressionContext{}
-			if err = encoder.Unmarshal(context.Data, &cc); err != nil {
+			if err = cc.UnmarshalBinary(context.Data); err != nil {
 				return err
 			}
 			// Keep only algorithms we can actually handle. Pattern_V1 is
@@ -682,7 +682,7 @@ func (c *Connection) SessionSetup() (err error) {
 		}
 		ssreq := c.NewSessionSetupRawReq(negToken)
 		ssreq.Header.Credits = 127
-		rr, err = c.send(ssreq)
+		rr, err = c.send(&ssreq)
 		if err != nil {
 			return err
 		}
@@ -692,7 +692,7 @@ func (c *Connection) SessionSetup() (err error) {
 		}
 		log.Traceln("Unmarshalling raw SessionSetup1 response")
 		var rawRes SessionSetupRes
-		if err := encoder.Unmarshal(ssresbuf, &rawRes); err != nil {
+		if err := rawRes.UnmarshalBinary(ssresbuf); err != nil {
 			log.Debugln(err)
 			return err
 		}
@@ -711,7 +711,7 @@ func (c *Connection) SessionSetup() (err error) {
 		// Turns out that with Kerberos auth I sometimes lack credits due to shorter
 		// SessionSetup flow
 		ssreq.Header.Credits = 127
-		rr, err = c.send(ssreq)
+		rr, err = c.send(&ssreq)
 		if err != nil {
 			return err
 		}
@@ -720,7 +720,7 @@ func (c *Connection) SessionSetup() (err error) {
 			return err
 		}
 		log.Traceln("Unmarshalling SessionSetup1 response")
-		if err := encoder.Unmarshal(ssresbuf, &ssres); err != nil {
+		if err := ssres.UnmarshalBinary(ssresbuf); err != nil {
 			log.Debugln(err)
 			return err
 		}
@@ -734,7 +734,7 @@ func (c *Connection) SessionSetup() (err error) {
 	// for Kerberos).
 	if len(challengeBytes) > 0 {
 		challenge := ntlmssp.NewChallenge()
-		if err := encoder.Unmarshal(challengeBytes, &challenge); err != nil {
+		if err := challenge.UnmarshalBinary(challengeBytes); err != nil {
 			log.Debugln(err)
 			return err
 		}
@@ -856,7 +856,7 @@ func (c *Connection) SessionSetup() (err error) {
 			}
 			ss2req := c.NewSessionSetupRawReq(authToken)
 			ss2req.Header.Credits = 127
-			rr, err = c.send(ss2req)
+			rr, err = c.send(&ss2req)
 			if err != nil {
 				return err
 			}
@@ -865,7 +865,7 @@ func (c *Connection) SessionSetup() (err error) {
 				return err
 			}
 		} else {
-			securityBlob, sErr := encoder.Marshal(ssres.SecurityBlob)
+			securityBlob, sErr := ssres.SecurityBlob.MarshalBinary()
 			if sErr != nil {
 				return sErr
 			}
@@ -879,7 +879,7 @@ func (c *Connection) SessionSetup() (err error) {
 				return sErr
 			}
 			ss2req.Header.Credits = 127
-			rr, err = c.send(ss2req)
+			rr, err = c.send(&ss2req)
 			if err != nil {
 				return err
 			}
@@ -892,7 +892,7 @@ func (c *Connection) SessionSetup() (err error) {
 		log.Traceln("Unmarshalling SessionSetup2 response header")
 
 		var authResp Header
-		if err := encoder.Unmarshal(ss2resbuf, &authResp); err != nil {
+		if err := authResp.UnmarshalBinary(ss2resbuf); err != nil {
 			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(ss2resbuf))
 			return err
 		}
@@ -906,7 +906,7 @@ func (c *Connection) SessionSetup() (err error) {
 			log.Debugln(err)
 			return err
 		}
-		if err := encoder.Unmarshal(ss2resbuf, &ssres2); err != nil {
+		if err := ssres2.UnmarshalBinary(ss2resbuf); err != nil {
 			log.Debugln(err)
 			return err
 		}
@@ -1143,7 +1143,7 @@ func (c *Connection) SessionSetup() (err error) {
 			return fmt.Errorf("final SessionSetup response is too short (%d bytes) to verify its signature", len(finalSSResbuf))
 		}
 		var fh Header
-		if err := encoder.Unmarshal(finalSSResbuf[:64], &fh); err != nil {
+		if err := fh.UnmarshalBinary(finalSSResbuf[:64]); err != nil {
 			return fmt.Errorf("decode final SessionSetup response header: %w", err)
 		}
 		if fh.Flags&SMB2_FLAGS_SIGNED != SMB2_FLAGS_SIGNED {
@@ -1186,14 +1186,14 @@ func (c *Connection) Logoff() error {
 	}
 
 	req := c.NewLogoffReq()
-	buf, err := c.sendrecv(req)
+	buf, err := c.sendrecv(&req)
 	if err != nil {
 		return err
 	}
 
 	res := NewLogoffRes()
 	log.Traceln("Unmarshalling Logoff response")
-	if err := encoder.Unmarshal(buf, &res); err != nil {
+	if err := res.UnmarshalBinary(buf); err != nil {
 		log.Debugln(err)
 		return err
 	}
@@ -1216,7 +1216,7 @@ func (s *Session) sign(buf []byte) ([]byte, error) {
 	}
 	hdr.Flags |= SMB2_FLAGS_SIGNED
 	hdr.Signature = make([]byte, 16)
-	hdrBuf, err := encoder.Marshal(hdr)
+	hdrBuf, err := hdr.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
@@ -1250,7 +1250,7 @@ func (s *Session) encrypt(buf []byte) ([]byte, error) {
 	copy(tHdr.Nonce, nonce)
 	tHdr.OriginalMessageSize = uint32(len(buf))
 	tHdr.SessionId = s.sessionID
-	tHdrBytes, err := encoder.Marshal(tHdr)
+	tHdrBytes, err := tHdr.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
@@ -1261,7 +1261,7 @@ func (s *Session) encrypt(buf []byte) ([]byte, error) {
 
 func (s *Session) decrypt(buf []byte) ([]byte, error) {
 	tHdr := NewTransformHeader()
-	err := encoder.Unmarshal(buf[:52], &tHdr)
+	err := tHdr.UnmarshalBinary(buf[:52])
 	if err != nil {
 		return nil, err
 	}
@@ -1363,7 +1363,7 @@ func (c *Connection) TreeConnect(name string) error {
 		log.Debugln(err)
 		return err
 	}
-	buf, err := c.sendrecv(req)
+	buf, err := c.sendrecv(&req)
 	if err != nil {
 		log.Debugln(err)
 		return err
@@ -1377,7 +1377,7 @@ func (c *Connection) TreeConnect(name string) error {
 	var res TreeConnectRes
 
 	log.Tracef("Unmarshalling TreeConnect response [%s]\n", name)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
+	if err := res.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return err
 	}
@@ -1425,14 +1425,14 @@ func (c *Connection) TreeDisconnect(name string) error {
 		log.Debugln(err)
 		return err
 	}
-	buf, err := c.sendrecv(req)
+	buf, err := c.sendrecv(&req)
 	if err != nil {
 		log.Debugln(err)
 		return err
 	}
 	log.Tracef("Unmarshalling TreeDisconnect response for [%s]\n", name)
 	var res TreeDisconnectRes
-	if err := encoder.Unmarshal(buf, &res); err != nil {
+	if err := res.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return err
 	}
@@ -1461,7 +1461,7 @@ func (c *Connection) Echo() error {
 // EchoContext is Echo with cancellation.
 func (c *Connection) EchoContext(ctx context.Context) error {
 	req := c.NewEchoReq()
-	buf, err := c.sendrecvContext(ctx, req)
+	buf, err := c.sendrecvContext(ctx, &req)
 	if err != nil {
 		log.Debugln(err)
 		return err
@@ -1484,7 +1484,7 @@ func (f *File) FlushContext(ctx context.Context) error {
 		return fmt.Errorf("can't operate on a closed file")
 	}
 	req := f.NewFlushReq(f.share, f.fd)
-	buf, err := f.sendrecvContext(ctx, req)
+	buf, err := f.sendrecvContext(ctx, &req)
 	if err != nil {
 		log.Debugln(err)
 		return err
@@ -1506,14 +1506,14 @@ func (f *File) CloseFile() error {
 		return err
 	}
 
-	buf, err := f.sendrecv(req)
+	buf, err := f.sendrecv(&req)
 	if err != nil {
 		log.Debugln(err)
 		return err
 	}
 	var res CloseRes
 	log.Tracef("Unmarshalling Close response [%s] for fileid [%x]\n", f.share, f.fd)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
+	if err := res.UnmarshalBinary(buf); err != nil {
 		log.Debugln(err)
 		return err
 	}
@@ -1552,7 +1552,7 @@ func (f *File) QueryDirectoryContext(ctx context.Context, pattern string, flags 
 		return
 	}
 
-	buf, err := f.sendrecvContext(ctx, req)
+	buf, err := f.sendrecvContext(ctx, &req)
 	if err != nil {
 		log.Debugln(err)
 		return
@@ -1560,7 +1560,7 @@ func (f *File) QueryDirectoryContext(ctx context.Context, pattern string, flags 
 
 	var res QueryDirectoryRes
 	log.Tracef("Unmarshalling QueryDirectory response [%s]\n", f.share)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
+	if err := res.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 		return sf, err
 	}
@@ -1591,7 +1591,7 @@ func (f *File) QueryDirectoryContext(ctx context.Context, pattern string, flags 
 	start := uint32(0)
 	for start < stop {
 		var fs FileBothDirectoryInformationStruct
-		if err = encoder.Unmarshal(res.Buffer[start:stop], &fs); err != nil {
+		if err = fs.UnmarshalBinary(res.Buffer[start:stop]); err != nil {
 			log.Debugf("Error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 			return sf, err
 		}
@@ -1696,12 +1696,12 @@ func (f *File) QueryInfoSecurityRaw(additionalInformation, bufferSize uint32) (*
 		if err != nil {
 			return nil, fmt.Errorf("new request: %w", err)
 		}
-		buf, err := f.sendrecv(req)
+		buf, err := f.sendrecv(&req)
 		if err != nil {
 			return nil, fmt.Errorf("sendrecv: %w", err)
 		}
 		res := &QueryInfoRes{}
-		if err := encoder.Unmarshal(buf, res); err != nil {
+		if err := res.UnmarshalBinary(buf); err != nil {
 			log.Debugf("error: %v\nRaw:\n%v\n", err, hex.Dump(buf))
 			return nil, err
 		}
@@ -1757,13 +1757,13 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 		return
 	}
 
-	buf, err := s.sendrecv(req)
+	buf, err := s.sendrecv(&req)
 	if err != nil {
 		log.Debugln(err)
 		return
 	}
 	var h Header
-	if err := encoder.Unmarshal(buf, &h); err != nil {
+	if err := h.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return files, err
 	}
@@ -1774,7 +1774,7 @@ func (s *Connection) ListDirectory(share, dir, pattern string) (files []SharedFi
 
 	var res CreateRes
 	log.Tracef("Unmarshalling Create response [%s]\n", share)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
+	if err := res.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return files, err
 	}
@@ -1890,14 +1890,14 @@ func (s *Connection) OpenFileExt(tree string, filepath string, opts *CreateReqOp
 		return
 	}
 
-	buf, err := s.sendrecv(req)
+	buf, err := s.sendrecv(&req)
 	if err != nil {
 		log.Debugln(err)
 		return
 	}
 
 	var h Header
-	if err := encoder.Unmarshal(buf, &h); err != nil {
+	if err := h.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return nil, err
 	}
@@ -1908,7 +1908,7 @@ func (s *Connection) OpenFileExt(tree string, filepath string, opts *CreateReqOp
 
 	var res CreateRes
 	log.Tracef("Unmarshalling Create response [%s]\n", tree)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
+	if err := res.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return nil, err
 	}
@@ -2003,14 +2003,14 @@ func (s *Connection) RetrieveFileContext(ctx context.Context, share string, file
 		return
 	}
 
-	buf, err := s.sendrecvContext(ctx, req)
+	buf, err := s.sendrecvContext(ctx, &req)
 	if err != nil {
 		log.Debugln(err)
 		return
 	}
 
 	var h Header
-	if err := encoder.Unmarshal(buf, &h); err != nil {
+	if err := h.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err
 	}
@@ -2021,7 +2021,7 @@ func (s *Connection) RetrieveFileContext(ctx context.Context, share string, file
 
 	var res CreateRes
 	log.Tracef("Unmarshalling Create response [%s]\n", share)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
+	if err := res.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err
 	}
@@ -2121,7 +2121,7 @@ func (f *File) ReadFileContext(ctx context.Context, b []byte, offset uint64) (n 
 		return
 	}
 
-	buf, err := f.sendrecvContext(ctx, req)
+	buf, err := f.sendrecvContext(ctx, &req)
 	if err != nil {
 		log.Debugln(err)
 		return
@@ -2150,7 +2150,7 @@ func (f *File) ReadFileContext(ctx context.Context, b []byte, offset uint64) (n 
 
 	var res ReadRes
 	log.Tracef("Unmarshalling Read response [%s]\n", f.share)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
+	if err := res.UnmarshalBinary(buf); err != nil {
 		log.Debugln(err)
 		return n, err
 	}
@@ -2227,14 +2227,14 @@ func (s *Connection) PutFileContext(ctx context.Context, share string, filepath 
 		return
 	}
 
-	buf, err := s.sendrecvContext(ctx, req)
+	buf, err := s.sendrecvContext(ctx, &req)
 	if err != nil {
 		log.Debugln(err)
 		return
 	}
 
 	var h Header
-	if err := encoder.Unmarshal(buf, &h); err != nil {
+	if err := h.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err
 	}
@@ -2245,7 +2245,7 @@ func (s *Connection) PutFileContext(ctx context.Context, share string, filepath 
 
 	var res CreateRes
 	log.Tracef("Unmarshalling Create response [%s]\n", share)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
+	if err := res.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err
 	}
@@ -2339,7 +2339,7 @@ func (f *File) WriteFileContext(ctx context.Context, data []byte, offset uint64)
 			return n, err
 		}
 
-		buf, err := f.sendrecvContext(ctx, req)
+		buf, err := f.sendrecvContext(ctx, &req)
 		if err != nil {
 			log.Debugln(err)
 			return n, err
@@ -2347,7 +2347,7 @@ func (f *File) WriteFileContext(ctx context.Context, data []byte, offset uint64)
 
 		var res WriteRes
 		log.Tracef("Unmarshalling Write response [%s]\n", f.share)
-		if err := encoder.Unmarshal(buf, &res); err != nil {
+		if err := res.UnmarshalBinary(buf); err != nil {
 			log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 			return n, err
 		}
@@ -2411,14 +2411,14 @@ func (s *Connection) deleteFileDir(share string, path string, isDir bool) (err e
 		return
 	}
 
-	buf, err := s.sendrecv(req)
+	buf, err := s.sendrecv(&req)
 	if err != nil {
 		log.Debugln(err)
 		return
 	}
 
 	var h Header
-	if err := encoder.Unmarshal(buf, &h); err != nil {
+	if err := h.UnmarshalBinary(buf); err != nil {
 		return err
 	}
 
@@ -2428,7 +2428,7 @@ func (s *Connection) deleteFileDir(share string, path string, isDir bool) (err e
 
 	var res CreateRes
 	log.Tracef("Unmarshalling Create response [%s]\n", share)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
+	if err := res.UnmarshalBinary(buf); err != nil {
 		log.Debugln(err)
 		return err
 	}
@@ -2454,14 +2454,14 @@ func (s *Connection) deleteFileDir(share string, path string, isDir bool) (err e
 	sReq.Buffer = make([]byte, 1)
 	sReq.Buffer[0] = 1
 
-	buf, err = s.sendrecv(sReq)
+	buf, err = s.sendrecv(&sReq)
 	if err != nil {
 		log.Debugln(err)
 		return
 	}
 
 	var h2 Header
-	if err := encoder.Unmarshal(buf, &h2); err != nil {
+	if err := h2.UnmarshalBinary(buf); err != nil {
 		log.Debugln(err)
 		return err
 	}
@@ -2490,7 +2490,7 @@ func (s *Connection) WriteIoCtlReq(req *IoCtlReq) (res IoCtlRes, err error) {
 		return res, err
 	}
 
-	if err = encoder.Unmarshal(buf, &res); err != nil {
+	if err = res.UnmarshalBinary(buf); err != nil {
 		return res, err
 	}
 
@@ -2549,14 +2549,14 @@ func (s *Connection) Mkdir(share string, path string) (err error) {
 		return
 	}
 
-	buf, err := s.sendrecv(req)
+	buf, err := s.sendrecv(&req)
 	if err != nil {
 		log.Debugln(err)
 		return
 	}
 
 	var h Header
-	if err := encoder.Unmarshal(buf, &h); err != nil {
+	if err := h.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err
 	}
@@ -2567,7 +2567,7 @@ func (s *Connection) Mkdir(share string, path string) (err error) {
 
 	var res CreateRes
 	log.Tracef("Unmarshalling Create response [%s]\n", share)
-	if err := encoder.Unmarshal(buf, &res); err != nil {
+	if err := res.UnmarshalBinary(buf); err != nil {
 		log.Debugf("Error: %v\nRaw\n%v\n", err, hex.Dump(buf))
 		return err
 	}

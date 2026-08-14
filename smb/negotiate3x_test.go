@@ -21,8 +21,6 @@ import (
 	"encoding/binary"
 	"slices"
 	"testing"
-
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // TestNegotiateReqOffersSmb3_0 pins that the client advertises SMB 3.0 and
@@ -106,7 +104,7 @@ func TestNegotiateContextOffsetAlignment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewNegotiateReq: %v", err)
 	}
-	buf, err := encoder.Marshal(&req)
+	buf, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}

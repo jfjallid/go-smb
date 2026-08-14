@@ -3,8 +3,6 @@ package ntlmssp
 import (
 	"encoding/binary"
 	"testing"
-
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // buildChallengeHeader lays out the 56-byte fixed portion of a CHALLENGE message
@@ -57,7 +55,7 @@ func TestChallengeMaliciousTargetInfo(t *testing.T) {
 			}()
 
 			chall := NewChallenge()
-			if err := encoder.Unmarshal(buf, &chall); err == nil {
+			if err := chall.UnmarshalBinary(buf); err == nil {
 				t.Fatalf("expected error for malicious TargetInfo, got nil")
 			}
 		})
@@ -77,7 +75,7 @@ func TestChallengeValidTargetInfo(t *testing.T) {
 	buf = append(buf, avPairs...)
 
 	chall := NewChallenge()
-	if err := encoder.Unmarshal(buf, &chall); err != nil {
+	if err := chall.UnmarshalBinary(buf); err != nil {
 		t.Fatalf("unexpected error unmarshaling valid CHALLENGE: %v", err)
 	}
 	if chall.TargetInfo == nil || len(*chall.TargetInfo) != 2 {
@@ -93,7 +91,7 @@ func acceptNegotiate(t *testing.T, s *Server, flags uint32) Challenge {
 		Header:         Header{Signature: []byte(Signature), MessageType: TypeNtLmNegotiate},
 		NegotiateFlags: flags,
 	}
-	negBuf, err := encoder.Marshal(neg)
+	negBuf, err := neg.MarshalBinary()
 	if err != nil {
 		t.Fatalf("marshal Negotiate: %v", err)
 	}
@@ -102,7 +100,7 @@ func acceptNegotiate(t *testing.T, s *Server, flags uint32) Challenge {
 		t.Fatalf("AcceptNegotiate: %v", err)
 	}
 	chall := NewChallenge()
-	if err := encoder.Unmarshal(challBuf, &chall); err != nil {
+	if err := chall.UnmarshalBinary(challBuf); err != nil {
 		t.Fatalf("unmarshal Challenge: %v", err)
 	}
 	return chall

@@ -23,7 +23,6 @@ import (
 
 	"github.com/jfjallid/go-smb/gss"
 	"github.com/jfjallid/go-smb/ntlmssp"
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // driveAcceptorThroughAuth runs a full NTLM-over-SPNEGO exchange in-process:
@@ -82,7 +81,7 @@ func driveAcceptorThroughAuth(t *testing.T, includeInboundMIC bool) []byte {
 
 	// Leg 1 response is a NegTokenResp wrapping the CHALLENGE.
 	var challResp gss.NegTokenResp
-	if err := encoder.Unmarshal(out1, &challResp); err != nil {
+	if err := challResp.UnmarshalBinary(out1); err != nil {
 		t.Fatalf("decode leg1 NegTokenResp: %v", err)
 	}
 	if len(challResp.ResponseToken) == 0 {
@@ -104,7 +103,7 @@ func driveAcceptorThroughAuth(t *testing.T, includeInboundMIC bool) []byte {
 		// Any non-empty bytes suffice — acceptor only checks presence.
 		respIn.MechListMIC = bytes.Repeat([]byte{0xcc}, 16)
 	}
-	in2, err := encoder.Marshal(&respIn)
+	in2, err := respIn.MarshalBinary()
 	if err != nil {
 		t.Fatalf("marshal leg2 NegTokenResp: %v", err)
 	}
@@ -145,7 +144,7 @@ func TestAcceptorOmitsMIC_WhenInitiatorOmitted(t *testing.T) {
 func TestAcceptorIncludesMIC_WhenInitiatorIncluded(t *testing.T) {
 	out := driveAcceptorThroughAuth(t, true)
 	var resp gss.NegTokenResp
-	if err := encoder.Unmarshal(out, &resp); err != nil {
+	if err := resp.UnmarshalBinary(out); err != nil {
 		t.Fatalf("decode acceptor output: %v", err)
 	}
 	if int(resp.State) != gss.GssStateAcceptCompleted {

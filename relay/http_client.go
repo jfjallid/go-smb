@@ -194,7 +194,7 @@ func (f *httpForwarder) Negotiate(negotiate []byte) ([]byte, error) {
 		return nil, fmt.Errorf("parse WWW-Authenticate: %w", err)
 	}
 	chall := ntlmssp.NewChallenge()
-	if err := encoder.Unmarshal(chBytes, &chall); err == nil {
+	if err := chall.UnmarshalBinary(chBytes); err == nil {
 		var b [8]byte
 		for i := 0; i < 8; i++ {
 			b[i] = byte(chall.ServerChallenge >> (8 * i))
@@ -220,7 +220,7 @@ func (f *httpForwarder) Authenticate(remote net.Addr, authenticate, mic []byte) 
 		return nil, 0, fmt.Errorf("authenticate: not an NTLMSSP message")
 	}
 	var auth ntlmssp.Authenticate
-	if err := encoder.Unmarshal(authenticate, &auth); err != nil {
+	if err := auth.UnmarshalBinary(authenticate); err != nil {
 		return nil, 0, fmt.Errorf("decode AUTHENTICATE: %w", err)
 	}
 	cred := buildCredentialFromAuth(&auth, f.serverChallenge, remote)

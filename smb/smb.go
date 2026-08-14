@@ -655,7 +655,7 @@ var (
 var ErrorNotDir = fmt.Errorf("not a directory")
 
 type Header struct { // 64 bytes
-	ProtocolID    []byte `smb:"fixed:4"`
+	ProtocolID    []byte
 	StructureSize uint16
 	CreditCharge  uint16
 	Status        uint32
@@ -667,7 +667,7 @@ type Header struct { // 64 bytes
 	Reserved      uint32 // In async requests Reserved and TreeId are replaced by AsyncID
 	TreeID        uint32
 	SessionID     uint64
-	Signature     []byte `smb:"fixed:16"`
+	Signature     []byte
 }
 
 // headerSize is the fixed on-wire size of an SMB2 header (MS-SMB2 §2.2.1.2).
@@ -682,7 +682,7 @@ func parseHeader(op string, buf []byte) (Header, error) {
 	if len(buf) < headerSize {
 		return h, fmt.Errorf("%s: response too short to contain an SMB2 header (%d bytes)", op, len(buf))
 	}
-	if err := encoder.Unmarshal(buf[:headerSize], &h); err != nil {
+	if err := h.UnmarshalBinary(buf[:headerSize]); err != nil {
 		return h, fmt.Errorf("%s: decoding SMB2 header: %w", op, err)
 	}
 	return h, nil
@@ -701,8 +701,8 @@ func headerStatus(op string, buf []byte, okStatuses ...uint32) (Header, error) {
 
 type TransformHeader struct { // 52 bytes
 	ProtcolID           uint32
-	Signature           []byte `smb:"fixed:16"`
-	Nonce               []byte `smb:"fixed:16"` // 11 bytes nonce + 5 bytes reversed if CCM, 12 bytes nonce + 4 bytes reversed if GCM
+	Signature           []byte
+	Nonce               []byte // 11 bytes nonce + 5 bytes reversed if CCM, 12 bytes nonce + 4 bytes reversed if GCM
 	OriginalMessageSize uint32
 	Reserved            uint16
 	Flags               uint16 //SMB 3.1.1
@@ -713,16 +713,16 @@ type TransformHeader struct { // 52 bytes
 type NegotiateReq struct {
 	Header
 	StructureSize          uint16
-	DialectCount           uint16 `smb:"count:Dialects"`
+	DialectCount           uint16
 	SecurityMode           uint16
 	Reserved               uint16
 	Capabilities           uint32
-	ClientGuid             []byte `smb:"fixed:16"`
-	NegotiateContextOffset uint32 `smb:"offset:ContextList"`
-	NegotiateContextCount  uint16 `smb:"count:ContextList"`
+	ClientGuid             []byte
+	NegotiateContextOffset uint32
+	NegotiateContextCount  uint16
 	Reserved2              uint16
 	Dialects               []uint16
-	Padding                []byte `smb:"align:8"`
+	Padding                []byte
 	ContextList            []NegContext
 }
 
@@ -732,8 +732,8 @@ type NegotiateRes struct {
 	StructureSize         uint16
 	SecurityMode          uint16
 	DialectRevision       uint16
-	NegotiateContextCount uint16 `smb:"count:ContextList"`
-	ServerGuid            []byte `smb:"fixed:16"`
+	NegotiateContextCount uint16
+	ServerGuid            []byte
 	Capabilities          uint32
 	// MaxTransactSize is the maximum size, in bytes, of the buffer sent by the
 	// client in SetInfo, or sent by the server in the response to QueryInfo,
@@ -743,34 +743,36 @@ type NegotiateRes struct {
 	MaxWriteSize           uint32 // Max value for Length of Write request the server will accept
 	SystemTime             uint64
 	ServerStartTime        uint64
-	SecurityBufferOffset   uint16 `smb:"offset:SecurityBlob"`
-	SecurityBufferLength   uint16 `smb:"len:SecurityBlob"`
-	NegotiateContextOffset uint32 `smb:"offset:ContextList"`
+	SecurityBufferOffset   uint16
+	SecurityBufferLength   uint16
+	NegotiateContextOffset uint32
 	SecurityBlob           *gss.NegTokenInit
-	Padding                []byte `smb:"align:8"`
+	Padding                []byte
 	ContextList            []NegContext
 }
 
 // For SMB 3.1.1
 // MS-SMB2 Section 2.2.3.1
+// NegContext holds one negotiate context. It carries no padding field: the
+// 8-byte alignment MS-SMB2 §3.3.5.4 requires between consecutive contexts is
+// inserted by the list marshaller (marshalNegContextList), so callers assembling
+// a context list no longer size — or have to remember to clear — a tail pad.
 type NegContext struct {
 	ContextType uint16
-	DataLength  uint16 `smb:"len:Data"`
+	DataLength  uint16
 	Reserved    uint32
 	Data        []byte
-	Padd        []byte `smb:"align:8"`
 }
 
 type PreauthIntegrityContext struct {
-	HashAlgorithmCount uint16 `smb:"count:HashAlgorithms"`
-	SaltLength         uint16 `smb:"len:Salt"`
+	HashAlgorithmCount uint16
+	SaltLength         uint16
 	HashAlgorithms     []uint16
 	Salt               []byte
-	Padd               []byte `smb:"align:8"`
 }
 
 type EncryptionContext struct {
-	CipherCount uint16 `smb:"count:Ciphers"`
+	CipherCount uint16
 	Ciphers     []uint16
 }
 
@@ -778,7 +780,7 @@ type EncryptionContext struct {
 // Flags fields relative to EncryptionContext; Flags carries
 // CompressionCapabilitiesFlagChained.
 type CompressionContext struct {
-	CompressionAlgorithmCount uint16 `smb:"count:CompressionAlgorithms"`
+	CompressionAlgorithmCount uint16
 	Padding                   uint16
 	Flags                     uint32
 	CompressionAlgorithms     []uint16
@@ -786,7 +788,7 @@ type CompressionContext struct {
 
 // MS-SMB2 2.2.3.1.7 SMB2_SIGNING_CAPABILITIES
 type SigningContext struct {
-	SigningAlgorithmCount uint16 `smb:"count:SigningAlgorithms"`
+	SigningAlgorithmCount uint16
 	SigningAlgorithms     []uint16
 }
 
@@ -797,8 +799,8 @@ type SessionSetup1Req struct {
 	SecurityMode         byte
 	Capabilities         uint32
 	Channel              uint32
-	SecurityBufferOffset uint16 `smb:"offset:SecurityBlob"`
-	SecurityBufferLength uint16 `smb:"len:SecurityBlob"`
+	SecurityBufferOffset uint16
+	SecurityBufferLength uint16
 	PreviousSessionID    uint64
 	SecurityBlob         *gss.NegTokenInit
 }
@@ -807,8 +809,8 @@ type SessionSetup1Res struct {
 	Header
 	StructureSize        uint16
 	Flags                uint16
-	SecurityBufferOffset uint16 `smb:"offset:SecurityBlob"`
-	SecurityBufferLength uint16 `smb:"len:SecurityBlob"`
+	SecurityBufferOffset uint16
+	SecurityBufferLength uint16
 	SecurityBlob         *gss.NegTokenResp
 }
 
@@ -819,8 +821,8 @@ type SessionSetup2Req struct {
 	SecurityMode         byte
 	Capabilities         uint32
 	Channel              uint32
-	SecurityBufferOffset uint16 `smb:"offset:SecurityBlob"`
-	SecurityBufferLength uint16 `smb:"len:SecurityBlob"`
+	SecurityBufferOffset uint16
+	SecurityBufferLength uint16
 	PreviousSessionID    uint64
 	SecurityBlob         *gss.NegTokenResp
 }
@@ -829,8 +831,8 @@ type SessionSetup2Res struct {
 	Header
 	StructureSize        uint16
 	Flags                uint16
-	SecurityBufferOffset uint16 `smb:"offset:SecurityBlob"`
-	SecurityBufferLength uint16 `smb:"len:SecurityBlob"`
+	SecurityBufferOffset uint16
+	SecurityBufferLength uint16
 	SecurityBlob         *gss.NegTokenResp
 }
 
@@ -850,8 +852,8 @@ type TreeConnectReq struct {
 	Header
 	StructureSize uint16
 	Reserved      uint16
-	PathOffset    uint16 `smb:"offset:Path"`
-	PathLength    uint16 `smb:"len:Path"`
+	PathOffset    uint16
+	PathLength    uint16
 	Path          []byte
 }
 
@@ -911,9 +913,9 @@ type CreateRes struct {
 	EndOfFile            uint64
 	FileAttributes       uint32
 	Reserved2            uint32 // Must be 0
-	FileId               []byte `smb:"fixed:16"` // 16 bytes length
-	CreateContextsOffset uint32 `smb:"offset:Buffer"`
-	CreateContextsLength uint32 `smb:"len:Buffer"`
+	FileId               []byte // 16 bytes length
+	CreateContextsOffset uint32
+	CreateContextsLength uint32
 	Buffer               []byte
 }
 
@@ -922,7 +924,7 @@ type CloseReq struct {
 	StructureSize uint16 // Must be set to 24
 	Flags         uint16 // Can only be 0x0000 or 0x0001
 	Reserved      uint32
-	FileId        []byte `smb:"fixed:16"` // 16 bytes length
+	FileId        []byte // 16 bytes length
 }
 
 type CloseRes struct {
@@ -951,7 +953,7 @@ type OplockBreak struct {
 	OplockLevel   byte
 	Reserved      byte
 	Reserved2     uint32
-	FileId        []byte `smb:"fixed:16"`
+	FileId        []byte
 }
 
 // CancelReq models the SMB2 CANCEL request (MS-SMB2 §2.2.30). It carries no
@@ -970,9 +972,9 @@ type QueryDirectoryReq struct {
 	FileInformationClass byte
 	Flags                byte
 	FileIndex            uint32
-	FileID               []byte `smb:"fixed:16"`
-	FileNameOffset       uint16 `smb:"offset:Buffer"`
-	FileNameLength       uint16 `smb:"len:Buffer"`
+	FileID               []byte
+	FileNameOffset       uint16
+	FileNameLength       uint16
 	OutputBufferLength   uint32
 	Buffer               []byte
 }
@@ -980,8 +982,8 @@ type QueryDirectoryReq struct {
 type QueryDirectoryRes struct {
 	Header
 	StructureSize      uint16 // Must always be 9
-	OutputBufferOffset uint16 `smb:"offset:Buffer"`
-	OutputBufferLength uint32 `smb:"len:Buffer"`
+	OutputBufferOffset uint16
+	OutputBufferLength uint32
 	Buffer             []byte
 }
 
@@ -1008,11 +1010,11 @@ type QueryInfoRes struct {
 	Buffer             []byte
 }
 
-func (s *QueryInfoReq) MarshalBinary(meta *encoder.Metadata) (ret []byte, err error) {
+func (s *QueryInfoReq) MarshalBinary() (ret []byte, err error) {
 	log.Traceln("In MarshalBinary for QueryInfoReq")
 	buf := make([]byte, 0, 40+len(s.Buffer))
 
-	hBuf, err := encoder.Marshal(s.Header)
+	hBuf, err := s.Header.MarshalBinary()
 	if err != nil {
 		log.Debugln(err)
 		return nil, err
@@ -1051,12 +1053,12 @@ func (s *QueryInfoReq) MarshalBinary(meta *encoder.Metadata) (ret []byte, err er
 // QueryInfoReq.UnmarshalBinary and QueryInfoRes.MarshalBinary live in
 // marshal_server.go (server-side direction).
 
-func (s *QueryInfoRes) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (s *QueryInfoRes) UnmarshalBinary(buf []byte) error {
 	log.Traceln("In UnmarshalBinary for QueryInfoRes")
 	if len(buf) < headerSize+8 {
 		return fmt.Errorf("QueryInfoRes: response too short (%d bytes)", len(buf))
 	}
-	err := encoder.Unmarshal(buf[:headerSize], &s.Header)
+	err := s.Header.UnmarshalBinary(buf[:headerSize])
 	if err != nil {
 		return err
 	}
@@ -1105,11 +1107,11 @@ type FileBothDirectoryInformationStruct struct {
 	EndOfFile       uint64
 	AllocationSize  uint64
 	FileAttributes  uint32
-	FileNameLength  uint32 `smb:"len:FileName"`
+	FileNameLength  uint32
 	EaSize          uint32
 	ShortNameLength byte
 	Reserved        byte
-	ShortName       []byte `smb:"fixed:24"`
+	ShortName       []byte
 	FileName        []byte
 }
 
@@ -1148,7 +1150,7 @@ type FlushReq struct {
 	StructureSize uint16 // Must be 24
 	Reserved1     uint16
 	Reserved2     uint32
-	FileId        []byte `smb:"fixed:16"`
+	FileId        []byte
 }
 
 type FlushRes struct {
@@ -1164,7 +1166,7 @@ type ReadReq struct {
 	Flags                 byte   // Must be 0 for smb 2.1
 	Length                uint32
 	Offset                uint64
-	FileId                []byte `smb:"fixed:16"`
+	FileId                []byte
 	MinimumCount          uint32 // How many bytes to at least read for successful operation
 	Channel               uint32 // Must be 0 for smb 2.1
 	RemainingBytes        uint32 // 0 for smb 2.1
@@ -1176,9 +1178,9 @@ type ReadReq struct {
 type ReadRes struct {
 	Header
 	StructureSize uint16 // Must be 17
-	DataOffset    byte   `smb:"offset:Buffer"`
+	DataOffset    byte
 	Reserved      byte
-	DataLength    uint32 `smb:"len:Buffer"`
+	DataLength    uint32
 	DataRemaining uint32
 	Reserved2     uint32 // Must be 0 for smb 2.1
 	Buffer        []byte
@@ -1187,10 +1189,10 @@ type ReadRes struct {
 type WriteReq struct {
 	Header
 	StructureSize          uint16 // Must always be 49 regardless of Buffer size
-	DataOffset             uint16 `smb:"offset:Buffer"` // 0x70. The offset, in bytes, from the beginning of the SMB2 header to the data being written.
-	Length                 uint32 `smb:"len:Buffer"`    // The length of the data being written, in bytes. Can be zero bytes.
+	DataOffset             uint16 // 0x70. The offset, in bytes, from the beginning of the SMB2 header to the data being written.
+	Length                 uint32 // The length of the data being written, in bytes. Can be zero bytes.
 	Offset                 uint64 // The offset, in bytes, of where to write the data in the destination file. For pipes it must be 0.
-	FileId                 []byte `smb:"fixed:16"`
+	FileId                 []byte
 	Channel                uint32 // Must be 0 for smb 2.1
 	RemainingBytes         uint32 // Not used in smb 2.1
 	WriteChannelInfoOffset uint16 // Not used in smb 2.1
@@ -1214,11 +1216,11 @@ type SetInfoReq struct {
 	StructureSize         uint16 // Must always be 33 regardless of Buffer size
 	InfoType              byte
 	FileInfoClass         byte
-	BufferLength          uint32 `smb:"len:Buffer"`    // The length of the data being written, in bytes. Can be zero bytes.
-	BufferOffset          uint16 `smb:"offset:Buffer"` // 0x70. The offset, in bytes, from the beginning of the SMB2 header to the data being written.
+	BufferLength          uint32 // The length of the data being written, in bytes. Can be zero bytes.
+	BufferOffset          uint16 // 0x70. The offset, in bytes, from the beginning of the SMB2 header to the data being written.
 	Reserved              uint16
 	AdditionalInformation uint32
-	FileId                []byte `smb:"fixed:16"`
+	FileId                []byte
 	Buffer                []byte // 0 length for smb 2.1
 }
 
@@ -1233,9 +1235,9 @@ type IoCtlReq struct { // 120 + len of Buffer
 	StructureSize     uint16 // Must be 57
 	Reserved          uint16 // Must be 0
 	CtlCode           uint32
-	FileId            []byte `smb:"fixed:16"`
-	InputOffset       uint32 `smb:"offset:Buffer"`
-	InputCount        uint32 `smb:"len:Buffer"`
+	FileId            []byte
+	InputOffset       uint32
+	InputCount        uint32
 	MaxInputResponse  uint32
 	OutputOffset      uint32 //`smb:"offset:Buffer"` // Must be 0
 	OutputCount       uint32 //`smb:"len:Buffer"` // Must be 0
@@ -1250,11 +1252,11 @@ type IoCtlRes struct {
 	StructureSize uint16 // Must be 49
 	Reserved      uint16 // Must be 0
 	CtlCode       uint32
-	FileId        []byte `smb:"fixed:16"`
-	InputOffset   uint32 `smb:"offset:Buffer"`
-	InputCount    uint32 `smb:"len:Buffer"`
-	OutputOffset  uint32 `smb:"offset:Buffer"` // Must be 0
-	OutputCount   uint32 `smb:"len:Buffer"`    // Must be 0
+	FileId        []byte
+	InputOffset   uint32
+	InputCount    uint32
+	OutputOffset  uint32 // Must be 0
+	OutputCount   uint32 // Must be 0
 	Flags         uint32
 	Reserved2     uint32 // Must be 0
 	Buffer        []byte
@@ -1273,11 +1275,11 @@ func calcCreditCharge(payloadSize uint32) uint16 {
 	return uint16((payloadSize-1)/65536 + 1)
 }
 
-func (s *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+func (s *NegotiateReq) MarshalBinary() ([]byte, error) {
 	log.Traceln("In MarshalBinary for NegotiateReq")
 	buf := make([]byte, 0, 100)
 	padding := 0
-	hBuf, err := encoder.Marshal(s.Header)
+	hBuf, err := s.Header.MarshalBinary()
 	if err != nil {
 		log.Debugln(err)
 		return nil, err
@@ -1316,27 +1318,27 @@ func (s *NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 		}
 	}
 	if len(s.ContextList) != 0 {
-		// Padding
+		// Padding, so the first context lands on the 8-byte boundary that
+		// NegotiateContextOffset above advertises. Alignment *between* contexts is
+		// marshalNegContextList's job.
 		buf = append(buf, make([]byte, padding)...)
-		for _, c := range s.ContextList {
-			contextBuf, err := encoder.Marshal(c)
-			if err != nil {
-				log.Debugln(err)
-				return nil, err
-			}
-			buf = append(buf, contextBuf...)
+		contextBuf, err := marshalNegContextList(s.ContextList)
+		if err != nil {
+			log.Debugln(err)
+			return nil, err
 		}
+		buf = append(buf, contextBuf...)
 	}
 	return buf, nil
 }
 
-func (s *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (s *NegotiateReq) UnmarshalBinary(buf []byte) error {
 	log.Traceln("In UnmarshalBinary for NegotiateReq")
 	// 64-byte header + 36-byte fixed body before the dialect array.
 	if len(buf) < headerSize+36 {
 		return fmt.Errorf("NegotiateReq: request too short (%d bytes)", len(buf))
 	}
-	err := encoder.Unmarshal(buf[:headerSize], &s.Header)
+	err := s.Header.UnmarshalBinary(buf[:headerSize])
 	if err != nil {
 		return err
 	}
@@ -1367,7 +1369,7 @@ func (s *NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 	offset = int(s.NegotiateContextOffset)
 	for i := 0; i < int(s.NegotiateContextCount); i++ {
 		var negContext NegContext
-		err = encoder.Unmarshal(buf[offset:], &negContext)
+		err = negContext.UnmarshalBinary(buf[offset:])
 		if err != nil {
 			return err
 		}
@@ -1515,17 +1517,17 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 		}
 		sc.SigningAlgorithmCount = uint16(len(sc.SigningAlgorithms))
 
-		picBuf, err := encoder.Marshal(pic)
+		picBuf, err := pic.MarshalBinary()
 		if err != nil {
 			return NegotiateReq{}, err
 		}
 
-		ccBuf, err := encoder.Marshal(cc)
+		ccBuf, err := cc.MarshalBinary()
 		if err != nil {
 			return NegotiateReq{}, err
 		}
 
-		scBuf, err := encoder.Marshal(sc)
+		scBuf, err := sc.MarshalBinary()
 		if err != nil {
 			return NegotiateReq{}, err
 		}
@@ -1535,39 +1537,19 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 				ContextType: PreauthIntegrityCapabilities,
 				Data:        picBuf,
 				DataLength:  uint16(len(picBuf)),
-				Padd:        make([]byte, (8-(len(picBuf)%8))%8),
+			},
+			{
+				ContextType: EncryptionCapabilities,
+				Data:        ccBuf,
+				DataLength:  uint16(len(ccBuf)),
+			},
+			{
+				ContextType: SigningCapabilities,
+				Data:        scBuf,
+				DataLength:  uint16(len(scBuf)),
 			},
 		}
-		n := NegContext{
-			ContextType: EncryptionCapabilities,
-			Data:        ccBuf,
-			DataLength:  uint16(len(ccBuf)),
-			Padd:        make([]byte, (8-(len(ccBuf)%8))%8),
-		}
-		req.ContextList = append(req.ContextList, n)
-
-		// Compression is offered only when opted in. When present it becomes the
-		// last context, so SigningCapabilities now needs trailing 8-byte
-		// alignment padding (it was previously last and unpadded).
 		offerCompression := s.options.Compression
-		signingPad := []byte(nil)
-		if offerCompression {
-			signingPad = make([]byte, (8-(len(scBuf)%8))%8)
-		}
-		n = NegContext{
-			ContextType: SigningCapabilities,
-			Data:        scBuf,
-			DataLength:  uint16(len(scBuf)),
-			Padd:        signingPad,
-		}
-		/*
-			TODO When rewriting the marshalling, move padding to before instead ot after each context based on alignment.
-			The first negotiate context in the list MUST appear at the byte offset
-			indicated by the SMB2 NEGOTIATE request's NegotiateContextOffset field.
-			Subsequent negotiate contexts MUST appear at the first 8-byte-aligned
-			offset following the previous negotiate context.
-		*/
-		req.ContextList = append(req.ContextList, n)
 
 		if offerCompression {
 			algs := s.options.CompressionAlgorithms
@@ -1579,7 +1561,7 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 				Flags:                     CompressionCapabilitiesFlagChained,
 				CompressionAlgorithms:     algs,
 			}
-			compBuf, err := encoder.Marshal(comp)
+			compBuf, err := comp.MarshalBinary()
 			if err != nil {
 				return NegotiateReq{}, err
 			}
@@ -1587,7 +1569,6 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 				ContextType: CompressionCapabilities,
 				Data:        compBuf,
 				DataLength:  uint16(len(compBuf)),
-				// Last context: no trailing padding required.
 			})
 		}
 
@@ -1633,7 +1614,7 @@ func (s *Connection) NewSessionSetup1Req(spnegoClient *spnego.Client) (req Sessi
 	}
 
 	var init gss.NegTokenInit
-	err = encoder.Unmarshal(negTokenInitbytes, &init)
+	err = init.UnmarshalBinary(negTokenInitbytes)
 	if err != nil {
 		return
 	}
@@ -1724,7 +1705,7 @@ func (s *Connection) NewSessionSetup2Req(sc []byte, msg *SessionSetup1Res) (Sess
 	header.SessionID = s.sessionID
 
 	var resp gss.NegTokenResp
-	err := encoder.Unmarshal(sc, &resp)
+	err := resp.UnmarshalBinary(sc)
 	if err != nil {
 		return SessionSetup2Req{}, err
 	}
@@ -1982,10 +1963,9 @@ func (s *Session) NewQueryDirectoryReq(share, pattern string, fileId []byte,
 		   pattern length of 0, but that would lead to a 32 byte request which is
 		   invalid. As such at least 1 byte has to be stored in the pattern buffer
 		   but the offset and length must still be specified to 0.
-		   Due to a problem with how the generic encoder is implemented it is not
-		   possible to manually specify the length and offset of a buffer.
-		   So either implement some workaround or just replace an empty pattern
-		   with a pattern of "*" which serves as a wildcard.
+		   Rather than emit a 1-byte filler the server has to ignore, substitute
+		   the "*" wildcard, which is what an empty pattern means anyway and is
+		   what every server already expects.
 		*/
 		pattern = "*"
 	}

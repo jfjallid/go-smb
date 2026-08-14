@@ -13,7 +13,6 @@ import (
 
 	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
 	"github.com/jfjallid/go-smb/spnego"
 )
@@ -136,8 +135,8 @@ func TestClientMessageIDAdvancesAfterNegotiate(t *testing.T) {
 	}
 }
 
-func writeSMB2Frame(conn net.Conn, v encoder.BinaryMarshallable) error {
-	body, err := encoder.Marshal(v)
+func writeSMB2Frame(conn net.Conn, v smb.Marshaller) error {
+	body, err := v.MarshalBinary()
 	if err != nil {
 		return err
 	}

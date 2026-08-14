@@ -44,22 +44,22 @@ func TestNegotiateContextEchoes(t *testing.T) {
 		SaltLength:         32,
 		Salt:               make([]byte, 32),
 	}
-	picBuf, _ := encoder.Marshal(pic)
+	picBuf, _ := pic.MarshalBinary()
 
 	ec := smb.EncryptionContext{
 		CipherCount: 1,
 		Ciphers:     []uint16{smb.AES128CCM},
 	}
-	ecBuf, _ := encoder.Marshal(ec)
+	ecBuf, _ := ec.MarshalBinary()
 
 	netName := encoder.ToUnicode("SERVER")
 	// Compression context: minimal 8-byte body with count=0
 	compBuf := make([]byte, 8)
 
 	contexts := []smb.NegContext{
-		{ContextType: smb.PreauthIntegrityCapabilities, Data: picBuf, DataLength: uint16(len(picBuf)), Padd: make([]byte, (8-len(picBuf)%8)%8)},
-		{ContextType: smb.EncryptionCapabilities, Data: ecBuf, DataLength: uint16(len(ecBuf)), Padd: make([]byte, (8-len(ecBuf)%8)%8)},
-		{ContextType: smb.CompressionCapabilities, Data: compBuf, DataLength: uint16(len(compBuf)), Padd: make([]byte, (8-len(compBuf)%8)%8)},
+		{ContextType: smb.PreauthIntegrityCapabilities, Data: picBuf, DataLength: uint16(len(picBuf))},
+		{ContextType: smb.EncryptionCapabilities, Data: ecBuf, DataLength: uint16(len(ecBuf))},
+		{ContextType: smb.CompressionCapabilities, Data: compBuf, DataLength: uint16(len(compBuf))},
 		// Last context — no trailing pad.
 		{ContextType: smb.NetNameNegotiateContextId, Data: netName, DataLength: uint16(len(netName))},
 	}
@@ -79,7 +79,7 @@ func TestNegotiateContextEchoes(t *testing.T) {
 		ContextList:           contexts,
 		NegotiateContextCount: uint16(len(contexts)),
 	}
-	body, err := encoder.Marshal(&req)
+	body, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -101,9 +101,9 @@ func TestNegotiateContextEchoes(t *testing.T) {
 		t.Fatalf("read body: %v", err)
 	}
 
-	// Parse the response by hand — encoder.Unmarshal(NegotiateRes) panics on
-	// the *gss.NegTokenInit pointer when the test doesn't pre-allocate it,
-	// and the response-side decoder isn't the point of this test anyway.
+	// Parse the response by hand: the response-side decoder isn't the point of
+	// this test, and reading the raw offsets keeps the assertion honest about
+	// what actually went on the wire.
 	// Field offsets per MS-SMB2 §2.2.4 (header is 64 bytes):
 	//   DialectRevision        @68 (uint16)
 	//   NegotiateContextCount  @70 (uint16)
@@ -184,7 +184,7 @@ func TestNegotiateUnalignedContextOffsetRejected(t *testing.T) {
 		SaltLength:         32,
 		Salt:               make([]byte, 32),
 	}
-	picBuf, _ := encoder.Marshal(pic)
+	picBuf, _ := pic.MarshalBinary()
 
 	// Hand-assemble the SMB2 NegotiateReq with three dialects and one
 	// context, but place the context immediately at byte 106 (no padding)

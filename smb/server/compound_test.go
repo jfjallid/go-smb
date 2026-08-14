@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
 )
 
@@ -136,7 +135,7 @@ func buildEchoPDU(t *testing.T, msgID uint64, nextCmd uint32) []byte {
 		},
 		StructureSize: 4,
 	}
-	body, err := encoder.Marshal(req)
+	body, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}

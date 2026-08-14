@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
 )
 
@@ -64,13 +63,13 @@ func TestNegotiateMaxBufSizeDefaults(t *testing.T) {
 					SaltLength:         32,
 					Salt:               make([]byte, 32),
 				}
-				picBuf, _ := encoder.Marshal(pic)
+				picBuf, _ := pic.MarshalBinary()
 				req.ContextList = []smb.NegContext{
 					{ContextType: smb.PreauthIntegrityCapabilities, Data: picBuf, DataLength: uint16(len(picBuf))},
 				}
 				req.NegotiateContextCount = uint16(len(req.ContextList))
 			}
-			body, err := encoder.Marshal(&req)
+			body, err := req.MarshalBinary()
 			if err != nil {
 				t.Fatalf("marshal: %v", err)
 			}

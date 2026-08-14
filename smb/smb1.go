@@ -25,8 +25,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 const (
@@ -35,13 +33,13 @@ const (
 
 // MS-CIFS 2.2.3.1 SMB Header
 type SMB1Header struct { // 32 bytes
-	Protocol         []byte `smb:"fixed:4"` // Must contain 0xff, S, M, B
+	Protocol         []byte // Must contain 0xff, S, M, B
 	Command          uint8
 	Status           uint32
 	Flags            uint8
 	Flags2           uint16
 	PIDHigh          uint16
-	SecurityFeatures []byte `smb:"fixed:8"`
+	SecurityFeatures []byte
 	Reserved         uint16
 	TID              uint16
 	PIDLow           uint16
@@ -61,11 +59,11 @@ type SMB1NegotiateReq struct {
 	Dialects  []SMB1Dialect
 }
 
-func (s *SMB1NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+func (s *SMB1NegotiateReq) MarshalBinary() ([]byte, error) {
 	log.Traceln("In MarshalBinary for SMB1NegotiateReq")
 	buf := make([]byte, 0, 46)
 	w := bytes.NewBuffer(buf)
-	hBuf, err := encoder.Marshal(s.Header)
+	hBuf, err := s.Header.MarshalBinary()
 	if err != nil {
 		log.Debugln(err)
 		return nil, err
@@ -90,7 +88,7 @@ func (s *SMB1NegotiateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error)
 	return w.Bytes(), nil
 }
 
-func (s *SMB1NegotiateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (s *SMB1NegotiateReq) UnmarshalBinary(buf []byte) error {
 	return fmt.Errorf("not implemented: UnmarshalBinary for SMB1NegotiateReq")
 }
 

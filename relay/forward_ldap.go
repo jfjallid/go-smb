@@ -33,7 +33,6 @@ import (
 	ber "github.com/go-asn1-ber/asn1-ber"
 	"github.com/jfjallid/go-smb/ntlmssp"
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
 )
 
@@ -215,7 +214,7 @@ func (f *ldapForwarder) Negotiate(negotiate []byte) ([]byte, error) {
 	// Capture the 8-byte ServerChallenge from the NTLMSSP CHALLENGE for
 	// credential attribution. Failure is non-fatal.
 	parsed := ntlmssp.NewChallenge()
-	if err := encoder.Unmarshal(serverSaslCreds, &parsed); err == nil {
+	if err := parsed.UnmarshalBinary(serverSaslCreds); err == nil {
 		var b [8]byte
 		for i := 0; i < 8; i++ {
 			b[i] = byte(parsed.ServerChallenge >> (8 * i))
@@ -241,7 +240,7 @@ func (f *ldapForwarder) Authenticate(remote net.Addr, authenticate, mic []byte) 
 		return nil, 0, fmt.Errorf("Authenticate: not an NTLMSSP message")
 	}
 	var auth ntlmssp.Authenticate
-	if err := encoder.Unmarshal(authenticate, &auth); err != nil {
+	if err := auth.UnmarshalBinary(authenticate); err != nil {
 		return nil, 0, fmt.Errorf("decode AUTHENTICATE: %w", err)
 	}
 	cred := buildCredentialFromAuth(&auth, f.serverChallenge, remote)

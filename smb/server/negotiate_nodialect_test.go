@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // TestNegotiateNoCommonDialect verifies that when a client offers only dialects
@@ -79,7 +78,7 @@ func TestNegotiateNoCommonDialect(t *testing.T) {
 		ClientGuid:    make([]byte, 16),
 		Dialects:      []uint16{smb.DialectSmb_2_0_2},
 	}
-	body, err := encoder.Marshal(&req)
+	body, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatalf("marshal NegotiateReq: %v", err)
 	}

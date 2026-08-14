@@ -56,7 +56,7 @@ func (c *Conn) handleQueryInfo(ctx pduCtx, raw []byte, h *smb.Header) error {
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 	var req smb.QueryInfoReq
-	if err := encoder.Unmarshal(raw, &req); err != nil {
+	if err := req.UnmarshalBinary(raw); err != nil {
 		logger.Errorf("QueryInfo: decode QueryInfoReq: %v", err)
 		return formatErr("decode QueryInfoReq", err)
 	}

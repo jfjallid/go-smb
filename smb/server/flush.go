@@ -26,7 +26,6 @@ import (
 	"context"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // handleFlush processes an SMB2 FLUSH.
@@ -44,7 +43,7 @@ func (c *Conn) handleFlush(ctx pduCtx, raw []byte, h *smb.Header) error {
 		return c.writeRawError(ctx, h, smb.StatusNetworkNameDeleted)
 	}
 	var req smb.FlushReq
-	if err := encoder.Unmarshal(raw, &req); err != nil {
+	if err := req.UnmarshalBinary(raw); err != nil {
 		logger.Errorf("Flush: decode FlushReq: %v", err)
 		return formatErr("decode FlushReq", err)
 	}

@@ -33,7 +33,6 @@ import (
 
 	"github.com/jfjallid/go-smb/smb"
 	"github.com/jfjallid/go-smb/smb/compress"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/golog"
 )
 
@@ -488,8 +487,8 @@ func (c *Conn) maybeEncrypt(ctx pduCtx, buf []byte) ([]byte, bool, error) {
 // the reply can mirror its signed/encrypted state. When ctx.chain is set
 // (the normal dispatch path) the bytes are queued for compound-aware flush
 // instead of sent immediately.
-func (c *Conn) writeReply(ctx pduCtx, res any) error {
-	buf, err := encoder.Marshal(res)
+func (c *Conn) writeReply(ctx pduCtx, res smb.Marshaller) error {
+	buf, err := res.MarshalBinary()
 	if err != nil {
 		return err
 	}
@@ -510,8 +509,8 @@ func (c *Conn) writeReply(ctx pduCtx, res any) error {
 // is the signer; we don't look it up by SessionID because the SessionSetup2
 // completion path runs before any subsequent inbound has a chance to
 // reference the session via the connection table.
-func (c *Conn) writeSignedReply(res any, sess *Session) error {
-	buf, err := encoder.Marshal(res)
+func (c *Conn) writeSignedReply(res smb.Marshaller, sess *Session) error {
+	buf, err := res.MarshalBinary()
 	if err != nil {
 		return err
 	}
@@ -550,7 +549,7 @@ func (c *Conn) writeRawError(ctx pduCtx, reqHdr *smb.Header, status uint32) erro
 // shape — notably the asynchronous interim response, which must carry
 // SMB2_FLAGS_ASYNC_COMMAND and an AsyncId — can reuse the body construction.
 func (c *Conn) writeErrorHeader(ctx pduCtx, resHdr *smb.Header) error {
-	hdrBytes, err := encoder.Marshal(*resHdr)
+	hdrBytes, err := resHdr.MarshalBinary()
 	if err != nil {
 		return err
 	}

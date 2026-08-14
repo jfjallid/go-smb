@@ -28,7 +28,6 @@ import (
 
 	"github.com/jfjallid/go-smb/smb"
 	"github.com/jfjallid/go-smb/smb/compress"
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // allOnesFID is the SMB2 "use the FileId from the previous Create in this
@@ -108,7 +107,7 @@ func (c *Conn) dispatchSMB1(raw []byte) error {
 		return fmt.Errorf("SMB1 packet too short")
 	}
 	var h smb.SMB1Header
-	if err := encoder.Unmarshal(raw[:32], &h); err != nil {
+	if err := h.UnmarshalBinary(raw[:32]); err != nil {
 		return formatErr("decode SMB1 header", err)
 	}
 	if h.Command != smb.SMB1CommandNegotiate {
@@ -163,7 +162,7 @@ func (c *Conn) dispatchSMB2Inner(raw []byte, ctx pduCtx) error {
 		return fmt.Errorf("SMB2 packet too short (%d bytes)", len(raw))
 	}
 	var h smb.Header
-	if err := encoder.Unmarshal(raw[:64], &h); err != nil {
+	if err := h.UnmarshalBinary(raw[:64]); err != nil {
 		return formatErr("decode SMB2 header", err)
 	}
 	if h.StructureSize != 64 {

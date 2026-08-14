@@ -19,7 +19,6 @@ import (
 	"testing"
 
 	"github.com/jfjallid/go-smb/gss"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/spnego"
 	"github.com/jfjallid/gofork/encoding/asn1"
 )
@@ -49,7 +48,7 @@ func TestNegotiateResContextOffsetZeroFor2_0_2(t *testing.T) {
 	}
 	res.ContextList = nil
 
-	buf, err := encoder.Marshal(res)
+	buf, err := res.MarshalBinary()
 	if err != nil {
 		t.Fatalf("Marshal NegotiateRes: %v", err)
 	}
@@ -75,32 +74,32 @@ func TestNegotiateResContextOffsetZeroFor2_0_2(t *testing.T) {
 // rejects an unaligned request with STATUS_INVALID_PARAMETER.
 //
 // Regression coverage: a previous version of session.go called c.send with a
-// NegotiateReq value (not a pointer). Because *NegotiateReq.MarshalBinary
-// has a pointer receiver, the type assertion in encoder.Marshal failed and
-// the encoder silently fell through to tag-based marshaling, which packs the
-// contexts immediately after the dialect list without the required padding.
-// The resulting wire bytes placed the contexts at offset 106 instead of 112.
-//
-// This test parametrizes on both the pointer and value call paths so any
-// future change that re-introduces the value-marshal regression (either by
-// changing the call site or by changing the MarshalBinary receiver in a way
-// that breaks pointer-marshal) is caught here.
+// NegotiateReq value (not a pointer). The reflection encoder's type assertion
+// then missed the pointer-receiver MarshalBinary and silently fell through to
+// tag-based marshaling, which packs the contexts immediately after the dialect
+// list without the required padding — placing them at offset 106 instead of
+// 112. That specific failure mode is now impossible: Connection.send takes an
+// smb.Marshaller, which only *NegotiateReq satisfies, so passing a value is a
+// compile error. This test still pins the alignment arithmetic itself.
 func TestNegotiateReqContextOffsetAligned(t *testing.T) {
 	build := func() NegotiateReq {
-		pic, _ := encoder.Marshal(PreauthIntegrityContext{
+		picCtx := PreauthIntegrityContext{
 			HashAlgorithmCount: 1,
 			HashAlgorithms:     []uint16{SHA512},
 			SaltLength:         32,
 			Salt:               make([]byte, 32),
-		})
-		ec, _ := encoder.Marshal(EncryptionContext{
+		}
+		pic, _ := picCtx.MarshalBinary()
+		ecCtx := EncryptionContext{
 			CipherCount: 4,
 			Ciphers:     []uint16{AES128CCM, AES128GCM, AES256CCM, AES256GCM},
-		})
-		sc, _ := encoder.Marshal(SigningContext{
+		}
+		ec, _ := ecCtx.MarshalBinary()
+		scCtx := SigningContext{
 			SigningAlgorithmCount: 3,
 			SigningAlgorithms:     []uint16{AES_GMAC, AES_CMAC, HMAC_SHA256},
-		})
+		}
+		sc, _ := scCtx.MarshalBinary()
 		return NegotiateReq{
 			Header: Header{
 				ProtocolID:    []byte(ProtocolSmb2),
@@ -116,53 +115,42 @@ func TestNegotiateReqContextOffsetAligned(t *testing.T) {
 			ClientGuid:    make([]byte, 16),
 			Dialects:      []uint16{DialectSmb_3_1_1, DialectSmb_2_1, DialectSmb_2_0_2},
 			ContextList: []NegContext{
-				{ContextType: PreauthIntegrityCapabilities, Data: pic, DataLength: uint16(len(pic)), Padd: make([]byte, (8-len(pic)%8)%8)},
-				{ContextType: EncryptionCapabilities, Data: ec, DataLength: uint16(len(ec)), Padd: make([]byte, (8-len(ec)%8)%8)},
+				{ContextType: PreauthIntegrityCapabilities, Data: pic, DataLength: uint16(len(pic))},
+				{ContextType: EncryptionCapabilities, Data: ec, DataLength: uint16(len(ec))},
 				{ContextType: SigningCapabilities, Data: sc, DataLength: uint16(len(sc))},
 			},
 			NegotiateContextCount: 3,
 		}
 	}
 
-	cases := []struct {
-		name    string
-		marshal func(req NegotiateReq) ([]byte, error)
-	}{
-		{"pointer", func(req NegotiateReq) ([]byte, error) { return encoder.Marshal(&req) }},
-		{"value", func(req NegotiateReq) ([]byte, error) { return encoder.Marshal(req) }},
+	req := build()
+	buf, err := req.MarshalBinary()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := build()
-			buf, err := tc.marshal(req)
-			if err != nil {
-				t.Fatalf("marshal: %v", err)
-			}
-			// NegotiateContextOffset sits at byte 92 of the marshaled buffer:
-			//	Header(64) + StructureSize(2) + DialectCount(2) + SecurityMode(2)
-			//	+ Reserved(2) + Capabilities(4) + ClientGuid(16) = 92.
-			const offsetPos = 92
-			if len(buf) < offsetPos+4 {
-				t.Fatalf("marshaled buffer too short: %d bytes", len(buf))
-			}
-			got := binary.LittleEndian.Uint32(buf[offsetPos : offsetPos+4])
-			if got%8 != 0 {
-				t.Fatalf("NegotiateContextOffset=%d (0x%x) not 8-byte aligned — Windows servers will reject with STATUS_INVALID_PARAMETER",
-					got, got)
-			}
-			// And it must actually point past the dialects (start of body + 36
-			// + 2*DialectCount = 100 + 6 = 106; the next aligned position is 112).
-			if got < 106 {
-				t.Errorf("NegotiateContextOffset=%d, want >= 106 (past dialects)", got)
-			}
-			// Bytes between the dialect list and the first context must be
-			// zero padding — anything else means a stale field leaked through.
-			for i := 106; i < int(got); i++ {
-				if buf[i] != 0 {
-					t.Errorf("non-zero alignment pad at offset %d: 0x%02x", i, buf[i])
-				}
-			}
-		})
+	// NegotiateContextOffset sits at byte 92 of the marshaled buffer:
+	//	Header(64) + StructureSize(2) + DialectCount(2) + SecurityMode(2)
+	//	+ Reserved(2) + Capabilities(4) + ClientGuid(16) = 92.
+	const offsetPos = 92
+	if len(buf) < offsetPos+4 {
+		t.Fatalf("marshaled buffer too short: %d bytes", len(buf))
+	}
+	got := binary.LittleEndian.Uint32(buf[offsetPos : offsetPos+4])
+	if got%8 != 0 {
+		t.Fatalf("NegotiateContextOffset=%d (0x%x) not 8-byte aligned — Windows servers will reject with STATUS_INVALID_PARAMETER",
+			got, got)
+	}
+	// And it must actually point past the dialects (start of body + 36
+	// + 2*DialectCount = 100 + 6 = 106; the next aligned position is 112).
+	if got < 106 {
+		t.Errorf("NegotiateContextOffset=%d, want >= 106 (past dialects)", got)
+	}
+	// Bytes between the dialect list and the first context must be
+	// zero padding — anything else means a stale field leaked through.
+	for i := 106; i < int(got); i++ {
+		if buf[i] != 0 {
+			t.Errorf("non-zero alignment pad at offset %d: 0x%02x", i, buf[i])
+		}
 	}
 }
 
@@ -209,7 +197,7 @@ func TestSessionSetupSecurityModeRequired(t *testing.T) {
 				State:         asn1.Enumerated(gss.GssStateAcceptIncomplete),
 				ResponseToken: []byte{0x00},
 			}
-			respBlob, err := encoder.Marshal(&resp)
+			respBlob, err := resp.MarshalBinary()
 			if err != nil {
 				t.Fatalf("marshal NegTokenResp: %v", err)
 			}

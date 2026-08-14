@@ -146,7 +146,7 @@ func (c *Client) Negotiate() ([]byte, error) {
 	req.NegotiateFlags &^= c.StripFlags
 	req.Version = le.Uint64(version)
 	c.neg = &req
-	buf, err := encoder.Marshal(req)
+	buf, err := req.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +163,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 	copy(originalChallenge, cmsg)
 
 	chall := NewChallenge()
-	err = encoder.Unmarshal(cmsg, &chall)
+	err = chall.UnmarshalBinary(cmsg)
 	if err != nil {
 		return
 	}
@@ -482,7 +482,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 		h.Write(originalChallenge)
 
 		var authBytes []byte
-		authBytes, err = encoder.Marshal(&auth)
+		authBytes, err = auth.MarshalBinary()
 		if err != nil {
 			return
 		}
@@ -505,7 +505,7 @@ func (c *Client) Authenticate(cmsg []byte) (amsg []byte, err error) {
 
 	c.session = session
 
-	return encoder.Marshal(&auth)
+	return auth.MarshalBinary()
 }
 
 func (c *Client) Session() *Session {

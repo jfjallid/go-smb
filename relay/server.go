@@ -35,7 +35,6 @@ import (
 	"time"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
 	"github.com/jfjallid/go-smb/smb/server/filevfs"
 )
@@ -1068,7 +1067,7 @@ func buildEchoRequest(sessionID uint64) ([]byte, error) {
 		SessionID:     sessionID,
 		Signature:     make([]byte, 16),
 	}
-	buf, err := encoder.Marshal(h)
+	buf, err := h.MarshalBinary()
 	if err != nil {
 		return nil, fmt.Errorf("marshal Echo header: %w", err)
 	}

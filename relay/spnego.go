@@ -28,7 +28,6 @@ import (
 	"github.com/jfjallid/gofork/encoding/asn1"
 
 	"github.com/jfjallid/go-smb/gss"
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // unwrapNegInit peels the inner NTLMSSP token out of an inbound SPNEGO
@@ -39,7 +38,7 @@ func unwrapNegInit(blob []byte) (*gss.NegTokenInit, error) {
 		return nil, fmt.Errorf("not a NegTokenInit")
 	}
 	var init gss.NegTokenInit
-	if err := encoder.Unmarshal(blob, &init); err != nil {
+	if err := init.UnmarshalBinary(blob); err != nil {
 		return nil, fmt.Errorf("decode NegTokenInit: %w", err)
 	}
 	if len(init.Data.MechToken) == 0 {
@@ -56,7 +55,7 @@ func unwrapNegResp(blob []byte) (*gss.NegTokenResp, error) {
 		return nil, fmt.Errorf("not a NegTokenResp")
 	}
 	var resp gss.NegTokenResp
-	if err := encoder.Unmarshal(blob, &resp); err != nil {
+	if err := resp.UnmarshalBinary(blob); err != nil {
 		return nil, fmt.Errorf("decode NegTokenResp: %w", err)
 	}
 	if len(resp.ResponseToken) == 0 {
@@ -75,7 +74,7 @@ func wrapNegRespAcceptIncomplete(token []byte) ([]byte, error) {
 		SupportedMech: gss.NtLmSSPMechTypeOid,
 		ResponseToken: token,
 	}
-	return encoder.Marshal(&out)
+	return out.MarshalBinary()
 }
 
 // wrapNegRespAuth wraps a raw NTLMSSP AUTHENTICATE token plus an optional
@@ -87,7 +86,7 @@ func wrapNegRespAuth(token, mic []byte) ([]byte, error) {
 		ResponseToken: token,
 		MechListMIC:   mic,
 	}
-	return encoder.Marshal(&out)
+	return out.MarshalBinary()
 }
 
 // wrapNegRespAcceptCompleted produces a SPNEGO NegTokenResp with
@@ -99,5 +98,5 @@ func wrapNegRespAcceptCompleted(mic []byte) ([]byte, error) {
 		State:       asn1.Enumerated(gss.GssStateAcceptCompleted),
 		MechListMIC: mic,
 	}
-	return encoder.Marshal(&out)
+	return out.MarshalBinary()
 }

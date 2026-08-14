@@ -26,7 +26,6 @@ import (
 	"context"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // handleSetInfo processes SMB2 SET_INFO. The handler hands raw bytes to the
@@ -51,7 +50,7 @@ func (c *Conn) handleSetInfo(ctx pduCtx, raw []byte, h *smb.Header) error {
 		return c.writeRawError(ctx, h, smb.StatusAccessDenied)
 	}
 	var req smb.SetInfoReq
-	if err := encoder.Unmarshal(raw, &req); err != nil {
+	if err := req.UnmarshalBinary(raw); err != nil {
 		logger.Errorf("SetInfo: decode SetInfoReq: %v", err)
 		return formatErr("decode SetInfoReq", err)
 	}

@@ -26,7 +26,6 @@ import (
 	"context"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // handleWrite processes an SMB2 WRITE.
@@ -50,7 +49,7 @@ func (c *Conn) handleWrite(ctx pduCtx, raw []byte, h *smb.Header) error {
 		return c.writeRawError(ctx, h, smb.StatusAccessDenied)
 	}
 	var req smb.WriteReq
-	if err := encoder.Unmarshal(raw, &req); err != nil {
+	if err := req.UnmarshalBinary(raw); err != nil {
 		logger.Errorf("Write: decode WriteReq: %v", err)
 		return formatErr("decode WriteReq", err)
 	}

@@ -18,8 +18,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // unsolicitedMessageID is the reserved MessageId (MS-SMB2 §3.2.5.19) the server
@@ -53,7 +51,7 @@ func parseOplockBreak(data []byte) (OplockBreak, bool) {
 		return OplockBreak{}, false
 	}
 	var nb OplockBreak
-	if err := encoder.Unmarshal(data, &nb); err != nil {
+	if err := nb.UnmarshalBinary(data); err != nil {
 		log.Errorf("failed to decode oplock break notification: %v\n", err)
 		return OplockBreak{}, false
 	}
@@ -73,8 +71,9 @@ func (c *Connection) handleServerBreak(data []byte) {
 	if c.Session != nil && c.Session.oplockBreakHandler != nil {
 		ackLevel = c.Session.oplockBreakHandler(c, nb)
 	}
+	ack := c.Session.NewOplockBreakAck(nb.FileId, ackLevel)
 	go func() {
-		if _, err := c.send(c.Session.NewOplockBreakAck(nb.FileId, ackLevel)); err != nil {
+		if _, err := c.send(&ack); err != nil {
 			log.Debugf("oplock break ack send failed: %v\n", err)
 		}
 	}()
@@ -94,7 +93,7 @@ func (c *Connection) SendCancel(msgId, asyncId uint64) error {
 		return fmt.Errorf("SendCancel: no session")
 	}
 	req := c.Session.NewCancelReq(msgId, asyncId)
-	buf, err := encoder.Marshal(req)
+	buf, err := req.MarshalBinary()
 	if err != nil {
 		return err
 	}

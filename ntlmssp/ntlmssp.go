@@ -26,8 +26,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 const Signature = "NTLMSSP\x00"
@@ -104,24 +102,24 @@ type Version struct {
 	ProductMajorVersion byte
 	ProductMinorVersion byte
 	ProductBuild        uint16
-	Reserved            []byte `smb:"fixed:3"`
+	Reserved            []byte
 	NTLMRevisionCurrent byte
 }
 
 type Header struct {
-	Signature   []byte `smb:"fixed:8"`
+	Signature   []byte
 	MessageType uint32
 }
 
 type Negotiate struct { // 28 + size of DomainName and Workstation
 	Header
 	NegotiateFlags          uint32
-	DomainNameLen           uint16 `smb:"len:DomainName"`
-	DomainNameMaxLen        uint16 `smb:"len:DomainName"`
-	DomainNameBufferOffset  uint32 `smb:"offset:DomainName"`
-	WorkstationLen          uint16 `smb:"len:Workstation"`
-	WorkstationMaxLen       uint16 `smb:"len:Workstation"`
-	WorkstationBufferOffset uint32 `smb:"offset:Workstation"`
+	DomainNameLen           uint16
+	DomainNameMaxLen        uint16
+	DomainNameBufferOffset  uint32
+	WorkstationLen          uint16
+	WorkstationMaxLen       uint16
+	WorkstationBufferOffset uint32
 	Version                 uint64
 	DomainName              []byte
 	Workstation             []byte
@@ -129,15 +127,15 @@ type Negotiate struct { // 28 + size of DomainName and Workstation
 
 type Challenge struct { // 44 + TargetName + TargetInfo
 	Header
-	TargetNameLen          uint16 `smb:"len:TargetName"`
-	TargetNameMaxLen       uint16 `smb:"len:TargetName"`
-	TargetNameBufferOffset uint32 `smb:"offset:TargetName"`
+	TargetNameLen          uint16
+	TargetNameMaxLen       uint16
+	TargetNameBufferOffset uint32
 	NegotiateFlags         uint32
 	ServerChallenge        uint64
 	Reserved               uint64
-	TargetInfoLen          uint16 `smb:"len:TargetInfo"`
-	TargetInfoMaxLen       uint16 `smb:"len:TargetInfo"`
-	TargetInfoBufferOffset uint32 `smb:"offset:TargetInfo"`
+	TargetInfoLen          uint16
+	TargetInfoMaxLen       uint16
+	TargetInfoBufferOffset uint32
 	Version                uint64
 	TargetName             []byte
 	TargetInfo             *AvPairSlice
@@ -145,36 +143,36 @@ type Challenge struct { // 44 + TargetName + TargetInfo
 
 type Authenticate struct {
 	Header
-	LmChallengeResponseLen                uint16 `smb:"len:LmChallengeResponse"`
-	LmChallengeResponseMaxLen             uint16 `smb:"len:LmChallengeResponse"`
-	LmChallengeResponseBufferOffset       uint32 `smb:"offset:LmChallengeResponse"`
-	NtChallengeResponseLen                uint16 `smb:"len:NtChallengeResponse"`
-	NtChallengeResponseMaxLen             uint16 `smb:"len:NtChallengeResponse"`
-	NtChallengResponseBufferOffset        uint32 `smb:"offset:NtChallengeResponse"`
-	DomainNameLen                         uint16 `smb:"len:DomainName"`
-	DomainNameMaxLen                      uint16 `smb:"len:DomainName"`
-	DomainNameBufferOffset                uint32 `smb:"offset:DomainName"`
-	UserNameLen                           uint16 `smb:"len:UserName"`
-	UserNameMaxLen                        uint16 `smb:"len:UserName"`
-	UserNameBufferOffset                  uint32 `smb:"offset:UserName"`
-	WorkstationLen                        uint16 `smb:"len:Workstation"`
-	WorkstationMaxLen                     uint16 `smb:"len:Workstation"`
-	WorkstationBufferOffset               uint32 `smb:"offset:Workstation"`
-	EncryptedRandomSessionKeyLen          uint16 `smb:"len:EncryptedRandomSessionKey"`
-	EncryptedRandomSessionKeyMaxLen       uint16 `smb:"len:EncryptedRandomSessionKey"`
-	EncryptedRandomSessionKeyBufferOffset uint32 `smb:"offset:EncryptedRandomSessionKey"`
+	LmChallengeResponseLen                uint16
+	LmChallengeResponseMaxLen             uint16
+	LmChallengeResponseBufferOffset       uint32
+	NtChallengeResponseLen                uint16
+	NtChallengeResponseMaxLen             uint16
+	NtChallengResponseBufferOffset        uint32
+	DomainNameLen                         uint16
+	DomainNameMaxLen                      uint16
+	DomainNameBufferOffset                uint32
+	UserNameLen                           uint16
+	UserNameMaxLen                        uint16
+	UserNameBufferOffset                  uint32
+	WorkstationLen                        uint16
+	WorkstationMaxLen                     uint16
+	WorkstationBufferOffset               uint32
+	EncryptedRandomSessionKeyLen          uint16
+	EncryptedRandomSessionKeyMaxLen       uint16
+	EncryptedRandomSessionKeyBufferOffset uint32
 	NegotiateFlags                        uint32
 	Version                               uint64 //`smb:"omitempty:0"` // Added for SMB 3.1.1
-	MIC                                   []byte `smb:"fixed:16"` // Added for SMB 3.1.1
-	DomainName                            []byte `smb:"unicode"`
-	UserName                              []byte `smb:"unicode"`
-	Workstation                           []byte `smb:"unicode"`
+	MIC                                   []byte // Added for SMB 3.1.1
+	DomainName                            []byte
+	UserName                              []byte
+	Workstation                           []byte
 	LmChallengeResponse                   []byte
 	NtChallengeResponse                   []byte
 	EncryptedRandomSessionKey             []byte
 }
 
-func (s *Authenticate) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
+func (s *Authenticate) MarshalBinary() ([]byte, error) {
 	w := bytes.NewBuffer(make([]byte, 0, 64))
 	le := binary.LittleEndian
 	offset := 64 // Start of payload bytes
@@ -463,9 +461,9 @@ func withinBuf(bufLen int, offset uint32, length uint16) bool {
 	return uint64(offset)+uint64(length) <= uint64(bufLen)
 }
 
-func (s *Authenticate) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (s *Authenticate) UnmarshalBinary(buf []byte) error {
 	log.Traceln("In UnmarshalBinary for Authenticate")
-	baseSize := 64
+	baseSize := authenticateMinSize
 	bufLen := len(buf)
 	if bufLen < baseSize {
 		err := fmt.Errorf("authenticate buffer is only %d bytes, but at least 64 bytes is required to unmarshal", bufLen)
@@ -605,64 +603,11 @@ func NewChallenge() Challenge {
 
 type AvPair struct {
 	AvID  uint16
-	AvLen uint16 `smb:"len:Value"`
+	AvLen uint16
 	Value []byte
 }
 type AvPairSlice []AvPair
 
 func (p AvPair) Size() uint64 {
 	return uint64(binary.Size(p.AvID) + binary.Size(p.AvLen) + int(p.AvLen))
-}
-
-func (s *AvPairSlice) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	var ret []byte
-	w := bytes.NewBuffer(ret)
-	for _, pair := range *s {
-		buf, err := encoder.Marshal(pair)
-		if err != nil {
-			return nil, err
-		}
-		if err := binary.Write(w, binary.LittleEndian, buf); err != nil {
-			return nil, err
-		}
-	}
-	return w.Bytes(), nil
-}
-
-func (s *AvPairSlice) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
-	slice := []AvPair{}
-	l, ok := meta.Lens[meta.CurrField]
-	if !ok {
-		return fmt.Errorf("cannot unmarshal field '%s', missing length", meta.CurrField)
-	}
-	o, ok := meta.Offsets[meta.CurrField]
-	if !ok {
-		return fmt.Errorf("cannot unmarshal field '%s', missing offset", meta.CurrField)
-	}
-	// o and l derive from the server-controlled TargetInfo offset/length fields in
-	// the CHALLENGE message; validate them against the parent buffer before
-	// slicing so a malicious server cannot drive an out-of-bounds slice (panic)
-	// here. This path is reached on every NTLM authentication (SMB, LDAP, DCERPC).
-	bufLen := uint64(len(meta.ParentBuf))
-	if o > bufLen || l > bufLen-o {
-		return fmt.Errorf("cannot unmarshal field '%s': offset %d/length %d out of bounds for %d-byte buffer", meta.CurrField, o, l, bufLen)
-	}
-	for i := l; i > 0; {
-		var avPair AvPair
-		err := encoder.Unmarshal(meta.ParentBuf[o:o+i], &avPair)
-		if err != nil {
-			return err
-		}
-		slice = append(slice, avPair)
-		size := avPair.Size()
-		// A zero-size pair would loop forever; a pair larger than the remaining
-		// window would underflow i (uint64) and walk o past the buffer.
-		if size == 0 || size > i {
-			return fmt.Errorf("cannot unmarshal field '%s': malformed AvPair (size %d, remaining %d)", meta.CurrField, size, i)
-		}
-		o += size
-		i -= size
-	}
-	*s = slice
-	return nil
 }

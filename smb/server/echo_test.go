@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/jfjallid/go-smb/smb"
-	"github.com/jfjallid/go-smb/smb/encoder"
 	"github.com/jfjallid/go-smb/smb/server"
 )
 
@@ -50,7 +49,7 @@ func TestEcho(t *testing.T) {
 		},
 		StructureSize: 4,
 	}
-	body, err := encoder.Marshal(req)
+	body, err := req.MarshalBinary()
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -73,7 +72,7 @@ func TestEcho(t *testing.T) {
 	}
 
 	var res smb.EchoRes
-	if err := encoder.Unmarshal(resp, &res); err != nil {
+	if err := res.UnmarshalBinary(resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if res.Header.Status != smb.StatusOk {
@@ -119,7 +118,7 @@ func TestEchoAbortsOnHookError(t *testing.T) {
 		},
 		StructureSize: 4,
 	}
-	body, _ := encoder.Marshal(req)
+	body, _ := req.MarshalBinary()
 	frame := make([]byte, 4+len(body))
 	binary.BigEndian.PutUint32(frame[:4], uint32(len(body)))
 	copy(frame[4:], body)

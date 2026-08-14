@@ -31,8 +31,6 @@ package smb
 import (
 	"encoding/binary"
 	"fmt"
-
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // ---------------------------------------------------------------------------
@@ -41,12 +39,12 @@ import (
 
 // UnmarshalBinary parses an inbound QueryInfo request. The reflection encoder
 // can't drive this because the Buffer slice's length is encoded as
-// InputBufferLength (uint32) rather than via a `smb:"len"` tag.
-func (s *QueryInfoReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+// InputBufferLength (uint32) rather than via a tag.
+func (s *QueryInfoReq) UnmarshalBinary(buf []byte) error {
 	if len(buf) < 64+40 {
 		return fmt.Errorf("QueryInfoReq: buffer too short (%d bytes)", len(buf))
 	}
-	if err := encoder.Unmarshal(buf[:64], &s.Header); err != nil {
+	if err := s.Header.UnmarshalBinary(buf[:64]); err != nil {
 		return err
 	}
 	off := 64
@@ -90,8 +88,8 @@ func (s *QueryInfoReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error
 
 // MarshalBinary serializes an outbound QueryInfo response. The reflection
 // encoder can't drive this because OutputBufferOffset/Length aren't tagged.
-func (s *QueryInfoRes) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	hBuf, err := encoder.Marshal(s.Header)
+func (s *QueryInfoRes) MarshalBinary() ([]byte, error) {
+	hBuf, err := s.Header.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
@@ -113,11 +111,10 @@ func (s *QueryInfoRes) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 // ReadReq.MarshalBinary / UnmarshalBinary
 // ---------------------------------------------------------------------------
 
-// MarshalBinary serializes a Read request. Hand-rolled to mirror the
-// reflection encoder's output, since adding UnmarshalBinary below requires
-// both methods for the BinaryMarshallable interface.
-func (s *ReadReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	hBuf, err := encoder.Marshal(s.Header)
+// MarshalBinary serializes a Read request. Used by the in-tree client to send
+// a READ; the server's counterpart is UnmarshalBinary below.
+func (s *ReadReq) MarshalBinary() ([]byte, error) {
+	hBuf, err := s.Header.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
@@ -151,11 +148,11 @@ func (s *ReadReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 // UnmarshalBinary parses an inbound Read request. The reflection encoder
 // can't drive this because Buffer has no `len:` tag (it's documented as
 // 0-length for SMB 2.1).
-func (s *ReadReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (s *ReadReq) UnmarshalBinary(buf []byte) error {
 	if len(buf) < 64+48 {
 		return fmt.Errorf("ReadReq: buffer too short (%d bytes)", len(buf))
 	}
-	if err := encoder.Unmarshal(buf[:64], &s.Header); err != nil {
+	if err := s.Header.UnmarshalBinary(buf[:64]); err != nil {
 		return err
 	}
 	off := 64
@@ -189,11 +186,10 @@ func (s *ReadReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 // CreateReq.MarshalBinary / UnmarshalBinary
 // ---------------------------------------------------------------------------
 
-// MarshalBinary serializes a Create request. Hand-rolled because adding
-// UnmarshalBinary below makes *CreateReq satisfy BinaryMarshallable, which
-// requires both methods to be present for the encoder to use either.
-func (s *CreateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	hBuf, err := encoder.Marshal(s.Header)
+// MarshalBinary serializes a Create request. Used by the in-tree client to send
+// a CREATE; the server's counterpart is UnmarshalBinary below.
+func (s *CreateReq) MarshalBinary() ([]byte, error) {
+	hBuf, err := s.Header.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
@@ -226,11 +222,11 @@ func (s *CreateReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 // UnmarshalBinary parses an inbound Create request. The reflection encoder
 // can't drive this because Name and CreateContexts share the trailing Buffer
 // slice and use untagged offset/length pairs.
-func (s *CreateReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (s *CreateReq) UnmarshalBinary(buf []byte) error {
 	if len(buf) < 64+57 {
 		return fmt.Errorf("CreateReq: buffer too short (%d bytes)", len(buf))
 	}
-	if err := encoder.Unmarshal(buf[:64], &s.Header); err != nil {
+	if err := s.Header.UnmarshalBinary(buf[:64]); err != nil {
 		return err
 	}
 	off := 64
@@ -327,11 +323,10 @@ func (s *CreateReq) CreateReqContexts() ([]byte, error) {
 // IoCtlReq.MarshalBinary / UnmarshalBinary
 // ---------------------------------------------------------------------------
 
-// MarshalBinary serializes an IOCTL request. Hand-rolled to mirror the
-// reflection encoder's output, since adding UnmarshalBinary below requires
-// both methods to be present for the BinaryMarshallable interface.
-func (s *IoCtlReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	hBuf, err := encoder.Marshal(s.Header)
+// MarshalBinary serializes an IOCTL request. Used by the in-tree client to send
+// an IOCTL; the server's counterpart is UnmarshalBinary below.
+func (s *IoCtlReq) MarshalBinary() ([]byte, error) {
+	hBuf, err := s.Header.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
@@ -365,11 +360,11 @@ func (s *IoCtlReq) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
 // UnmarshalBinary parses an inbound IOCTL request. The reflection encoder's
 // multi-offset-tag handling is unreliable for this layout (InputOffset and
 // OutputOffset both reference the same Buffer field), so it's hand-rolled.
-func (s *IoCtlReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+func (s *IoCtlReq) UnmarshalBinary(buf []byte) error {
 	if len(buf) < 64+56 {
 		return fmt.Errorf("IoCtlReq: buffer too short (%d bytes)", len(buf))
 	}
-	if err := encoder.Unmarshal(buf[:64], &s.Header); err != nil {
+	if err := s.Header.UnmarshalBinary(buf[:64]); err != nil {
 		return err
 	}
 	off := 64
@@ -410,16 +405,14 @@ func (s *IoCtlReq) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 	return nil
 }
 
-// UnmarshalBinary parses an IOCTL Response (MS-SMB2 §2.2.32). Defined
-// alongside MarshalBinary because encoder.BinaryMarshallable requires
-// both methods to be present for the custom MarshalBinary to dispatch.
-// Used by the in-tree client (smb.Connection.WriteIoCtlReq) to parse the
-// server's reply; the server itself never receives an IOCTL response.
-func (s *IoCtlRes) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
+// UnmarshalBinary parses an IOCTL Response (MS-SMB2 §2.2.32). Used by the
+// in-tree client (smb.Connection.WriteIoCtlReq) to parse the server's reply;
+// the server itself never receives an IOCTL response.
+func (s *IoCtlRes) UnmarshalBinary(buf []byte) error {
 	if len(buf) < 64+48 {
 		return fmt.Errorf("IoCtlRes too short: %d bytes", len(buf))
 	}
-	if err := encoder.Unmarshal(buf[:64], &s.Header); err != nil {
+	if err := s.Header.UnmarshalBinary(buf[:64]); err != nil {
 		return fmt.Errorf("IoCtlRes header: %w", err)
 	}
 	body := buf[64:]
@@ -452,8 +445,8 @@ func (s *IoCtlRes) UnmarshalBinary(buf []byte, meta *encoder.Metadata) error {
 // IOCTL response only the OutputBuffer is meaningful (InputCount must be 0).
 // Hand-rolled here so InputCount=0 / InputOffset=0 and OutputBuffer carries
 // the payload at offset 64+48 = 112.
-func (s *IoCtlRes) MarshalBinary(meta *encoder.Metadata) ([]byte, error) {
-	hBuf, err := encoder.Marshal(s.Header)
+func (s *IoCtlRes) MarshalBinary() ([]byte, error) {
+	hBuf, err := s.Header.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}

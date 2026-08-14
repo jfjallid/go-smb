@@ -30,7 +30,6 @@ import (
 
 	"github.com/jfjallid/go-smb/smb"
 	"github.com/jfjallid/go-smb/smb/crypto/ccm"
-	"github.com/jfjallid/go-smb/smb/encoder"
 )
 
 // deriveEncryptionKeys initializes session.encrypter / decrypter when the
@@ -152,7 +151,7 @@ func encryptOutbound(s *Session, plaintext []byte) ([]byte, error) {
 	copy(tHdr.Nonce, nonce)
 	tHdr.OriginalMessageSize = uint32(len(plaintext))
 	tHdr.SessionId = s.ID
-	tHdrBytes, err := encoder.Marshal(tHdr)
+	tHdrBytes, err := tHdr.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +184,7 @@ func (c *Conn) decryptInbound(raw []byte) ([]byte, *Session, error) {
 		return nil, nil, fmt.Errorf("decryptInbound: not a TransformHeader (% x)", raw[0:4])
 	}
 	tHdr := smb.NewTransformHeader()
-	if err := encoder.Unmarshal(raw[:52], &tHdr); err != nil {
+	if err := tHdr.UnmarshalBinary(raw[:52]); err != nil {
 		return nil, nil, formatErr("decode TransformHeader", err)
 	}
 	// SMB 3.x mandates the Encrypted flag (=1) on inbound transforms.
