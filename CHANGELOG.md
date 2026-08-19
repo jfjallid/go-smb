@@ -273,7 +273,11 @@ error. Dialect revisions are logged as friendly version strings.
   `smb/compress` package, with both the chained and unchained transform wire
   forms. Opt in with `smb.Options.Compression` on the client and
   `server.ServerConfig.Compression` on the server; `CompressionAlgorithms`
-  overrides the offered set on either side.
+  overrides the offered set on either side. The option covers both directions:
+  outbound PDUs are compressed when that pays off, and READ requests carry
+  `SMB2_READFLAG_REQUEST_COMPRESSED` (MS-SMB2 §2.2.19) so the server compresses
+  what it sends back. There is no per-direction switch. A peer stays free to
+  answer uncompressed — Windows gates its side per-share on `-CompressData`.
 - Compression is applied before encryption and after signing, per MS-SMB2
   §3.1.4.1. Inbound frames are rejected outright until compression has actually
   been negotiated, so an unnegotiated peer cannot drive the decompressor, and a
@@ -285,6 +289,13 @@ error. Dialect revisions are logged as friendly version strings.
   the other on failure. Both forms verify the reconstructed length against the
   size the sender declared, so a wrong guess errors rather than yielding wrong
   bytes.
+- **`Connection.CompressionStats()` reports compression-transform frames sent
+  and received.** A compressed transfer is byte-identical to an uncompressed
+  one, so a counter is the only way to tell a connection that merely negotiated
+  compression from one that is actually using it.
+- **Exercised against Windows Server 2022**, which negotiates LZ77+Huffman and
+  Pattern_V1 but not plain LZ77 — so LZ77+Huffman carries every compressed PDU,
+  including bulk WRITEs at `MaxWriteSize` of 1 MiB and up.
 
 ### Client correctness and robustness
 

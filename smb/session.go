@@ -124,6 +124,11 @@ type Session struct {
 	// oplock break notification and returns the oplock level to acknowledge.
 	// nil means "acknowledge down to None".
 	oplockBreakHandler OplockBreakHandler
+	// compressReads records that every READ request may carry
+	// ReadFlagRequestCompressed. NegotiateProtocol sets it only once the
+	// connection is on 3.1.1 with a compression context we can decode, so
+	// NewReadReq does not have to re-check.
+	compressReads bool
 }
 
 // treeConnect records the per-share state returned by an SMB2 TREE_CONNECT
@@ -197,8 +202,12 @@ type Options struct {
 	// Compression opts the SMB 3.1.1 client into offering an
 	// SMB2_COMPRESSION_CAPABILITIES context. When the server also supports it,
 	// the connection may send and receive compression-transform (0xFCSMB)
-	// frames. Once offered, the server may send us compressed frames, so
-	// decompression is always active for a negotiated connection.
+	// frames. It covers both directions: outbound PDUs are compressed when that
+	// pays off, and READ requests carry SMB2_READFLAG_REQUEST_COMPRESSED so the
+	// server compresses its responses too (it remains free to decline; Windows
+	// gates its side per-share on -CompressData). Once offered, the server may
+	// send us compressed frames, so decompression is always active for a
+	// negotiated connection.
 	Compression bool
 	// CompressionAlgorithms, when non-nil, overrides the offered algorithm set
 	// (preference order). Leaving it nil offers the default
@@ -614,7 +623,12 @@ func (c *Connection) NegotiateProtocol() (err error) {
 			}
 			chained := cc.Flags&CompressionCapabilitiesFlagChained != 0
 			c.compression.Configure(negotiated, chained, compress.DefaultMinSize)
-			log.Debugf("negotiated compression algorithms %v (chained=%v)\n", negotiated, chained)
+			// Asking the server to compress its READ responses is part of
+			// turning compression on, not a separate decision: this branch is
+			// 3.1.1-only and runs after Configure, so both preconditions of the
+			// flag hold by construction.
+			c.compressReads = c.compression.Negotiated()
+			log.Debugf("negotiated compression algorithms %v (chained=%v, compressReads=%v)\n", negotiated, chained, c.compressReads)
 
 		default:
 			log.Debugf("Unsupported context type (%d)\n", context.ContextType)

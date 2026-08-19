@@ -37,6 +37,9 @@ import (
 const (
 	lz77MinMatch  = 3
 	lz77MaxOffset = 8192 // 13-bit offset field: offset-1 must fit in 13 bits
+	// lz77MaxMatch bounds a single match. The 32-bit length escape allows far
+	// more; this only keeps match scanning bounded.
+	lz77MaxMatch = 16 << 20
 )
 
 // lz77Decompress implements MS-XCA §2.4. originalSize is the expected output
@@ -69,7 +72,12 @@ func lz77Decompress(input []byte, originalSize int) ([]byte, error) {
 			out = append(out, input[inPos])
 			inPos++
 		} else {
-			// Match.
+			// Match. A match bit with no input left is the MS-XCA §2.4
+			// end-of-stream marker, not a truncation: encoders pad the unused
+			// trailing flag bits of the final group with ones.
+			if inPos == len(input) {
+				break
+			}
 			if inPos+2 > len(input) {
 				return nil, fmt.Errorf("compress/lz77: truncated match word at %d", inPos)
 			}
@@ -105,7 +113,21 @@ func lz77Decompress(input []byte, originalSize int) ([]byte, error) {
 						}
 						length = int(binary.LittleEndian.Uint16(input[inPos:]))
 						inPos += 2
+						if length == 0 {
+							// A zero word escapes to a 32-bit length, for
+							// matches too long to encode in 16 bits. Windows
+							// emits this for any run over ~64 KiB, so without it
+							// a Windows-produced stream derails here.
+							if inPos+4 > len(input) {
+								return nil, fmt.Errorf("compress/lz77: truncated 32-bit length at %d", inPos)
+							}
+							length = int(binary.LittleEndian.Uint32(input[inPos:]))
+							inPos += 4
+						}
 						length -= 15 + 7
+						if length < 0 {
+							return nil, fmt.Errorf("compress/lz77: match length underflows at %d", inPos)
+						}
 					}
 					length += 15
 				}
@@ -175,18 +197,24 @@ func lz77Compress(src []byte) []byte {
 	flushIndicator := func() {
 		binary.LittleEndian.PutUint32(out[indicatorPos:], indicator)
 	}
+	// Groups start all-ones and literals clear their bit, so the unused trailing
+	// bits of the final (partial) group are left set. MS-XCA §2.4 terminates
+	// decompression on a match bit with no input remaining, so those trailing
+	// ones are the end-of-stream marker. Zero-filling them instead tells the
+	// decompressor a literal follows, and it reads past the end of the buffer:
+	// Windows answers STATUS_BAD_COMPRESSION_BUFFER and drops the connection.
 	newGroup := func() {
 		indicatorPos = len(out)
-		out = append(out, 0, 0, 0, 0)
-		indicator = 0
+		out = append(out, 0xff, 0xff, 0xff, 0xff)
+		indicator = 0xFFFFFFFF
 		indicatorBit = 31
 	}
 	setBit := func(one bool) {
 		if indicatorBit < 0 {
 			newGroup()
 		}
-		if one {
-			indicator |= 1 << uint(indicatorBit)
+		if !one {
+			indicator &^= 1 << uint(indicatorBit)
 		}
 		indicatorBit--
 		if indicatorBit < 0 {
@@ -239,8 +267,14 @@ func lz77Compress(src []byte) []byte {
 			i++
 		}
 	}
-	// Backfill the final (partial) indicator word.
 	if indicatorBit >= 0 {
+		// Backfill the final partial group; its unused bits are already ones.
+		flushIndicator()
+	} else {
+		// The last group was filled exactly, so nothing is left to terminate
+		// on. Emit an all-ones group: the decompressor reads it, hits a match
+		// bit with no input remaining, and stops.
+		newGroup()
 		flushIndicator()
 	}
 	return out
@@ -252,7 +286,7 @@ func matchLen(src []byte, a, b int) int {
 	n := 0
 	for b+n < len(src) && src[a+n] == src[b+n] {
 		n++
-		if n == 0xffff+lz77MinMatch { // keep length encodable
+		if n == lz77MaxMatch {
 			break
 		}
 	}
@@ -285,7 +319,13 @@ func encodeLz77Match(out *[]byte, nibblePos *int, length, offset int) {
 		return
 	}
 	*out = append(*out, 255)
-	*out = appendU16(*out, uint16(length-lz77MinMatch)) // word branch: match = word + 3
+	if v := length - lz77MinMatch; v <= 0xffff {
+		*out = appendU16(*out, uint16(v)) // word branch: match = word + 3
+	} else {
+		// A zero word escapes to a 32-bit length.
+		*out = appendU16(*out, 0)
+		*out = appendLE32(*out, uint32(v))
+	}
 }
 
 // writeNibble stores v in the low nibble of a fresh byte (recording its
@@ -303,4 +343,8 @@ func writeNibble(out *[]byte, nibblePos *int, v byte) {
 
 func appendU16(b []byte, v uint16) []byte {
 	return append(b, byte(v), byte(v>>8))
+}
+
+func appendLE32(b []byte, v uint32) []byte {
+	return append(b, byte(v), byte(v>>8), byte(v>>16), byte(v>>24))
 }

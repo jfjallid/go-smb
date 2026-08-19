@@ -32,12 +32,12 @@ import (
 // handles the full format: multi-block (64 KiB), the aligned length-extension
 // ladder (byte/uint16/uint32), and distances up to 15 extra bits.
 //
-// The encoder is deliberately restricted to what round-trips bit-exactly with
-// the least machinery: a single ≤64 KiB block, and matches capped at length 17
-// so the Huffman length nibble is never 15 — which means no aligned
-// length-extension bytes are ever emitted, so the bitstream and byte cursor do
-// not interleave. Larger inputs are the caller's responsibility (fall back to
-// LZ77 plain or send uncompressed).
+// The encoder emits the same multi-block structure but is otherwise restricted
+// to what round-trips bit-exactly with the least machinery: matches are capped
+// at length 17 so the Huffman length nibble is never 15 — which means no
+// aligned length-extension bytes are ever emitted, so the bitstream and byte
+// cursor do not interleave — and no match reaches back across a block
+// boundary.
 
 const (
 	huffAlphabet    = 512
@@ -306,12 +306,44 @@ func (t huffToken) symbolOf() uint16 {
 	return uint16(256 + (distanceBits << 4) + (t.length - huffMinMatch))
 }
 
+// lz77HuffmanCompress emits one Huffman block per 65536 bytes of input, which
+// is what the format requires and what the decoder above already expects: it
+// re-reads a code table and re-primes the bit reader every huffBlockSize bytes
+// of *output*. A single block therefore caps at 64 KiB, and since an SMB WRITE
+// PDU is normally MaxWriteSize (1 MiB and up), a single-block encoder could
+// never compress a bulk transfer at all.
+//
+// Blocks are compressed independently — no match reaches back across a block
+// boundary. The format permits back-references into the previous block (the
+// 16-bit distance field cannot reach further than that anyway), but declining
+// to emit them costs almost nothing on real payloads and keeps every block
+// decodable in isolation.
 func lz77HuffmanCompress(src []byte) ([]byte, error) {
 	if len(src) == 0 {
 		return nil, fmt.Errorf("compress/huffman: refusing to compress empty input")
 	}
+
+	var out []byte
+	for start := 0; start < len(src); start += huffBlockSize {
+		end := start + huffBlockSize
+		if end > len(src) {
+			end = len(src)
+		}
+		blk, err := lz77HuffmanCompressBlock(src[start:end], end == len(src))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, blk...)
+	}
+	return out, nil
+}
+
+// lz77HuffmanCompressBlock encodes one block of at most huffBlockSize bytes:
+// the 256-byte code-length table followed by the bitstream. last selects the
+// trailing padding — see huffBitWriter.finish.
+func lz77HuffmanCompressBlock(src []byte, last bool) ([]byte, error) {
 	if len(src) > huffBlockSize {
-		return nil, fmt.Errorf("compress/huffman: input %d exceeds single-block limit %d", len(src), huffBlockSize)
+		return nil, fmt.Errorf("compress/huffman: block %d exceeds limit %d", len(src), huffBlockSize)
 	}
 
 	tokens := huffTokenize(src)
@@ -342,7 +374,7 @@ func lz77HuffmanCompress(src []byte) ([]byte, error) {
 			bw.writeBits(uint32(extra), distanceBits)
 		}
 	}
-	bitBytes := bw.finish()
+	bitBytes := bw.finish(last)
 	out = append(out, bitBytes...)
 	return out, nil
 }
@@ -380,6 +412,15 @@ func huffTokenize(src []byte) []huffToken {
 				if l > bestLen {
 					bestLen = l
 					bestDist = i - cand
+					// huffMaxEncMatch is the longest match this encoder will
+					// emit, so once one is found no candidate further down the
+					// chain can beat it. Without this the walk pays for all 64
+					// candidates on exactly the repetitive input where every
+					// one of them matches — a ~9x cost on compressible data,
+					// for a bit-identical result.
+					if bestLen == huffMaxEncMatch {
+						break
+					}
 				}
 				cand = prev[cand]
 			}
@@ -433,20 +474,32 @@ func (w *huffBitWriter) writeBits(v uint32, n int) {
 // finish flushes a partial word (left-justified, zero-padded) and appends the
 // look-ahead words the decoder needs. The decoder primes two 16-bit words and
 // always pulls one word ahead of the word it is consuming, so to decode the
-// final data word it fetches the following word; two trailing zero words
-// guarantee that pull (and the initial two-word prime) never underruns. Windows
-// encoders pad for the same reason; the trailing bytes are inside the declared
+// final data word it fetches the following word; trailing zero words guarantee
+// that pull (and the initial two-word prime) never underruns. Windows encoders
+// pad for the same reason; the trailing bytes are inside the declared
 // compressed length and are ignored once the output size is reached.
-func (w *huffBitWriter) finish() []byte {
+//
+// How much padding depends on whether another block follows. Consuming C bits
+// leaves the reader's byte cursor at 4+2*floor((C-1)/16) — two bytes short of
+// the 2*ceil(C/16) bytes of data words the writer emitted, because the reader
+// primes 32 bits but only pulls once it is down to 16. A following block's code
+// table must start exactly where that cursor lands, so an interior block pads
+// with one word and the final block with two: past the end of the last block
+// nothing has to line up, and the second word keeps a final pull from
+// underrunning the buffer.
+func (w *huffBitWriter) finish(last bool) []byte {
 	if w.bitsInWord > 0 {
 		w.word <<= uint(16 - w.bitsInWord)
 		w.out = append(w.out, byte(w.word), byte(w.word>>8))
 		w.word = 0
 		w.bitsInWord = 0
 	}
-	w.out = append(w.out, 0, 0, 0, 0) // two look-ahead words
-	for len(w.out) < 4 {
-		w.out = append(w.out, 0)
+	w.out = append(w.out, 0, 0) // look-ahead word
+	if last {
+		w.out = append(w.out, 0, 0)
+		for len(w.out) < 4 {
+			w.out = append(w.out, 0)
+		}
 	}
 	return w.out
 }

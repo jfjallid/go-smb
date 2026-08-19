@@ -72,14 +72,20 @@ type Connection struct {
 	// inactive until NegotiateProtocol configures it, so an unnegotiated peer
 	// cannot drive the decompressor.
 	compression compress.Codec
-	wdone       chan struct{}
-	rdone       chan struct{}
-	write       chan []byte
-	werr        chan error
-	m           sync.Mutex
-	err         error
-	useProxy    bool
-	_useSession int32
+	// compressedSent and compressedRecv count compression-transform frames on
+	// this connection. Compression is invisible above the transport — a
+	// correct transfer looks identical either way — so these are the only way
+	// a caller (or an interop test) can tell whether it actually happened.
+	compressedSent atomic.Uint64
+	compressedRecv atomic.Uint64
+	wdone          chan struct{}
+	rdone          chan struct{}
+	write          chan []byte
+	werr           chan error
+	m              sync.Mutex
+	err            error
+	useProxy       bool
+	_useSession    int32
 	// closeOnce guards Close so that the idiomatic "defer c.Close()" plus an
 	// explicit Close on an error path does not panic on a double channel close.
 	closeOnce sync.Once
@@ -270,6 +276,7 @@ func (c *Connection) runReceiver() {
 					log.Errorf("Skip: Failed to decompress packet: %s\n", err)
 					continue
 				}
+				c.compressedRecv.Add(1)
 			}
 
 			if len(data) < 64 {
@@ -609,7 +616,7 @@ func (c *Connection) makeRequestResponse(buf []byte, credited bool) (rr *request
 				// Order (MS-SMB2 §3.1.4.1): compress the plaintext SMB2 PDU,
 				// then encrypt the (possibly) compressed frame. Signing is
 				// skipped — the AEAD tag carries integrity.
-				buf = c.compression.Compress(buf)
+				buf = c.compressAndCount(buf)
 				buf, err = c.encrypt(buf)
 				if err != nil {
 					return
@@ -629,7 +636,7 @@ func (c *Connection) makeRequestResponse(buf []byte, credited bool) (rr *request
 				}
 				// Sign first, then compress (the compression frame preserves the
 				// signed SMB2 bytes verbatim).
-				buf = c.compression.Compress(buf)
+				buf = c.compressAndCount(buf)
 			}
 		}
 	}
@@ -643,6 +650,17 @@ func (c *Connection) makeRequestResponse(buf []byte, credited bool) (rr *request
 	c.outstandingRequests.set(messageID, rr)
 
 	return
+}
+
+// compressAndCount is Codec.Compress plus the bookkeeping. Compress declines
+// silently whenever framing would not pay off, so whether a frame was emitted
+// is only knowable by looking at what came back.
+func (c *Connection) compressAndCount(buf []byte) []byte {
+	out := c.compression.Compress(buf)
+	if compress.IsCompressionFrame(out) {
+		c.compressedSent.Add(1)
+	}
+	return out
 }
 
 func (c *Connection) sendrecv(req Marshaller) (buf []byte, err error) {

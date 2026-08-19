@@ -82,15 +82,12 @@ func IsCompressionFrame(buf []byte) bool {
 }
 
 // pickAlgorithm returns the first negotiated algorithm this package can compress
-// with for a payload of the given size (Huffman is single-block only).
-func (c *Config) pickAlgorithm(size int) (uint16, bool) {
+// with. Both encoders handle any payload size, so preference order alone
+// decides; Pattern_V1 is decode-only and never picked here.
+func (c *Config) pickAlgorithm() (uint16, bool) {
 	for _, a := range c.Algorithms {
 		switch a {
-		case LZ77Huffman:
-			if size <= huffBlockSize {
-				return a, true
-			}
-		case LZ77:
+		case LZ77Huffman, LZ77:
 			return a, true
 		}
 	}
@@ -105,7 +102,7 @@ func (c *Config) Frame(pdu []byte) ([]byte, bool) {
 	if len(pdu) < c.MinSize || len(c.Algorithms) == 0 {
 		return pdu, false
 	}
-	alg, ok := c.pickAlgorithm(len(pdu))
+	alg, ok := c.pickAlgorithm()
 	if !ok {
 		return pdu, false
 	}

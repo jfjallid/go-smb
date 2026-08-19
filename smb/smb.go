@@ -1159,6 +1159,19 @@ type FlushRes struct {
 	Reserved      uint16
 }
 
+// READ Request Flags (MS-SMB2 §2.2.19). Both MUST be 0 on dialects that do not
+// define them: ReadFlagReadUnbuffered is valid from 3.0.2, and
+// ReadFlagRequestCompressed only on 3.1.1 when compression was negotiated.
+const (
+	// ReadFlagReadUnbuffered asks the server to bypass its cache for this read.
+	ReadFlagReadUnbuffered byte = 0x01
+	// ReadFlagRequestCompressed asks the server to compress the READ response.
+	// It is the only way to get compressed data back: transport compression is
+	// a sender-side decision, so without this flag a server has no reason to
+	// frame a read response even on a compression-negotiated connection.
+	ReadFlagRequestCompressed byte = 0x02
+)
+
 type ReadReq struct {
 	Header
 	StructureSize         uint16 // Must always be 49 regardless of Buffer size
@@ -2000,11 +2013,18 @@ func (s *Session) NewReadReq(share string, fileid []byte,
 	header.SessionID = s.sessionID
 	header.TreeID = s.treeId(share)
 
+	// compressReads is only ever set once the negotiate confirmed 3.1.1 plus a
+	// usable compression context, which is exactly when the flag is legal.
+	var flags byte
+	if s.compressReads {
+		flags = ReadFlagRequestCompressed
+	}
+
 	return ReadReq{
 		Header:                header, //Size 64 bytes
 		StructureSize:         49,
 		Padding:               0,
-		Flags:                 0,
+		Flags:                 flags,
 		Length:                length,
 		Offset:                offset,
 		FileId:                fileid,
