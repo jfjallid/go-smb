@@ -11,7 +11,7 @@ require (
 	github.com/jfjallid/golog v0.4.0
 	github.com/jfjallid/ldap/v3 v3.102.0
 	github.com/jfjallid/mstypes v0.0.2
-	github.com/jfjallid/ndr v0.1.1
+	github.com/jfjallid/ndr v0.2.0
 	golang.org/x/net v0.50.0
 	golang.org/x/term v0.40.0
 )

@@ -142,7 +142,7 @@ func TestSamrEnumDomainsRes(t *testing.T) {
 
 func TestSamrLookupDomainReq(t *testing.T) {
 	// Simple test to verify that the packet structure is valid
-	pkt, _ := hex.DecodeString("00000000f25d62c2f570cd4cba8f5909bc7eebd60e000e00000002000700000000000000070000004200750069006c00740069006e000000")
+	pkt, _ := hex.DecodeString("00000000f25d62c2f570cd4cba8f5909bc7eebd60e000e00000002000700000000000000070000004200750069006c00740069006e00")
 	handle := toHandle("00000000f25d62c2f570cd4cba8f5909bc7eebd6")
 
 	req := SamrLookupDomainReq{

@@ -16,8 +16,8 @@ github.com/jfjallid/ldap/v3 v3.102.0 h1:DFnptZdciVLGrvDVgT1bheR3WDqkUuSI1fL4Bw/+
 github.com/jfjallid/ldap/v3 v3.102.0/go.mod h1:64QONcfCOiwd5+3ZijLRwp1Ywzwk6DkzBQmweUphQ8E=
 github.com/jfjallid/mstypes v0.0.2 h1:bYXHnkT7qnfdgc3wSKnPKcRo3jrjY+FV/HqwaYbi4zY=
 github.com/jfjallid/mstypes v0.0.2/go.mod h1:a3RS3XrUS/+1FbmUNDHB2cJ878Z//brwfxBTG9PB9/M=
-github.com/jfjallid/ndr v0.1.1 h1:2Go7AitvAuQ0WPmZrMsLA3qKxVXIYu3teA/sDxuQExE=
-github.com/jfjallid/ndr v0.1.1/go.mod h1:UMz28tesCXi88OhCL4EGJMEU9I6nb717O4vy3yFOatA=
+github.com/jfjallid/ndr v0.2.0 h1:ezGAN01UNGJeEAuFfZPuLgSQP461xk+cUeMJSFEIHHU=
+github.com/jfjallid/ndr v0.2.0/go.mod h1:UMz28tesCXi88OhCL4EGJMEU9I6nb717O4vy3yFOatA=
 github.com/jfjallid/testify v0.0.0-20240505093606-b0b4c2a12e2c h1:4xmu4RBtk4WRsxHlbGmMBWodpD3icIXds3E0+D1txqg=
 github.com/jfjallid/testify v0.0.0-20240505093606-b0b4c2a12e2c/go.mod h1:k45WdLrv9BzQjSZ2VHiEzHrS8rKE59dlfwUiYamw/Vo=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

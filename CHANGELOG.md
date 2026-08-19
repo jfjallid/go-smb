@@ -455,6 +455,21 @@ structure. See *Breaking changes* above for the API migration.
   without synchronisation while `TestPipeHandlerConcurrentTransceive` drove it
   from eight goroutines. The production `PipeHandler` was correct.
 
+### Dependency
+
+- **`github.com/jfjallid/ndr` v0.1.1 → v0.2.0.** Brings bounds on wire-driven
+  element counts before allocation, strict `ndr:"..."` tag validation,
+  `ErrMalformed` wrapping, and a fix to the header-mode alignment origin.
+  The wire-visible change is that the encoder **no longer emits trailing
+  padding after string or array data**. NDR aligns each primitive before
+  writing it and has no concept of a trailing pad, so padding a message out to
+  a 4/8-byte boundary is the DCERPC stub's concern, one layer up — go-smb
+  already does it where the spec requires, when aligning `sec_trailer`. The old
+  behaviour also desynchronised the decoder for any string followed by a field
+  of alignment < 4. Two request vectors in `dcerpc/mssamr` and `dcerpc/msscmr`
+  are updated to match; a Windows Server 2019 DC accepts the unpadded stubs in
+  both plain and sealed (PktPrivacy) DCERPC.
+
 ## [0.11.0] — 2026-07-06
 
 Headline items this cycle are a logging and error-handling overhaul, a pass
