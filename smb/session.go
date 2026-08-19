@@ -2780,3 +2780,66 @@ func (c *Connection) SessionID() uint64 {
 func (c *Connection) TreeID(share string) uint32 {
 	return c.treeId(share)
 }
+
+// Dialect returns the SMB2 dialect revision the connection negotiated, or 0
+// before NegotiateProtocol completes. Use DialectString to render it.
+func (c *Connection) Dialect() uint16 {
+	return c.dialect
+}
+
+// Cipher returns the negotiated SMB 3.1.1 encryption algorithm (one of the
+// AES128CCM/AES128GCM/AES256CCM/AES256GCM constants), or CipherNone when the
+// session negotiated no cipher. For dialects below 3.1.1 the cipher is implied
+// by the dialect rather than negotiated, so this reports AES128CCM on a 3.0/
+// 3.0.2 session that supports encryption.
+func (c *Connection) Cipher() uint16 {
+	return c.cipherId
+}
+
+// Capabilities returns the server capability flags accepted for this connection
+// (the SMB2_GLOBAL_CAP_* set), or 0 before NegotiateProtocol completes.
+func (c *Connection) Capabilities() uint32 {
+	return c.capabilities
+}
+
+// CompressionInfo reports the negotiated SMB2/3 compression state: the agreed
+// algorithm set in preference order, whether the chained transform wire form
+// was negotiated, and whether compression is active at all. When negotiated is
+// false the other two are meaningless — the connection neither sends nor
+// accepts compression-transform frames.
+func (c *Connection) CompressionInfo() (algorithms []uint16, chained bool, negotiated bool) {
+	if !c.compression.Negotiated() {
+		return nil, false, false
+	}
+	return append([]uint16(nil), c.compression.Algorithms...), c.compression.Chained, true
+}
+
+// CompressionStats reports how many compression-transform frames this
+// connection has sent and received. A transfer is byte-identical whether or not
+// it was compressed, so these counters are what distinguishes "compression is
+// negotiated" from "compression is happening" — in particular, received stays
+// at zero unless the server chose to compress — for READ responses, that the
+// server honored the request flag every read carries.
+func (c *Connection) CompressionStats() (sent, received uint64) {
+	return c.compressedSent.Load(), c.compressedRecv.Load()
+}
+
+// MaxReadSize returns the server-advertised maximum READ payload, or 0 before
+// NegotiateProtocol completes. A single ReadFile is bounded by this and by the
+// current credit window, which is why reads may come back short.
+func (c *Connection) MaxReadSize() uint32 {
+	return c.maxReadSize
+}
+
+// MaxWriteSize returns the server-advertised maximum WRITE payload, or 0 before
+// NegotiateProtocol completes.
+func (c *Connection) MaxWriteSize() uint32 {
+	return c.maxWriteSize
+}
+
+// SupportsMultiCredit reports whether the server granted the large-MTU
+// capability, which is what allows a single READ/WRITE to exceed 64 KiB by
+// charging several credits.
+func (c *Connection) SupportsMultiCredit() bool {
+	return c.supportsMultiCredit
+}

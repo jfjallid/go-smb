@@ -219,6 +219,15 @@ during marshalling and must no longer be supplied by the caller.
   Linux clients can now mount a go-smb share; Windows and SPNEGO clients are
   unaffected. The client can opt into offering it via the new
   `Options.RawNTLMSSP` (NTLM only; requires a `*spnego.NTLMInitiator`).
+- **Negotiated-state accessors.** `smb.Connection` gains read-only accessors for
+  state that was previously only observable through debug logging: `Dialect()`
+  (with `DialectString` to render it), `Cipher()`, `Capabilities()`,
+  `CompressionInfo()` (agreed algorithms, chained wire form, and whether
+  compression is active at all), `MaxReadSize()`, `MaxWriteSize()` and
+  `SupportsMultiCredit()`. These exist so a caller — or a test — can assert on
+  what was actually negotiated rather than on what was offered, which is the
+  only way to catch a silent dialect downgrade or a compression context the
+  server declined.
 
 ### Server interoperability fixes
 
@@ -522,6 +531,14 @@ accepts the AP-REQ outright and authentication completes in a single leg:
   `dcerpc/server`'s `fakeService` recorded the last dispatched opnum and stub
   without synchronisation while `TestPipeHandlerConcurrentTransceive` drove it
   from eight goroutines. The production `PipeHandler` was correct.
+- **Validated against live Windows servers.** The protocol options added this
+  cycle — dialect selection, per-share encryption, credit flow control,
+  compression, context cancellation — are not reachable from the tools built on
+  this library, so until now they were only ever exercised against the in-repo
+  server, which shares its own assumptions with the client. Testing against a
+  Windows Server 2022 domain controller is what surfaced the LZXPRESS Plain
+  framing, the oplock-break signing rule, and the credit-headroom behaviour
+  described above.
 
 ### Dependency
 
