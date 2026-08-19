@@ -87,11 +87,23 @@ type durableHandle struct {
 }
 
 // durableKey identifies a parked handle. A v2 grant is looked up by CreateGuid,
-// a v1 grant by FileId; keying on both in one map keeps a single table and one
-// lock.
+// a v1 grant by FileId; keying on whichever applies keeps a single table and one
+// lock. Only one field is ever set — keying on both at once would require the
+// client to echo back the FileId, and MS-SMB2 §3.3.5.9.12 keys a v2 reconnect on
+// the CreateGuid alone. Windows sends an all-zero FileId in DH2C, so a composite
+// key never matches and every v2 reconnect is refused.
 type durableKey struct {
 	guid   [16]byte
 	fileID [16]byte
+}
+
+// durableKeyFor selects the lookup key: CreateGuid for a v2 grant (which always
+// carries one), FileId for v1.
+func durableKeyFor(guid, fileID [16]byte) durableKey {
+	if guid != ([16]byte{}) {
+		return durableKey{guid: guid}
+	}
+	return durableKey{fileID: fileID}
 }
 
 // durableTable holds every durable handle known to a Server.
@@ -140,7 +152,7 @@ func (s *Server) registerDurable(d *durableHandle) {
 	if s.durables.byKey == nil {
 		s.durables.byKey = make(map[durableKey]*durableHandle)
 	}
-	s.durables.byKey[durableKey{guid: d.CreateGuid, fileID: d.FileID}] = d
+	s.durables.byKey[durableKeyFor(d.CreateGuid, d.FileID)] = d
 	s.startDurableReaperLocked()
 }
 
@@ -149,7 +161,7 @@ func (s *Server) registerDurable(d *durableHandle) {
 func (s *Server) unregisterDurable(guid, fileID [16]byte) {
 	s.durables.mu.Lock()
 	defer s.durables.mu.Unlock()
-	delete(s.durables.byKey, durableKey{guid: guid, fileID: fileID})
+	delete(s.durables.byKey, durableKeyFor(guid, fileID))
 }
 
 // findDurableForHandle locates the grant covering a live handle, if any. Used
@@ -184,8 +196,7 @@ func (s *Server) reclaimDurable(guid, fileID [16]byte, share, username, domain s
 	s.durables.mu.Lock()
 	defer s.durables.mu.Unlock()
 
-	key := durableKey{guid: guid, fileID: fileID}
-	d, ok := s.durables.byKey[key]
+	d, ok := s.durables.byKey[durableKeyFor(guid, fileID)]
 	if !ok {
 		return nil, false
 	}

@@ -26,3 +26,11 @@ package server
 func DeriveSigningKey311ForTest(sessionKey, preauthHash []byte) []byte {
 	return kdfHmacSha256(sessionKey, []byte("SMBSigningKey\x00"), preauthHash, 128)
 }
+
+// SendUnsignedForTest is a test-only re-export of the raw, unsigned send path.
+// Tests use it to inject an unsolicited oplock break the way Windows sends one:
+// on the reserved MessageId and without SMB2_FLAGS_SIGNED, even when the
+// session requires signing.
+func (c *Conn) SendUnsignedForTest(buf []byte) error {
+	return c.sendPacketUnsigned(buf)
+}

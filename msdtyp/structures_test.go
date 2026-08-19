@@ -207,3 +207,53 @@ func TestSecurityDescriptorWithObjectACE(t *testing.T) {
 		t.Fatalf("object ACE mismatch: %+v", got)
 	}
 }
+
+// TestParseAccessMaskGenericBits pins every generic/standard bit to its name.
+// The GENERIC_WRITE entry of accessMaskMap was written as 0x4000000 — one zero
+// short of 0x40000000 — so ParseAccessMask never reported GENERIC_WRITE and
+// attributed it to the reserved bit 0x04000000 instead. This map feeds
+// ACE.Permissions(), i.e. every DACL and SACL this package renders.
+func TestParseAccessMaskGenericBits(t *testing.T) {
+	cases := []struct {
+		mask uint32
+		want string
+	}{
+		{0x80000000, AccessMaskGenericRead},
+		{0x40000000, AccessMaskGenericWrite},
+		{0x20000000, AccessMaskGenericExecute},
+		{0x10000000, AccessMaskGenericAll},
+		{0x02000000, AccessMaskMaximumAllowed},
+		{0x01000000, AccessMaskAccessSystemSecurity},
+		{0x00100000, AccessMaskSynchronize},
+		{0x00080000, AccessMaskWriteOwner},
+		{0x00040000, AccessMaskWriteDACL},
+		{0x00020000, AccessMaskReadControl},
+		{0x00010000, AccessMaskDelete},
+	}
+	for _, tc := range cases {
+		got := ParseAccessMask(tc.mask)
+		if len(got) != 1 || got[0] != tc.want {
+			t.Errorf("ParseAccessMask(0x%08x) = %v, want [%s]", tc.mask, got, tc.want)
+		}
+	}
+
+	// 0x04000000 is reserved and must map to nothing at all.
+	if got := ParseAccessMask(0x04000000); len(got) != 0 {
+		t.Errorf("ParseAccessMask(0x04000000) = %v, want [] (reserved bit)", got)
+	}
+}
+
+// TestParseAceFlagsDeterministic: the flag list is built by ranging a map, so
+// without a sort the order changes between runs and the output cannot be diffed.
+func TestParseAceFlagsDeterministic(t *testing.T) {
+	const flags = ObjectInheritAce | ContainerInheritAce | InheritOnlyAce
+	first := ParseAceFlags(flags)
+	for i := 0; i < 200; i++ {
+		if got := ParseAceFlags(flags); got != first {
+			t.Fatalf("ParseAceFlags is not deterministic: %q then %q", first, got)
+		}
+	}
+	if first == "" {
+		t.Fatal("ParseAceFlags returned empty for three set flags")
+	}
+}

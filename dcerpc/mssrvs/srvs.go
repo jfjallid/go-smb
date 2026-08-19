@@ -24,7 +24,6 @@ package mssrvs
 
 import (
 	"fmt"
-	"unicode/utf16"
 
 	"github.com/jfjallid/go-smb/dcerpc"
 	"github.com/jfjallid/go-smb/msdtyp"
@@ -696,31 +695,12 @@ func (sb *RPCCon) NetServerDiskEnum(host string) (res []string, err error) {
 	}
 
 	for _, di := range response.DiskInfo.Buffer {
-		name := diskInfoToString(di.Disk)
-		if name == "" {
+		if di.Disk == "" {
 			// Windows appends a trailing empty DISK_INFO entry; skip it.
 			continue
 		}
-		res = append(res, name)
+		res = append(res, di.Disk)
 	}
 
 	return res, nil
-}
-
-// diskInfoToString decodes a fixed 3-WCHAR DISK_INFO.Disk field into a Go
-// string, stopping at the first NUL.
-func diskInfoToString(d [3]uint16) string {
-	n := 0
-	for n < len(d) && d[n] != 0 {
-		n++
-	}
-	return string(utf16.Decode(d[:n]))
-}
-
-// stringToDiskInfo encodes a drive name into a fixed 3-WCHAR DISK_INFO.Disk
-// field, truncating anything past 3 UTF-16 code units. Used for symmetry/tests.
-func stringToDiskInfo(s string) (d [3]uint16) {
-	u := utf16.Encode([]rune(s))
-	copy(d[:], u)
-	return
 }

@@ -2079,8 +2079,19 @@ func (s *Connection) RetrieveFileContext(ctx context.Context, share string, file
 	}
 
 	log.Traceln("Sending ReadFile requests")
-	data := make([]byte, s.maxReadSize)
 	fileSize := res.EndOfFile
+	if offset >= fileSize {
+		// Also keeps the sizing below from underflowing.
+		return
+	}
+
+	// Size the buffer to the file: ReadFile requests len(b) bytes, so an
+	// oversized buffer inflates every READ and its CreditCharge.
+	bufSize := uint64(s.maxReadSize)
+	if remaining := fileSize - offset; remaining < bufSize {
+		bufSize = remaining
+	}
+	data := make([]byte, bufSize)
 
 	readOffset := offset
 	for readOffset < fileSize {
@@ -2090,7 +2101,12 @@ func (s *Connection) RetrieveFileContext(ctx context.Context, share string, file
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		n, err := f.ReadFileContext(ctx, data, readOffset)
+		// Don't ask past EOF on the final chunk.
+		chunk := data
+		if remaining := fileSize - readOffset; remaining < uint64(len(chunk)) {
+			chunk = chunk[:remaining]
+		}
+		n, err := f.ReadFileContext(ctx, chunk, readOffset)
 		if err != nil {
 			if err == io.EOF {
 				err = fmt.Errorf("got EOF before finished reading")

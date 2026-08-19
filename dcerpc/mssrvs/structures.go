@@ -430,10 +430,13 @@ type NetServerGetInfoResponse struct {
 	WindowsError uint32
 }
 
-// DISK_INFO — MS-SRVS 2.2.4.1. Disk is a fixed 3-WCHAR field holding a
-// null-terminated drive name (e.g. "C:"). Use diskInfoToString to decode it.
+// DISK_INFO — MS-SRVS 2.2.4.1. Disk is declared "WCHAR Disk[3]" but carries
+// the [string] attribute, so NDR puts a varying array on the wire rather than
+// three bare WCHARs: offset (always 0), actual count, then that many UTF-16
+// code units including the null terminator. Windows sends "C:\0" as count 3
+// and the trailing empty entry as count 1, each padded to a 4-octet boundary.
 type DiskInfo struct {
-	Disk [3]uint16
+	Disk string
 }
 
 // DISK_ENUM_CONTAINER — MS-SRVS 2.2.4.79. Buffer is a [size_is,length_is]

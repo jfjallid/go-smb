@@ -308,17 +308,28 @@ func (c *Connection) runReceiver() {
 			if !encrypted && (((c.dialect == DialectSmb_3_1_1) && (c.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0)) || ((c.dialect != DialectSmb_3_1_1) && c.Session.isSigningRequired.Load())) {
 				// When server responds with StatusPending, the packet signature is the same as on the
 				// last packet and the signing flag is not set
+				//
+				// Unsolicited server packets (oplock/lease breaks, MessageId
+				// 0xFFFFFFFFFFFFFFFF) are exempt from the "must be signed"
+				// requirement. MS-SMB2 §3.3.4.1 obliges the server to sign a
+				// response to a signed request; a break notification answers no
+				// request, and Windows Server sends it unsigned even when
+				// signing is required. Demanding a signature here tore the
+				// connection down on the first break, which made the whole
+				// oplock path unreachable against a signing server. A signature
+				// that *is* present is still verified, so a server that signs
+				// its notifications is held to it.
+				unsolicited := h.MessageID == unsolicitedMessageID
 				if h.Status != StatusPending {
-					if (h.Flags & SMB2_FLAGS_SIGNED) != SMB2_FLAGS_SIGNED {
+					signed := (h.Flags & SMB2_FLAGS_SIGNED) == SMB2_FLAGS_SIGNED
+					if !signed && !unsolicited {
 						err = fmt.Errorf("signing is required but PDU is not signed; closing connection")
 						log.Errorln(err)
 						break
-					} else {
-						if !c.verify(data) {
-							err = fmt.Errorf("signing is required and invalid signature found; closing connection")
-							log.Errorln(err)
-							break
-						}
+					} else if signed && !c.verify(data) {
+						err = fmt.Errorf("signing is required and invalid signature found; closing connection")
+						log.Errorln(err)
+						break
 					}
 				}
 			}

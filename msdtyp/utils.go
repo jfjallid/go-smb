@@ -531,12 +531,16 @@ func ParseAccessMask(mask uint32) []string {
 	return permissions
 }
 
+// ParseAceFlags renders the set ACE flags. The result is sorted: map iteration
+// order is randomised, so an unsorted join reorders the flags between runs and
+// makes the output impossible to diff.
 func ParseAceFlags(aceFlags byte) string {
-	flags := ""
+	flags := []string{}
 	for v, s := range aceFlagsMap {
 		if aceFlags&v > 0 {
-			flags += "," + s
+			flags = append(flags, s)
 		}
 	}
-	return strings.TrimPrefix(flags, ",")
+	slices.Sort(flags)
+	return strings.Join(flags, ",")
 }

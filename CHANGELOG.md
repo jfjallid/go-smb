@@ -69,6 +69,12 @@ A batch of MS-SMB2 client-side improvements:
       (default 60 s, configurable via the new `Options.CreditReserveTimeout`;
       negative waits forever) turns a starved window into an error rather than
       a hang.
+    - **Headroom.** `creditWindowBytes` holds back one credit, so a read
+      bounded by the credit window cannot consume the whole balance. A client
+      at zero credits with a request outstanding violates §3.2.4.1.2 and
+      Windows closes the connection. `RetrieveFile` also sizes its read buffer
+      to the file rather than to `MaxReadSize`, since `ReadFile` requests
+      `len(buf)` bytes and a small file would otherwise issue a full-size READ.
     - `calcCreditCharge` now uses the integer formula from MS-SMB2 §3.1.5.2;
       it previously over-charged by one credit at exact 64 KiB multiples.
 - **`ReadFile`/`WriteFile` transfer semantics.** As a consequence of credit
@@ -83,6 +89,10 @@ A batch of MS-SMB2 client-side improvements:
   optional handler (`Session.SetOplockBreakHandler`) and acknowledged instead
   of being dropped. `Connection.SendCancel` issues an SMB2 CANCEL; the server
   now exempts CANCEL from duplicate-MessageId detection as the spec requires.
+  An unsolicited break is exempt from the client's "must be signed" check: it
+  answers no request, so MS-SMB2 §3.3.4.1 does not oblige the server to sign it
+  and Windows Server sends it unsigned. A signature that *is* present is still
+  verified.
 - **New client commands: `Connection.Echo` (keepalive, §2.2.28) and
   `File.Flush` (§2.2.17).**
 
@@ -293,6 +303,11 @@ error. Dialect revisions are logged as friendly version strings.
   and received.** A compressed transfer is byte-identical to an uncompressed
   one, so a counter is the only way to tell a connection that merely negotiated
   compression from one that is actually using it.
+- **LZXPRESS Plain reproduces Windows' `RtlCompressBuffer` byte for byte.**
+  MS-XCA §2.4 ends decompression on a match bit with no input remaining, so a
+  conforming encoder leaves the final flag group's unused bits set: groups start
+  all-ones and literals clear their bit. The decompressor implements the same
+  end-of-stream rule rather than reporting a truncated match.
 - **Exercised against Windows Server 2022**, which negotiates LZ77+Huffman and
   Pattern_V1 but not plain LZ77 — so LZ77+Huffman carries every compressed PDU,
   including bulk WRITEs at `MaxWriteSize` of 1 MiB and up.
@@ -408,6 +423,9 @@ error. Dialect revisions are logged as friendly version strings.
   §2.2.13.2), which the server did not have at all: `DHnQ`, `DH2Q`, `DHnC` and
   `DH2C`. A malformed context list is rejected with STATUS_INVALID_PARAMETER
   rather than partially parsed, since contexts drive handle semantics.
+- A v2 reconnect is keyed on the **CreateGuid alone**, per MS-SMB2 §3.3.5.9.12 —
+  that is what the GUID is for, and Windows sends an all-zero FileId in the DH2C
+  context. v1 (`DHnC`), which carries no GUID, keys on FileId instead.
 - Persistent handles are **not** granted: surviving a server restart requires
   durable storage for the handle table. The durable part of a v2 request is
   granted and the persistent flag left clear, which is a valid response.
@@ -471,6 +489,29 @@ accepts the AP-REQ outright and authentication completes in a single leg:
   slicing it to 16 bytes. A mechanism that completed without establishing a
   key caused a slice-bounds panic; it now returns "authentication completed
   without a usable session key".
+
+### Correctness fixes
+
+- **`NetrServerDiskEnum` (MS-SRVS opnum 23) now decodes.** `DISK_INFO.Disk` is
+  declared `WCHAR Disk[3]` but carries the `[string]` attribute, so NDR puts a
+  varying array on the wire — offset, actual count, then that many UTF-16 code
+  units — not three bare WCHARs. Decoding it as a fixed `[3]uint16` consumed the
+  offset/count pair as character data and slid the rest of the stub, so
+  `TotalEntries` was read as the return code: every call against a Windows
+  server failed with "unknown return code 0x00000001" and no drive was ever
+  returned. The struct field is now a Go `string`, which the encoder and decoder
+  already treat as varying. The existing round-trip test could not catch this —
+  it was symmetric in the same wrong format — so a captured Windows response is
+  now pinned as golden bytes.
+
+- **`msdtyp.ParseAccessMask` reports GENERIC_WRITE.** The `msdtyp` copy of the
+  access-mask table still had the `0x4000000` typo (one zero short of
+  `0x40000000`) that was corrected in `smb`, so `ACE.Permissions()` — every DACL
+  and SACL rendered through this package — silently omitted GENERIC_WRITE and
+  attributed it to the reserved bit `0x04000000` instead.
+
+- **`msdtyp.ParseAceFlags` output is deterministic.** It joined flags in map
+  iteration order, so the rendered flag list reordered between runs.
 
 ### Testing
 

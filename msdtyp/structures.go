@@ -163,9 +163,13 @@ const (
 	AccessMaskDelete               = "DELETE"
 )
 
+// Generic and standard access-mask bits, MS-DTYP §2.4.3. The GENERIC_WRITE
+// entry was 0x4000000 — one zero short of 0x40000000 — so ParseAccessMask never
+// reported GENERIC_WRITE and attributed it to the reserved bit 0x04000000
+// instead.
 var accessMaskMap = map[uint32]string{
 	0x80000000: AccessMaskGenericRead,
-	0x4000000:  AccessMaskGenericWrite,
+	0x40000000: AccessMaskGenericWrite,
 	0x20000000: AccessMaskGenericExecute,
 	0x10000000: AccessMaskGenericAll,
 	0x02000000: AccessMaskMaximumAllowed,

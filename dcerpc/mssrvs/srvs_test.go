@@ -662,7 +662,7 @@ func TestNetServerDiskEnumRes(t *testing.T) {
 	drives := []string{"A:", "C:", "D:"}
 	buffer := make([]DiskInfo, len(drives))
 	for i, d := range drives {
-		buffer[i] = DiskInfo{Disk: stringToDiskInfo(d)}
+		buffer[i] = DiskInfo{Disk: d}
 	}
 	resume := uint32(0)
 	res := NetServerDiskEnumResponse{
@@ -689,8 +689,71 @@ func TestNetServerDiskEnumRes(t *testing.T) {
 		t.Fatalf("expected 3 disk entries, got %d", len(got.DiskInfo.Buffer))
 	}
 	for i, d := range drives {
-		if name := diskInfoToString(got.DiskInfo.Buffer[i].Disk); name != d {
+		if name := got.DiskInfo.Buffer[i].Disk; name != d {
 			t.Fatalf("entry %d: expected %q, got %q", i, d, name)
 		}
+	}
+}
+
+// Captured NetrServerDiskEnum response from a Windows Server 2022 DC with a
+// single C: drive. DISK_INFO.Disk is a [string] field, so every entry carries
+// an offset/actual-count pair ahead of its UTF-16 data; decoding it as three
+// bare WCHARs slides the rest of the stub and reads TotalEntries as the return
+// code. A round-trip test cannot catch that, so pin the real bytes.
+var netServerDiskEnumGolden = []byte{
+	0x02, 0x00, 0x00, 0x00, // DiskInfo.EntriesRead = 2
+	0x00, 0x00, 0x02, 0x00, // DiskInfo.Buffer referent id
+	0x02, 0x00, 0x00, 0x00, // MaxCount = 2
+	0x00, 0x00, 0x00, 0x00, // Offset = 0
+	0x02, 0x00, 0x00, 0x00, // ActualCount = 2
+	0x00, 0x00, 0x00, 0x00, // [0] Disk offset = 0
+	0x03, 0x00, 0x00, 0x00, // [0] Disk actual count = 3
+	0x43, 0x00, 0x3a, 0x00, // [0] "C:"
+	0x00, 0x00, // [0] null terminator
+	0x00, 0x00, // pad to 4
+	0x00, 0x00, 0x00, 0x00, // [1] Disk offset = 0
+	0x01, 0x00, 0x00, 0x00, // [1] Disk actual count = 1
+	0x00, 0x00, // [1] "" (terminator only)
+	0x00, 0x00, // pad to 4
+	0x01, 0x00, 0x00, 0x00, // TotalEntries = 1
+	0x04, 0x00, 0x02, 0x00, // ResumeHandle referent id
+	0x00, 0x00, 0x00, 0x00, // ResumeHandle = 0
+	0x00, 0x00, 0x00, 0x00, // WindowsError = ERROR_SUCCESS
+}
+
+func TestNetServerDiskEnumResGolden(t *testing.T) {
+	var got NetServerDiskEnumResponse
+	if err := got.Unmarshal(netServerDiskEnumGolden); err != nil {
+		t.Fatal(err)
+	}
+	if got.WindowsError != ErrorSuccess {
+		t.Fatalf("expected WindowsError==0, got 0x%08x", got.WindowsError)
+	}
+	if got.TotalEntries != 1 {
+		t.Fatalf("expected TotalEntries==1, got %d", got.TotalEntries)
+	}
+	if got.ResumeHandle == nil || *got.ResumeHandle != 0 {
+		t.Fatalf("expected ResumeHandle==0, got %v", got.ResumeHandle)
+	}
+	if got.DiskInfo.EntriesRead != 2 {
+		t.Fatalf("expected EntriesRead==2, got %d", got.DiskInfo.EntriesRead)
+	}
+	want := []string{"C:", ""}
+	if len(got.DiskInfo.Buffer) != len(want) {
+		t.Fatalf("expected %d disk entries, got %d", len(want), len(got.DiskInfo.Buffer))
+	}
+	for i, w := range want {
+		if got.DiskInfo.Buffer[i].Disk != w {
+			t.Fatalf("entry %d: expected %q, got %q", i, w, got.DiskInfo.Buffer[i].Disk)
+		}
+	}
+
+	// Re-encoding the decoded response must reproduce the captured stub.
+	buf, err := got.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(buf, netServerDiskEnumGolden) {
+		t.Fatalf("re-encoded stub differs from capture:\n got %x\nwant %x", buf, netServerDiskEnumGolden)
 	}
 }

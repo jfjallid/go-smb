@@ -224,22 +224,46 @@ func TestCreditTargetOption(t *testing.T) {
 }
 
 // TestCreditWindowBytes: the byte ceiling tracks the balance at one credit per
-// 64 KiB, floored so a transfer always has at least one credit's worth to make
-// progress with.
+// 64 KiB, less one credit of headroom, floored at one credit's worth.
 func TestCreditWindowBytes(t *testing.T) {
 	cases := []struct {
 		credits uint64
 		want    int
 	}{
-		{0, 65536},    // floored: always at least one credit
-		{1, 65536},    // one credit == 64 KiB
-		{4, 262144},   // 4 * 64 KiB
-		{16, 1 << 20}, // 16 credits == 1 MiB
+		{0, 65536},
+		{1, 65536}, // floor wins over the holdback
+		{2, 65536},
+		{4, 196608},
+		{16, 15 * 65536},
+		{128, 127 * 65536},
 	}
 	for _, tc := range cases {
 		s := &Session{creditMgr: newCreditManager(tc.credits)}
 		if got := s.creditWindowBytes(); got != tc.want {
 			t.Errorf("creditWindowBytes(%d credits) = %d, want %d", tc.credits, got, tc.want)
+		}
+	}
+}
+
+// TestCreditWindowLeavesHeadroom: when the window rather than MaxReadSize bounds
+// a read, the resulting CreditCharge must not consume the whole balance. A client
+// at zero credits with a request outstanding violates MS-SMB2 §3.2.4.1.2.
+func TestCreditWindowLeavesHeadroom(t *testing.T) {
+	const maxReadSize = 8 << 20
+
+	for _, target := range []uint64{2, 8, 64, 127, 128, 129, 512} {
+		s := &Session{creditMgr: newCreditManager(target)}
+
+		// Mirror ReadFileContext's sizing: MaxReadSize capped by the window.
+		size := maxReadSize
+		if w := s.creditWindowBytes(); w < size {
+			size = w
+		}
+		charge := uint64(calcCreditCharge(uint32(size)))
+
+		if charge >= target && target > 1 {
+			t.Errorf("CreditTarget %d: a single read charges %d of %d credits, draining the balance to zero",
+				target, charge, target)
 		}
 	}
 }

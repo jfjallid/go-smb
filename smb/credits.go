@@ -209,13 +209,14 @@ func (cm *creditManager) available() uint64 {
 }
 
 // creditWindowBytes reports how many bytes of a single READ/WRITE the currently
-// granted credit balance can cover — one credit per 64 KiB (MS-SMB2 §3.1.5.2)
-// — floored at 65536 so a transfer always makes progress with at least one
-// credit's worth. Capping a transfer to this keeps its CreditCharge within the
-// window the server has actually granted, so reserve never waits on a charge the
-// balance cannot reach. It is a lower bound: the balance is a snapshot and may
-// grow before the reserve, in which case the transfer is merely split into more
-// requests than strictly necessary rather than deadlocking.
+// granted credit balance can cover — one credit per 64 KiB (MS-SMB2 §3.1.5.2).
+// Capping a transfer to this keeps its CreditCharge within the granted window,
+// so reserve never waits on a charge the balance cannot reach.
+//
+// One credit is held back: MS-SMB2 §3.2.4.1.2 requires a non-zero balance while
+// a request is outstanding, and a request charging the entire balance leaves the
+// server unable to validate the next MessageId. Floored at 65536 so a balance of
+// 1 still makes progress, since splitting further is impossible there.
 func (s *Session) creditWindowBytes() int {
 	if s.creditMgr == nil {
 		return 65536
@@ -226,6 +227,9 @@ func (s *Session) creditWindowBytes() int {
 	const maxCredits = uint64((1<<31 - 1) / 65536)
 	if avail > maxCredits {
 		avail = maxCredits
+	}
+	if avail > 1 {
+		avail-- // headroom: never let one request take the last credit
 	}
 	if bytes := int(avail) * 65536; bytes >= 65536 {
 		return bytes
