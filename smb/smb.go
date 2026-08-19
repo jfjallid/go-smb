@@ -1293,6 +1293,8 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 	} else {
 		dialects = []uint16{
 			DialectSmb_3_1_1,
+			DialectSmb_3_0_2,
+			DialectSmb_3_0,
 			DialectSmb_2_1,
 			DialectSmb_2_0_2,
 		}

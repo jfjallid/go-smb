@@ -175,6 +175,7 @@ func NewCreateReqOpts() *CreateReqOpts {
 }
 
 func (s *Session) GetSessionKey() []byte {
+	// SMB 3.x callers use ApplicationKey rather than the exported session key.
 	if s.dialect >= DialectSmb_3_0 {
 		return s.applicationKey
 	}
@@ -365,9 +366,13 @@ func (c *Connection) NegotiateProtocol() (err error) {
 	}
 
 	// Check if encryption is enabled
-	if (negRes.Capabilities & GlobalCapEncryption) == GlobalCapEncryption {
+	if (negRes.Capabilities&GlobalCapEncryption) == GlobalCapEncryption && !c.Session.options.DisableEncryption {
 		c.supportsEncryption = true
 		c.capabilities |= GlobalCapEncryption
+		// SMB 3.0 and 3.0.2 always use AES-128-CCM.
+		if c.dialect == DialectSmb_3_0 || c.dialect == DialectSmb_3_0_2 {
+			c.cipherId = AES128CCM
+		}
 	}
 
 	// Update maxReadSize, maxWriteSize, and maxTransactSize from response
@@ -717,6 +722,10 @@ func (c *Connection) SessionSetup() (err error) {
 				c.Session.signer = newHashSigner(hmac.New(sha256.New, sessionKey))
 				c.Session.verifier = newHashVerifier(hmac.New(sha256.New, sessionKey))
 			}
+		case DialectSmb_3_0, DialectSmb_3_0_2:
+			if err := c.setupSMB30Crypto(sessionKey); err != nil {
+				return err
+			}
 		case DialectSmb_3_1_1:
 			switch c.preauthIntegrityHashId {
 			case SHA512:
@@ -860,6 +869,63 @@ func (c *Connection) SessionSetup() (err error) {
 	log.Debugln("Completed NegotiateProtocol and SessionSetup")
 
 	c.enableSession()
+
+	return nil
+}
+
+// setupSMB30Crypto derives SMB 3.0/3.0.2 signing and encryption state.
+func (c *Connection) setupSMB30Crypto(sessionKey []byte) error {
+	if len(sessionKey) < 16 {
+		return fmt.Errorf("SMB 3.0 session key is too short: %d", len(sessionKey))
+	}
+	sessionKey = sessionKey[:16]
+
+	// RPC over named pipes uses the derived ApplicationKey.
+	c.applicationKey = kdf(sessionKey, []byte("SMB2APP\x00"), []byte("SmbRpc\x00"), 128)
+
+	if !c.isSigningDisabled {
+		signingKey := kdf(sessionKey, []byte("SMB2AESCMAC\x00"), []byte("SmbSign\x00"), 128)
+		signer, err := cmac.New(signingKey)
+		if err != nil {
+			return fmt.Errorf("initialize SMB 3.0 signer: %w", err)
+		}
+		verifier, err := cmac.New(signingKey)
+		if err != nil {
+			return fmt.Errorf("initialize SMB 3.0 verifier: %w", err)
+		}
+		c.Session.signer = newHashSigner(signer)
+		c.Session.verifier = newHashVerifier(verifier)
+	}
+
+	if !c.supportsEncryption || c.Session.options.DisableEncryption {
+		return nil
+	}
+	if c.cipherId != AES128CCM {
+		return fmt.Errorf("SMB 3.0 requires AES-128-CCM, got cipher 0x%04x", c.cipherId)
+	}
+
+	// The client encrypts Client-to-Server traffic with ServerIn and
+	// decrypts Server-to-Client traffic with ServerOut.
+	encryptionKey := kdf(sessionKey, []byte("SMB2AESCCM\x00"), []byte("ServerIn \x00"), 128)
+	decryptionKey := kdf(sessionKey, []byte("SMB2AESCCM\x00"), []byte("ServerOut\x00"), 128)
+
+	block, err := aes.NewCipher(encryptionKey)
+	if err != nil {
+		return fmt.Errorf("initialize SMB 3.0 encryption cipher: %w", err)
+	}
+	c.Session.encrypter, err = ccm.NewCCMWithNonceAndTagSizes(block, 11, 16)
+	if err != nil {
+		return fmt.Errorf("initialize SMB 3.0 encrypter: %w", err)
+	}
+
+	block, err = aes.NewCipher(decryptionKey)
+	if err != nil {
+		return fmt.Errorf("initialize SMB 3.0 decryption cipher: %w", err)
+	}
+	c.Session.decrypter, err = ccm.NewCCMWithNonceAndTagSizes(block, 11, 16)
+	if err != nil {
+		return fmt.Errorf("initialize SMB 3.0 decrypter: %w", err)
+	}
 
 	return nil
 }
