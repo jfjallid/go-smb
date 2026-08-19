@@ -456,6 +456,22 @@ structure. See *Breaking changes* above for the API migration.
   length. Peers accept it, and changing it was out of scope for a
   wire-preserving migration.
 
+### Authentication robustness
+
+Two panics on the Kerberos SessionSetup path, both reached when the server
+accepts the AP-REQ outright and authentication completes in a single leg:
+
+- `spnego.Client` now records the optimistic mechanism as selected when it
+  builds the initial `NegTokenInit`. `selectedMech` was assigned only in the
+  second-leg branch, so an exchange the server accepted outright left it nil
+  and the subsequent `SessionKey()` call panicked with a nil-pointer
+  dereference. A server naming a mechanism that was never offered is now
+  rejected with an error instead of dereferencing nil.
+- `Connection.SessionSetup` validates the mechanism's session key before
+  slicing it to 16 bytes. A mechanism that completed without establishing a
+  key caused a slice-bounds panic; it now returns "authentication completed
+  without a usable session key".
+
 ### Testing
 
 - **The tree is verified clean under `-race`.** `go test -race ./...` reports

@@ -850,6 +850,27 @@ func (c *Connection) SessionSetup() (err error) {
 		c.sessionFlags &= ^SessionFlagEncryptData
 	}
 
+	// Feed the leg-1 blob to the mechanism regardless of status, for the side
+	// effects as much as the returned token. NTLM answers
+	// MORE_PROCESSING_REQUIRED and the token is its AUTHENTICATE. Kerberos sets
+	// APOptionMutualRequired and completes in a single leg with StatusOk, the
+	// blob carrying the AP_REP; parsing that is what establishes the sub-session
+	// key and the Wrap sequence numbers, so gating this on
+	// MORE_PROCESSING_REQUIRED leaves Kerberos with no session key.
+	//
+	// Raw NTLMSSP carries no SPNEGO token and drives its own initiator below.
+	var spnegoNextToken []byte
+	if !rawMode && ssres.SecurityBufferLength > 0 {
+		securityBlob, sErr := ssres.SecurityBlob.MarshalBinary()
+		if sErr != nil {
+			return sErr
+		}
+		spnegoNextToken, err = spnegoClient.InitSecContext(securityBlob)
+		if err != nil {
+			return err
+		}
+	}
+
 	// finalSSResbuf holds the raw bytes of the last SESSION_SETUP response in
 	// the exchange. Its signature is verified once the signing key is derived
 	// (see below) — MS-SMB2 §3.2.5.3.1. In the common multi-leg flow this is
@@ -879,15 +900,9 @@ func (c *Connection) SessionSetup() (err error) {
 				return err
 			}
 		} else {
-			securityBlob, sErr := ssres.SecurityBlob.MarshalBinary()
-			if sErr != nil {
-				return sErr
-			}
-			sc, sErr := spnegoClient.InitSecContext(securityBlob)
-			if sErr != nil {
-				return sErr
-			}
-			ss2req, sErr := c.NewSessionSetup2Req(sc, &ssres)
+			// The token to send was produced above, when the leg-1 blob was
+			// fed to the mechanism.
+			ss2req, sErr := c.NewSessionSetup2Req(spnegoNextToken, &ssres)
 			if sErr != nil {
 				log.Debugln(sErr)
 				return sErr
@@ -972,12 +987,23 @@ func (c *Connection) SessionSetup() (err error) {
 
 	// Handle signing and encryption options
 	if c.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) == 0 {
-		var sessionKey []byte
+		var rawKey []byte
 		if rawMode {
-			sessionKey = rawInit.SessionKey()[:16]
+			rawKey = rawInit.SessionKey()
 		} else {
-			sessionKey = spnegoClient.SessionKey()[:16]
+			rawKey = spnegoClient.SessionKey()
 		}
+		// A mechanism that completed without establishing a session key leaves
+		// this short or empty, and slicing it would panic on a response we do
+		// not control. Signing and encryption both derive from these 16 bytes,
+		// so continuing without them is not an option either — fail with a
+		// diagnosable error instead of crashing.
+		if len(rawKey) < 16 {
+			return fmt.Errorf(
+				"authentication completed without a usable session key (got %d bytes, need 16)",
+				len(rawKey))
+		}
+		sessionKey := rawKey[:16]
 		c.exportedSessionKey = sessionKey
 
 		switch c.dialect {
