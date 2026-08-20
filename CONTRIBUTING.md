@@ -19,8 +19,8 @@ Most if not all contributions are welcome, including:
 ### Pull requests
 When making changes to perform a pull request:
 - Do not import dependencies outside of the Go standard library
-- Avoid usage of the dynamic encoder and instead write custom Marshal/Unmarshal
-methods for every struct
+- Write custom `MarshalBinary`/`UnmarshalBinary` methods for every struct rather
+than relying on reflection
 - Raise an issue with the proposed change before starting to work on the
 changes and address only a single issue in a given pull request.
 

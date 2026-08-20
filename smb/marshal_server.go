@@ -22,11 +22,12 @@
 
 package smb
 
-// Marshal/Unmarshal pairs for the server-side direction. The reflection
-// encoder in smb/encoder handles most PDU types in both directions, but a few
-// have layouts that don't fit its tag model (variable-offset Name +
-// CreateContexts that share the trailing buffer, structure sizes the encoder
-// can't precompute, etc.). Those are hand-rolled here.
+// Marshal/Unmarshal pairs for the server-side direction. Companion to
+// marshal.go, which carries the client-side PDUs; the split is historical --
+// these types were hand-written first, while the rest still went through the
+// reflection encoder that has since been retired. The layouts here are the
+// awkward ones: a variable-offset Name and CreateContexts sharing the trailing
+// buffer, structure sizes that cannot be precomputed from the field list.
 
 import (
 	"encoding/binary"
@@ -37,9 +38,9 @@ import (
 // QueryInfoReq.UnmarshalBinary
 // ---------------------------------------------------------------------------
 
-// UnmarshalBinary parses an inbound QueryInfo request. The reflection encoder
-// can't drive this because the Buffer slice's length is encoded as
-// InputBufferLength (uint32) rather than via a tag.
+// UnmarshalBinary parses an inbound QueryInfo request. The Buffer slice's
+// length comes from InputBufferLength (uint32), which is why this one was
+// hand-written before the rest.
 func (s *QueryInfoReq) UnmarshalBinary(buf []byte) error {
 	if len(buf) < 64+40 {
 		return fmt.Errorf("QueryInfoReq: buffer too short (%d bytes)", len(buf))
@@ -86,8 +87,8 @@ func (s *QueryInfoReq) UnmarshalBinary(buf []byte) error {
 // QueryInfoRes.MarshalBinary
 // ---------------------------------------------------------------------------
 
-// MarshalBinary serializes an outbound QueryInfo response. The reflection
-// encoder can't drive this because OutputBufferOffset/Length aren't tagged.
+// MarshalBinary serializes an outbound QueryInfo response. OutputBufferOffset
+// and OutputBufferLength are derived here rather than declared.
 func (s *QueryInfoRes) MarshalBinary() ([]byte, error) {
 	hBuf, err := s.Header.MarshalBinary()
 	if err != nil {
@@ -145,9 +146,8 @@ func (s *ReadReq) MarshalBinary() ([]byte, error) {
 	return out, nil
 }
 
-// UnmarshalBinary parses an inbound Read request. The reflection encoder
-// can't drive this because Buffer has no `len:` tag (it's documented as
-// 0-length for SMB 2.1).
+// UnmarshalBinary parses an inbound Read request. Buffer carries no length of
+// its own -- it is documented as 0-length for SMB 2.1.
 func (s *ReadReq) UnmarshalBinary(buf []byte) error {
 	if len(buf) < 64+48 {
 		return fmt.Errorf("ReadReq: buffer too short (%d bytes)", len(buf))
@@ -219,9 +219,9 @@ func (s *CreateReq) MarshalBinary() ([]byte, error) {
 	return out, nil
 }
 
-// UnmarshalBinary parses an inbound Create request. The reflection encoder
-// can't drive this because Name and CreateContexts share the trailing Buffer
-// slice and use untagged offset/length pairs.
+// UnmarshalBinary parses an inbound Create request. Name and CreateContexts
+// share the trailing Buffer slice, each addressed by its own offset/length
+// pair.
 func (s *CreateReq) UnmarshalBinary(buf []byte) error {
 	if len(buf) < 64+57 {
 		return fmt.Errorf("CreateReq: buffer too short (%d bytes)", len(buf))
@@ -357,9 +357,9 @@ func (s *IoCtlReq) MarshalBinary() ([]byte, error) {
 	return out, nil
 }
 
-// UnmarshalBinary parses an inbound IOCTL request. The reflection encoder's
-// multi-offset-tag handling is unreliable for this layout (InputOffset and
-// OutputOffset both reference the same Buffer field), so it's hand-rolled.
+// UnmarshalBinary parses an inbound IOCTL request. InputOffset and
+// OutputOffset both reference the same Buffer field, so the two ranges are
+// resolved explicitly.
 func (s *IoCtlReq) UnmarshalBinary(buf []byte) error {
 	if len(buf) < 64+56 {
 		return fmt.Errorf("IoCtlReq: buffer too short (%d bytes)", len(buf))

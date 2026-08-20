@@ -191,6 +191,29 @@ rather than a silently wrong encoding.
 `NegContext.Padd` has been removed; inter-context alignment is now derived
 during marshalling and must no longer be supplied by the caller.
 
+**4. `Options.ForceSMB2` removed.**
+
+The flag was equivalent to offering only SMB 2.1, which `Options.Dialects` now
+expresses directly. Set `Dialects: smb.DialectsSMB2Only` to pin the legacy 2.1
+path — see *SMB2/3 client protocol conformance* above for the difference in
+negotiate behaviour.
+
+**5. Behavioural changes that can break working code.**
+
+None of these alter a signature, so they compile silently:
+
+- **`File.ReadFile` may return `n < len(b)`** even when more data is available.
+  Credit-window splitting makes it `io.Reader`-style, so a caller that assumed a
+  full read must now loop on the returned offset. `File.WriteFile` moved the
+  other way and always writes the entire buffer.
+- **`TreeConnect` can now fail where it previously succeeded**, with
+  `smb.ErrShareRequiresEncryption`, when a share sets
+  `SMB2_SHAREFLAG_ENCRYPT_DATA` and the connection cannot encrypt end to end.
+  Previously the traffic was sent unencrypted and the server rejected it later.
+- **Awaiting a response on a connection being torn down returns an error**
+  rather than `(nil, nil)`. Callers that special-cased the nil/nil pair can drop
+  that branch; callers that ignored it now get a real error.
+
 ### New features
 
 - **Explicit NTLM auth mode.** `ntlmssp.Client` and `spnego.NTLMInitiator` gain
