@@ -151,15 +151,14 @@ type Options struct {
 	Workstation           string
 	DisableSigning        bool
 	RequireMessageSigning bool
-	DisableEncryption     bool
-	// RequireEncryption opts the whole session into encrypt-all: every request
-	// is wrapped in a TransformHeader regardless of whether the server flagged
-	// the session or the target share with ENCRYPT_DATA. Leaving it false makes
-	// the client honor the server's verdict (MS-SMB2 §3.2.5.3.1) — the session
-	// encrypts only when the server set SMB2_SESSION_FLAG_ENCRYPT_DATA, while
-	// individual shares flagged SMB2_SHAREFLAG_ENCRYPT_DATA are still encrypted
-	// per-tree. Mutually exclusive with DisableEncryption; the latter wins.
-	RequireEncryption bool
+	// Encryption selects how hard the client tries to encrypt: prefer
+	// encryption wherever it is available (the default), encrypt only what the
+	// server asks for, require it, or leave it out of the negotiation. See
+	// EncryptionPolicy for what each value means. Guest and anonymous sessions
+	// never encrypt whatever this is set to, because their session key is not a
+	// shared secret; EncryptionRequired fails such a session rather than
+	// downgrading it.
+	Encryption EncryptionPolicy
 	// SMB2Only skips the SMB1 multi-protocol negotiate and sends an SMB2
 	// NEGOTIATE directly. Useful against servers with SMB1 disabled.
 	SMB2Only bool
@@ -242,13 +241,29 @@ func validateOptions(opt Options) error {
 			return fmt.Errorf("RawNTLMSSP requires a *spnego.NTLMInitiator (NTLM only)")
 		}
 	}
+	// An out-of-range policy would fall through every switch in the client and
+	// silently behave like whichever branch has no case, so reject it here.
+	if !opt.Encryption.valid() {
+		return fmt.Errorf("invalid options: unknown EncryptionPolicy value %d", uint8(opt.Encryption))
+	}
 	if len(opt.Dialects) > 0 {
+		offers3x := false
 		for _, d := range opt.Dialects {
 			switch d {
 			case DialectSmb_2_0_2, DialectSmb_2_1, DialectSmb_3_0, DialectSmb_3_0_2, DialectSmb_3_1_1:
 			default:
 				return fmt.Errorf("invalid options: unknown dialect 0x%04x in Dialects", d)
 			}
+			if d >= DialectSmb_3_0 {
+				offers3x = true
+			}
+		}
+		// Encryption is an SMB 3.x feature. A custom offer with no 3.x dialect
+		// can never satisfy EncryptionRequired, and that is knowable without
+		// dialing, so fail before touching the network instead of at the end of
+		// NEGOTIATE.
+		if opt.Encryption == EncryptionRequired && !offers3x {
+			return fmt.Errorf("invalid options: EncryptionRequired needs an SMB 3.x dialect, but Dialects offers none: %w", ErrEncryptionNotNegotiated)
 		}
 	}
 	return nil
@@ -492,10 +507,19 @@ func (c *Connection) NegotiateProtocol() (err error) {
 		c.capabilities |= GlobalCapLargeMTU
 	}
 
-	// Check if encryption is enabled
+	// Check if encryption is enabled. MS-SMB2 §3.2.5.2: the
+	// SMB2_GLOBAL_CAP_ENCRYPTION bit establishes Connection.SupportsEncryption
+	// only for dialects 3.0 and 3.0.2. SMB 3.1.1 negotiates encryption solely
+	// through the EncryptionCapabilities context below, and a server may set the
+	// capability bit on a 3.1.1 response anyway — trusting it there would mark
+	// the connection encryption-capable with no cipher ever selected, and key
+	// derivation would then fail on cipher id 0. The bit is still recorded in
+	// the connection's capability set, which reports what the server advertised.
 	if (negRes.Capabilities & GlobalCapEncryption) == GlobalCapEncryption {
-		c.supportsEncryption = true
 		c.capabilities |= GlobalCapEncryption
+		if c.dialect == DialectSmb_3_0 || c.dialect == DialectSmb_3_0_2 {
+			c.supportsEncryption = true
+		}
 	}
 
 	// Update maxReadSize, maxWriteSize, and maxTransactSize from response
@@ -811,14 +835,14 @@ func (c *Connection) SessionSetup() (err error) {
 
 	//TODO Validate Challenge security options?
 	// Adopt the server's session flags, including its SMB2_SESSION_FLAG_ENCRYPT_DATA
-	// verdict (MS-SMB2 §3.2.5.3.1). Only force session-wide encryption when the
-	// caller explicitly opted in via RequireEncryption; otherwise per-tree
-	// enforcement (treeIdEncrypts) handles ENCRYPT_DATA shares individually.
+	// verdict (MS-SMB2 §3.2.5.3.1). The positive decision — whether this client
+	// encrypts session-wide — is deferred to applyEncryptionPolicy below, which
+	// runs after key derivation so the encrypter it depends on actually exists.
+	// Only the opt-out is applied here, because it must survive every later
+	// branch that ORs the bit in.
 	c.sessionFlags = ssres.Flags
-	if c.Session.options.DisableEncryption {
+	if c.Session.options.Encryption == EncryptionDisabled {
 		c.sessionFlags &= ^SessionFlagEncryptData
-	} else if c.Session.options.RequireEncryption && c.supportsEncryption {
-		c.sessionFlags |= SessionFlagEncryptData
 	}
 
 	switch c.dialect {
@@ -961,21 +985,26 @@ func (c *Connection) SessionSetup() (err error) {
 			// directive. A server that requires encryption only sets
 			// SMB2_SESSION_FLAG_ENCRYPT_DATA on the final SessionSetup response
 			// (after deriving keys), so it is not visible on the first-response
-			// flags copied above. Unless the caller opted out via
-			// DisableEncryption, adopt it so every PDU is wrapped in a
-			// TransformHeader. This is the server-driven counterpart to the
-			// client-side RequireEncryption opt-in handled off the first response.
+			// flags copied above. Unless the caller opted out with
+			// EncryptionDisabled, adopt it so every PDU is wrapped in a
+			// TransformHeader. applyEncryptionPolicy has the final say once key
+			// derivation has run; this only records the server's verdict.
 			if ssres2.Flags&SessionFlagEncryptData == SessionFlagEncryptData &&
-				!c.Session.options.DisableEncryption {
+				c.Session.options.Encryption != EncryptionDisabled {
 				c.Session.sessionFlags |= SessionFlagEncryptData
 			}
 		}
 	}
 
-	// Check if we authenticated as guest or with a null session. If so, disable signing and encryption
+	// Check if we authenticated as guest or with a null session. If so, disable
+	// signing and encryption. The encryption policy is deliberately left alone:
+	// applyEncryptionPolicy needs to see what the caller actually asked for so
+	// that an EncryptionRequired session can be failed rather than silently
+	// downgraded. Encryption cannot engage regardless — the key-derivation block
+	// below is skipped for these sessions, so no encrypter is ever built and
+	// canEncrypt stays false.
 	if ((c.sessionFlags & SessionFlagIsGuest) == SessionFlagIsGuest) || ((c.sessionFlags & SessionFlagIsNull) == SessionFlagIsNull) {
 		c.isSigningRequired.Store(false)
-		c.options.DisableEncryption = true
 		//c.sessionFlags = ssres2.Flags             //NOTE Replace all sessionFlags here?
 		c.sessionFlags &= ^SessionFlagEncryptData // Make sure encryption is disabled
 		if c.IsGuestSession() {
@@ -1168,6 +1197,10 @@ func (c *Connection) SessionSetup() (err error) {
 		}
 	}
 
+	if err := c.applyEncryptionPolicy(); err != nil {
+		return err
+	}
+
 	// MS-SMB2 §3.2.5.3.1: when signing is negotiated the client MUST verify
 	// the signature on the final SESSION_SETUP response. It authenticates the
 	// server and detects tampering or a downgrade by an active attacker. This
@@ -1199,6 +1232,88 @@ func (c *Connection) SessionSetup() (err error) {
 
 	c.enableSession()
 
+	return nil
+}
+
+// applyEncryptionPolicy settles whether this session encrypts every PDU, per
+// Options.Encryption. It runs at the end of SessionSetup, once key derivation
+// has built the encrypter, because the send path gates on
+// SessionFlagEncryptData alone (connection.go) and setting the bit before an
+// encrypter exists would emit traffic the client cannot produce.
+//
+// Setting the session bit is the difference between the encrypt-everything
+// policies and EncryptionServerDirected. It is not the whole story either way:
+// a share flagged SMB2_SHAREFLAG_ENCRYPT_DATA is encrypted per-tree by the send
+// path whatever this decides (MS-SMB2 §3.2.5.5), which is what keeps those
+// shares reachable under EncryptionServerDirected.
+func (c *Connection) applyEncryptionPolicy() error {
+	policy := c.Session.options.Encryption
+	canEncrypt := c.Session.canEncrypt()
+	// The server's own verdict, already folded into sessionFlags: either copied
+	// from the first SessionSetup response or ORed in from the final one.
+	serverDemands := c.sessionFlags&SessionFlagEncryptData != 0
+
+	// Guest and anonymous sessions have no shared secret to derive keys from,
+	// so key derivation is skipped for them entirely and encryption can never
+	// engage. A caller that demanded encryption gets an error rather than a
+	// session that quietly runs in the clear — the same rule the signing checks
+	// above apply to guest sessions.
+	if c.sessionFlags&(SessionFlagIsGuest|SessionFlagIsNull) != 0 {
+		if policy == EncryptionRequired {
+			return fmt.Errorf(
+				"%w: the server established a guest or anonymous session, which has no key to encrypt with",
+				ErrEncryptionNotNegotiated)
+		}
+		c.sessionFlags &= ^SessionFlagEncryptData
+		return nil
+	}
+
+	switch policy {
+	case EncryptionDisabled:
+		// Enforced during NEGOTIATE already (no capability, no cipher context),
+		// so canEncrypt is false here; clearing the bit keeps a server verdict
+		// we cannot honor from reaching the send path.
+		c.sessionFlags &= ^SessionFlagEncryptData
+		return nil
+
+	case EncryptionRequired:
+		// NewConnection refuses a connection that negotiated no cipher, so this
+		// is reachable only if that check and this one disagree. Fail rather
+		// than trust it.
+		if !canEncrypt {
+			return fmt.Errorf("%w (no encrypter was established for the session)", ErrEncryptionNotNegotiated)
+		}
+		c.sessionFlags |= SessionFlagEncryptData
+		return nil
+
+	case EncryptionPreferred:
+		if canEncrypt {
+			c.sessionFlags |= SessionFlagEncryptData
+			return nil
+		}
+		// No cipher: fall through to the server-demand check and then to signed
+		// plaintext.
+
+	case EncryptionServerDirected:
+		// Honor exactly what the server asked for, which sessionFlags already
+		// holds. Per-tree ENCRYPT_DATA shares are handled by the send path.
+		if serverDemands && canEncrypt {
+			return nil
+		}
+	}
+
+	// Reached by EncryptionPreferred with no cipher, and by
+	// EncryptionServerDirected when the server's demand cannot be met. A server
+	// that set SMB2_SESSION_FLAG_ENCRYPT_DATA requires every subsequent request
+	// to be encrypted (MS-SMB2 §3.3.5.2.9) and will reject anything else, so
+	// carrying on in plaintext produces a session that fails on its first real
+	// request with no explanation. Fail here instead, where the cause is known.
+	if serverDemands && !canEncrypt {
+		return fmt.Errorf(
+			"%w: the server requires session encryption (SMB2_SESSION_FLAG_ENCRYPT_DATA) but no cipher was negotiated",
+			ErrEncryptionNotNegotiated)
+	}
+	c.sessionFlags &= ^SessionFlagEncryptData
 	return nil
 }
 
@@ -1353,12 +1468,12 @@ func (s *Session) treeNames() []string {
 
 // canEncrypt reports whether the connection can encrypt PDUs such that the
 // server will be able to decrypt them: encryption was negotiated, the client
-// offered the capability (it did not opt out via DisableEncryption), and an
+// offered the capability (it did not opt out with EncryptionDisabled), and an
 // encrypter is initialized. A server derives its decrypter only when the client
 // advertised GlobalCapEncryption, so having offered the capability is required —
 // the EncryptionCapabilities negotiate context alone is not sufficient.
 func (s *Session) canEncrypt() bool {
-	return s.supportsEncryption && !s.options.DisableEncryption && s.encrypter != nil
+	return s.supportsEncryption && s.options.Encryption != EncryptionDisabled && s.encrypter != nil
 }
 
 // treeIdEncrypts reports whether the share behind the given TreeConnect id was

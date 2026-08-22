@@ -85,13 +85,13 @@ func TestSMBForwarderRawNTLMBoundary(t *testing.T) {
 	// forwarder boundary regressed (e.g. the listener forgot to unwrap) the
 	// upstream SessionSetup1 would reject the bytes and pooling would fail.
 	bait := smb.Options{
-		Host:              relayAddr.IP.String(),
-		Port:              relayAddr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           relayAddr.IP.String(),
+		Port:           relayAddr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	_, _ = smb.NewConnection(bait)
 
@@ -167,13 +167,13 @@ func TestSMBForwarderMICStripDoesNotBreakRelay(t *testing.T) {
 	relayAddr := rs.SMBAddr().(*net.TCPAddr)
 
 	bait := smb.Options{
-		Host:              relayAddr.IP.String(),
-		Port:              relayAddr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           relayAddr.IP.String(),
+		Port:           relayAddr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	_, _ = smb.NewConnection(bait)
 

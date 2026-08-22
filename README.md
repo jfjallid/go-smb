@@ -87,7 +87,12 @@ different connection types.
 			Domain:    domain,
 			LocalUser: false, // Authenticate with local and not domain account?
 		},
-		DisableEncryption: false, // Useful for debugging when SMB 3.1.1 is used
+		// Encryption defaults to smb.EncryptionPreferred: encrypt whenever the
+		// connection negotiates a cipher. Other choices are
+		// smb.EncryptionServerDirected (encrypt only what the server asks for),
+		// smb.EncryptionRequired (refuse a connection that cannot encrypt) and
+		// smb.EncryptionDisabled (useful for debugging a plaintext capture).
+		// Encryption: smb.EncryptionServerDirected,
 		// To pin the legacy SMB 2.1 path, set:
 		// Dialects: smb.DialectsSMB2Only,
 	}

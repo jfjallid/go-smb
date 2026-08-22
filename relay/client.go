@@ -48,7 +48,7 @@ type ClientConfig struct {
 
 	// UpstreamOptions configures the upstream *smb.Connection. Sensible
 	// relay defaults (ManualLogin=true, Dialects=DialectsSMB2Only,
-	// DisableSigning=true, DisableEncryption=true) are forced on regardless
+	// DisableSigning=true, Encryption=EncryptionDisabled) are forced on regardless
 	// of caller settings.
 	UpstreamOptions smb.Options
 

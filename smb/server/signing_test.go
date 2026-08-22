@@ -58,7 +58,7 @@ func TestSigning311(t *testing.T) {
 		Port:                  addr.Port,
 		Initiator:             &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		RequireMessageSigning: true,
-		DisableEncryption:     true,
+		Encryption:            smb.EncryptionDisabled,
 		DialTimeout:           2 * time.Second,
 	}
 	c, err := smb.NewConnection(opts)
@@ -125,7 +125,7 @@ func TestSigning21(t *testing.T) {
 		Port:                  addr.Port,
 		Initiator:             &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		RequireMessageSigning: true,
-		DisableEncryption:     true,
+		Encryption:            smb.EncryptionDisabled,
 		Dialects:              smb.DialectsSMB2Only, // restricts client to DialectSmb_2_1
 		DialTimeout:           2 * time.Second,
 	}
@@ -195,7 +195,7 @@ func TestSigningRawNTLMSSP30(t *testing.T) {
 		Initiator:             &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		RawNTLMSSP:            true,
 		RequireMessageSigning: true,
-		DisableEncryption:     true,
+		Encryption:            smb.EncryptionDisabled,
 		Dialects:              []uint16{smb.DialectSmb_3_0},
 		DialTimeout:           2 * time.Second,
 	}
@@ -272,7 +272,7 @@ func TestUnsignedRejected(t *testing.T) {
 		Port:                  addr.Port,
 		Initiator:             &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 		RequireMessageSigning: true,
-		DisableEncryption:     true,
+		Encryption:            smb.EncryptionDisabled,
 		DialTimeout:           2 * time.Second,
 	}
 	c, err := smb.NewConnection(opts)

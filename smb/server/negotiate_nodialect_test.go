@@ -153,10 +153,10 @@ func TestClientNegotiateNoCommonDialectStatus(t *testing.T) {
 		ManualLogin: true,
 		// Offer only SMB 2.0.2, which the 3.x-only server cannot honor. A
 		// non-empty Dialects list forces the direct SMB2 negotiate path.
-		Dialects:          []uint16{smb.DialectSmb_2_0_2},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		DialTimeout:       2 * time.Second,
+		Dialects:       []uint16{smb.DialectSmb_2_0_2},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		DialTimeout:    2 * time.Second,
 	}
 
 	c, err := smb.NewConnection(opts)

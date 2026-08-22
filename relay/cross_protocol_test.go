@@ -150,13 +150,13 @@ func TestCrossProtocolSMBInboundToHTTPUpstream(t *testing.T) {
 	// Drive an inbound SMB auth — the victim is an ordinary go-smb client.
 	// capture-and-drop returns an error to the client; we ignore it.
 	bait := smb.Options{
-		Host:              relayAddr.IP.String(),
-		Port:              relayAddr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           relayAddr.IP.String(),
+		Port:           relayAddr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	_, _ = smb.NewConnection(bait)
 

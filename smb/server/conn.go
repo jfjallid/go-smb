@@ -453,7 +453,7 @@ func (c *Conn) maybeEncrypt(ctx pduCtx, buf []byte) ([]byte, bool, error) {
 	if sess == nil || sess.encrypter == nil {
 		return buf, false, nil
 	}
-	// Encrypt when the session has opted in (RequireEncryption / per-tree
+	// Encrypt when the session has opted in (cfg.RequireEncryption / per-tree
 	// encryption) OR when the inbound request itself arrived encrypted —
 	// per MS-SMB2 §3.3.4.1.4 the response to an encrypted request MUST also
 	// be encrypted.

@@ -30,26 +30,26 @@ import (
 // the subsequent SMB2 NegotiateReq are answered correctly.
 func TestNegotiate(t *testing.T) {
 	cases := []struct {
-		name              string
-		dialects          []uint16 // client offer; nil = default (highest 3.1.1)
-		disableSigning    bool
-		disableEncryption bool
+		name           string
+		dialects       []uint16 // client offer; nil = default (highest 3.1.1)
+		disableSigning bool
+		encryption     smb.EncryptionPolicy
 	}{
 		// SMB 2.1 with everything off — exercises the simple non-3.1.1 path.
-		{name: "smb_2_1_only", dialects: smb.DialectsSMB2Only, disableSigning: true, disableEncryption: true},
+		{name: "smb_2_1_only", dialects: smb.DialectsSMB2Only, disableSigning: true, encryption: smb.EncryptionDisabled},
 		// SMB 3.1.1 with encryption off but signing left enabled — the
 		// client refuses 3.1.1 with both off, so we allow signing here.
-		{name: "smb_3_1_1", dialects: nil, disableSigning: false, disableEncryption: true},
+		{name: "smb_3_1_1", dialects: nil, disableSigning: false, encryption: smb.EncryptionDisabled},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			runNegotiateTest(t, tc.dialects, tc.disableSigning, tc.disableEncryption)
+			runNegotiateTest(t, tc.dialects, tc.disableSigning, tc.encryption)
 		})
 	}
 }
 
-func runNegotiateTest(t *testing.T, dialects []uint16, disableSigning, disableEncryption bool) {
+func runNegotiateTest(t *testing.T, dialects []uint16, disableSigning bool, encryption smb.EncryptionPolicy) {
 	t.Helper()
 
 	var negotiateHookFired atomic.Bool
@@ -73,13 +73,13 @@ func runNegotiateTest(t *testing.T, dialects []uint16, disableSigning, disableEn
 	addr := l.Addr().(*net.TCPAddr)
 
 	opts := smb.Options{
-		Host:              "127.0.0.1",
-		Port:              addr.Port,
-		ManualLogin:       true,
-		DisableSigning:    disableSigning,
-		DisableEncryption: disableEncryption,
-		Dialects:          dialects,
-		DialTimeout:       2 * time.Second,
+		Host:           "127.0.0.1",
+		Port:           addr.Port,
+		ManualLogin:    true,
+		DisableSigning: disableSigning,
+		Encryption:     encryption,
+		Dialects:       dialects,
+		DialTimeout:    2 * time.Second,
 	}
 
 	c, err := smb.NewConnection(opts)

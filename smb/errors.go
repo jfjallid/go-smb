@@ -29,10 +29,30 @@ import (
 
 // ErrShareRequiresEncryption is returned by TreeConnect when the server marks a
 // share SMB2_SHAREFLAG_ENCRYPT_DATA but the connection did not negotiate
-// encryption end-to-end (e.g. the client set DisableEncryption, so the server
+// encryption end-to-end (e.g. the client chose EncryptionDisabled, so the server
 // derived no decrypter). Per MS-SMB2 §3.2.5.5 the client MUST fail the tree
 // connect rather than send traffic the server cannot decrypt.
 var ErrShareRequiresEncryption = errors.New("share requires encryption but the connection negotiated none")
+
+// ErrEncryptionNotNegotiated is returned when encryption was demanded but
+// cannot be provided. Encryption cannot be engaged after the fact, so the
+// connection is refused rather than silently downgraded to plaintext.
+//
+// NewConnection returns it when Options.Encryption is EncryptionRequired and no
+// cipher was negotiated: the selected dialect predates 3.0 (2.0.2 and 2.1 have
+// no encryption at all), a 3.0/3.0.2 server did not answer with
+// SMB2_GLOBAL_CAP_ENCRYPTION, or a 3.1.1 server answered the
+// EncryptionCapabilities context with SMB2_ENCRYPTION_NONE because it shares no
+// cipher with the client's offer. validateOptions returns it earlier still,
+// without dialing, for an EncryptionRequired policy whose Options.Dialects list
+// offers no SMB 3.x dialect at all.
+//
+// SessionSetup returns it in two further cases: the server established a guest
+// or anonymous session, which has no key to encrypt with, and the server
+// demanded session encryption (SMB2_SESSION_FLAG_ENCRYPT_DATA) that this
+// connection cannot provide — the latter regardless of policy, since the server
+// rejects every subsequent request anyway.
+var ErrEncryptionNotNegotiated = errors.New("encryption is required but the connection negotiated none")
 
 // NTStatusError represents a non-success NTSTATUS in an SMB2 response
 // header. Status always preserves the raw NTSTATUS, also when no sentinel

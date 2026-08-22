@@ -47,19 +47,33 @@ func (c *Conn) deriveEncryptionKeys(s *Session) error {
 	if !cfg.encryptionSupported() {
 		return nil
 	}
+	// A server that requires encryption must reject every session it cannot
+	// encrypt, and there are three ways for a client to be unencryptable: a
+	// pre-3.0 dialect, no GlobalCapEncryption in its NEGOTIATE capabilities, or
+	// no cipher selected (a 3.1.1 client that sent no EncryptionCapabilities
+	// context leaves CipherID 0). All three are checked together and before the
+	// permissive early returns below, because ordering them the other way is a
+	// bypass: a client that merely omits the cipher context would otherwise take
+	// the CipherID == 0 return and get a plaintext session out of a server
+	// configured to require encryption.
+	if cfg.RequireEncryption {
+		switch {
+		case c.Dialect < smb.DialectSmb_3_0:
+			return fmt.Errorf("server requires encryption but the negotiated dialect %s predates SMB 3.0", smb.DialectString(c.Dialect))
+		case !c.ClientWantsEncrypt:
+			return fmt.Errorf("client did not offer GlobalCapEncryption but server requires encryption")
+		case c.CipherID == 0:
+			return fmt.Errorf("server requires encryption but no cipher was negotiated with the client")
+		}
+	}
 	if c.CipherID == 0 || c.Dialect < smb.DialectSmb_3_0 {
-		// RequireEncryption with a 2.x dialect or no cipher selected is
-		// a misconfiguration that surfaces as: client gets an unsigned
-		// post-auth reply. Caller's SessionSetup path rejects later.
+		// No cipher to derive against. Encryption stays off for this session;
+		// a share with EncryptData=TRUE is refused per-tree instead.
 		return nil
 	}
 	if !c.ClientWantsEncrypt {
-		// Client did not advertise GlobalCapEncryption. We won't be able
-		// to engage encryption with this client. If the server requires
-		// it, fail the session.
-		if cfg.RequireEncryption {
-			return fmt.Errorf("client did not offer GlobalCapEncryption but server requires encryption")
-		}
+		// Client did not advertise GlobalCapEncryption, so it will not be able
+		// to decrypt anything we send. Leave encryption off.
 		return nil
 	}
 	if len(s.SessionKey) < 16 {

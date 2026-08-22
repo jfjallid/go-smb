@@ -110,13 +110,13 @@ func TestRelayServerEndToEnd(t *testing.T) {
 	// Drive two inbound auths through the relay.
 	for i := 0; i < 2; i++ {
 		opts := smb.Options{
-			Host:              relayAddr.IP.String(),
-			Port:              relayAddr.Port,
-			Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-			DisableSigning:    true,
-			DisableEncryption: true,
-			Dialects:          smb.DialectsSMB2Only,
-			DialTimeout:       2 * time.Second,
+			Host:           relayAddr.IP.String(),
+			Port:           relayAddr.Port,
+			Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+			DisableSigning: true,
+			Encryption:     smb.EncryptionDisabled,
+			Dialects:       smb.DialectsSMB2Only,
+			DialTimeout:    2 * time.Second,
 		}
 		_, _ = smb.NewConnection(opts) // expected to fail (capture-and-drop)
 	}
@@ -152,14 +152,14 @@ func TestRelayServerEndToEnd(t *testing.T) {
 	// SOCKS server parses the NTLMSSP AUTHENTICATE and routes to a pool entry
 	// matching (target, user).
 	socksOpts := smb.Options{
-		Host:              up1Addr.IP.String(),
-		Port:              up1Addr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: "ignored", Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
-		ProxyDialer:       &fixedSocksDialer{socksAddr: socksAddr.String(), target: up1Addr.String()},
+		Host:           up1Addr.IP.String(),
+		Port:           up1Addr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: "ignored", Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
+		ProxyDialer:    &fixedSocksDialer{socksAddr: socksAddr.String(), target: up1Addr.String()},
 	}
 	conn, err := smb.NewConnection(socksOpts)
 	if err != nil {
@@ -258,13 +258,13 @@ func TestSocksPiggybackReusesPooledSession(t *testing.T) {
 
 	// Drive one inbound auth so the upstream session gets pooled.
 	bait := smb.Options{
-		Host:              relayAddr.IP.String(),
-		Port:              relayAddr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           relayAddr.IP.String(),
+		Port:           relayAddr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	_, _ = smb.NewConnection(bait)
 	if !waitFor(2*time.Second, func() bool { return len(rs.Snapshot()) >= 1 }) {
@@ -272,14 +272,14 @@ func TestSocksPiggybackReusesPooledSession(t *testing.T) {
 	}
 
 	socksOpts := smb.Options{
-		Host:              upAddr.IP.String(),
-		Port:              upAddr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: "ignored", Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
-		ProxyDialer:       &fixedSocksDialer{socksAddr: socksAddr.String(), target: upAddr.String()},
+		Host:           upAddr.IP.String(),
+		Port:           upAddr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: "ignored", Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
+		ProxyDialer:    &fixedSocksDialer{socksAddr: socksAddr.String(), target: upAddr.String()},
 	}
 
 	doRoundtrip := func(label, filename string, body []byte) {
@@ -386,13 +386,13 @@ func TestPostAuthAction(t *testing.T) {
 	relayAddr := rs.SMBAddr().(*net.TCPAddr)
 
 	clientOpts := smb.Options{
-		Host:              relayAddr.IP.String(),
-		Port:              relayAddr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           relayAddr.IP.String(),
+		Port:           relayAddr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	_, _ = smb.NewConnection(clientOpts)
 
@@ -463,13 +463,13 @@ func TestSocksUserRouting(t *testing.T) {
 	// the same upstream target.
 	for _, u := range []string{"alice", "bob"} {
 		bait := smb.Options{
-			Host:              relayAddr.IP.String(),
-			Port:              relayAddr.Port,
-			Initiator:         &spnego.NTLMInitiator{User: u, Password: password, Domain: domain},
-			DisableSigning:    true,
-			DisableEncryption: true,
-			Dialects:          smb.DialectsSMB2Only,
-			DialTimeout:       2 * time.Second,
+			Host:           relayAddr.IP.String(),
+			Port:           relayAddr.Port,
+			Initiator:      &spnego.NTLMInitiator{User: u, Password: password, Domain: domain},
+			DisableSigning: true,
+			Encryption:     smb.EncryptionDisabled,
+			Dialects:       smb.DialectsSMB2Only,
+			DialTimeout:    2 * time.Second,
 		}
 		_, _ = smb.NewConnection(bait)
 	}
@@ -485,14 +485,14 @@ func TestSocksUserRouting(t *testing.T) {
 	// fail or return alice's content.
 	drop := func(user, body string) error {
 		opts := smb.Options{
-			Host:              upAddr.IP.String(),
-			Port:              upAddr.Port,
-			Initiator:         &spnego.NTLMInitiator{User: user, Password: "ignored", Domain: domain},
-			DisableSigning:    true,
-			DisableEncryption: true,
-			Dialects:          smb.DialectsSMB2Only,
-			DialTimeout:       2 * time.Second,
-			ProxyDialer:       &fixedSocksDialer{socksAddr: socksAddr.String(), target: upAddr.String()},
+			Host:           upAddr.IP.String(),
+			Port:           upAddr.Port,
+			Initiator:      &spnego.NTLMInitiator{User: user, Password: "ignored", Domain: domain},
+			DisableSigning: true,
+			Encryption:     smb.EncryptionDisabled,
+			Dialects:       smb.DialectsSMB2Only,
+			DialTimeout:    2 * time.Second,
+			ProxyDialer:    &fixedSocksDialer{socksAddr: socksAddr.String(), target: upAddr.String()},
 		}
 		conn, err := smb.NewConnection(opts)
 		if err != nil {
@@ -538,14 +538,14 @@ func TestSocksUserRouting(t *testing.T) {
 	// A SOCKS client claiming an unmatched user should be rejected at
 	// SessionSetup with LOGON_FAILURE.
 	bogusOpts := smb.Options{
-		Host:              upAddr.IP.String(),
-		Port:              upAddr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: "nobody", Password: "ignored", Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
-		ProxyDialer:       &fixedSocksDialer{socksAddr: socksAddr.String(), target: upAddr.String()},
+		Host:           upAddr.IP.String(),
+		Port:           upAddr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: "nobody", Password: "ignored", Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
+		ProxyDialer:    &fixedSocksDialer{socksAddr: socksAddr.String(), target: upAddr.String()},
 	}
 	if _, err := smb.NewConnection(bogusOpts); err == nil {
 		t.Errorf("expected unmatched-user SOCKS auth to fail, got success")

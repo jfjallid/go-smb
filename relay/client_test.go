@@ -84,13 +84,13 @@ func TestRelayClientEndToEnd(t *testing.T) {
 	// Drive an inbound client through the relay. Force SMB 2.1 to match the
 	// relay listener's default cap.
 	clientOpts := smb.Options{
-		Host:              relayAddr.IP.String(),
-		Port:              relayAddr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           relayAddr.IP.String(),
+		Port:           relayAddr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	// We expect this to fail (capture-and-drop returns LogonFailure to the
 	// relayed client) — but the upstream auth must have succeeded.

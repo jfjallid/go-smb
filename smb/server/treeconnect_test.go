@@ -97,13 +97,13 @@ func TestTreeConnect(t *testing.T) {
 	defer shutdown()
 
 	opts := smb.Options{
-		Host:              "127.0.0.1",
-		Port:              addr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           "127.0.0.1",
+		Port:           addr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	c, err := smb.NewConnection(opts)
 	if err != nil {
@@ -146,13 +146,13 @@ func TestTreeConnectBadShare(t *testing.T) {
 	defer shutdown()
 
 	opts := smb.Options{
-		Host:              "127.0.0.1",
-		Port:              addr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           "127.0.0.1",
+		Port:           addr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	c, err := smb.NewConnection(opts)
 	if err != nil {

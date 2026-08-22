@@ -1484,7 +1484,7 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 	var capabilities uint32
 	if offers3x {
 		capabilities = GlobalCapLargeMTU
-		if !s.options.DisableEncryption {
+		if s.options.Encryption != EncryptionDisabled {
 			capabilities |= GlobalCapEncryption
 		}
 	}
@@ -1513,14 +1513,6 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 		if _, err := rand.Read(pic.Salt); err != nil {
 			return req, err
 		}
-		ciphers := s.options.Ciphers
-		if ciphers == nil {
-			ciphers = []uint16{AES128CCM, AES128GCM, AES256CCM, AES256GCM}
-		}
-		cc := EncryptionContext{
-			CipherCount: uint16(len(ciphers)),
-			Ciphers:     ciphers,
-		}
 		sc := SigningContext{
 			// Order matters: highest-preference first. AES_GMAC is the
 			// fastest on modern hardware (Windows 11 / Server 2022+);
@@ -1531,11 +1523,6 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 		sc.SigningAlgorithmCount = uint16(len(sc.SigningAlgorithms))
 
 		picBuf, err := pic.MarshalBinary()
-		if err != nil {
-			return NegotiateReq{}, err
-		}
-
-		ccBuf, err := cc.MarshalBinary()
 		if err != nil {
 			return NegotiateReq{}, err
 		}
@@ -1551,17 +1538,41 @@ func (s *Session) NewNegotiateReq() (req NegotiateReq, err error) {
 				Data:        picBuf,
 				DataLength:  uint16(len(picBuf)),
 			},
-			{
+		}
+
+		// EncryptionDisabled takes encryption out of the negotiation itself, not
+		// just out of the send path: no GlobalCapEncryption in Capabilities
+		// (above) and no EncryptionCapabilities context here. A server answers
+		// with an EncryptionCapabilities context only when the client sent one
+		// (MS-SMB2 §3.3.5.4), so omitting it means no cipher is ever selected on
+		// either side and neither peer derives encryption keys. Every other
+		// policy negotiates a cipher, including EncryptionServerDirected, which
+		// needs one available in order to reach an ENCRYPT_DATA share.
+		if s.options.Encryption != EncryptionDisabled {
+			ciphers := s.options.Ciphers
+			if ciphers == nil {
+				ciphers = []uint16{AES128CCM, AES128GCM, AES256CCM, AES256GCM}
+			}
+			cc := EncryptionContext{
+				CipherCount: uint16(len(ciphers)),
+				Ciphers:     ciphers,
+			}
+			ccBuf, cErr := cc.MarshalBinary()
+			if cErr != nil {
+				return NegotiateReq{}, cErr
+			}
+			req.ContextList = append(req.ContextList, NegContext{
 				ContextType: EncryptionCapabilities,
 				Data:        ccBuf,
 				DataLength:  uint16(len(ccBuf)),
-			},
-			{
-				ContextType: SigningCapabilities,
-				Data:        scBuf,
-				DataLength:  uint16(len(scBuf)),
-			},
+			})
 		}
+
+		req.ContextList = append(req.ContextList, NegContext{
+			ContextType: SigningCapabilities,
+			Data:        scBuf,
+			DataLength:  uint16(len(scBuf)),
+		})
 		offerCompression := s.options.Compression
 
 		if offerCompression {

@@ -496,6 +496,21 @@ func NewConnection(opt Options) (c *Connection, err error) {
 		}
 	}
 
+	// From here on the TCP connection is live and, a few lines further down, so
+	// are the sender and receiver goroutines. Every error return below used to
+	// abandon all three: NewConnection hands back a half-built *Connection
+	// alongside the error, which no caller can be expected to Close, so a
+	// refused connection leaked a socket and two goroutines. That is cheap to
+	// hit now that EncryptionRequired can reject a connection outright, and it
+	// matters for anything that sweeps many hosts. Close is idempotent
+	// (closeOnce), so this cannot collide with the caller's own defer on the
+	// success path.
+	defer func() {
+		if err != nil {
+			c.Close()
+		}
+	}()
+
 	// ClientGuid MUST be a generated GUID for SMB 2.1+ (MS-SMB2 §2.2.3). The
 	// SMB1 multi-protocol NegotiateReq does not carry a ClientGuid field, so
 	// randomizing unconditionally is safe for all paths.
@@ -516,8 +531,19 @@ func NewConnection(opt Options) (c *Connection, err error) {
 	if opt.DisableSigning && c.isSigningRequired.Load() && (!c.supportsEncryption) {
 		err = fmt.Errorf("signing is required and cannot be disabled")
 		return
-	} else if opt.DisableSigning && opt.DisableEncryption && (c.dialect == DialectSmb_3_1_1) {
+	} else if opt.DisableSigning && opt.Encryption == EncryptionDisabled && (c.dialect == DialectSmb_3_1_1) {
 		err = fmt.Errorf("signing or encryption is required when using SMB 3.1.1")
+		return
+	} else if opt.Encryption == EncryptionRequired && !c.supportsEncryption {
+		// A caller that demanded encryption must not silently get a plaintext
+		// connection. supportsEncryption is set only when the server actually
+		// negotiated a cipher, which cannot happen below dialect 3.0 and need
+		// not happen above it: a 3.1.1 server may answer EncryptionCapabilities
+		// with SMB2_ENCRYPTION_NONE when it shares no cipher with our offer
+		// (MS-SMB2 §3.3.5.4). Refuse here, at the end of NEGOTIATE, rather than
+		// after authenticating — encryption is not retrofittable onto an
+		// established session, so there is nothing to gain by continuing.
+		err = fmt.Errorf("%w (negotiated dialect %s)", ErrEncryptionNotNegotiated, DialectString(c.dialect))
 		return
 	}
 	if !opt.ManualLogin {

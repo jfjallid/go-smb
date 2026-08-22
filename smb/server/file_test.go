@@ -227,13 +227,13 @@ func TestListAndDelete(t *testing.T) {
 func dialClient(t *testing.T, port int, user, password, domain string) *smb.Connection {
 	t.Helper()
 	opts := smb.Options{
-		Host:              "127.0.0.1",
-		Port:              port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           "127.0.0.1",
+		Port:           port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	c, err := smb.NewConnection(opts)
 	if err != nil {

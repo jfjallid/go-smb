@@ -53,13 +53,13 @@ func TestSessionSetupCredentialCapture(t *testing.T) {
 		Domain:   "BOGUSDOM",
 	}
 	opts := smb.Options{
-		Host:              "127.0.0.1",
-		Port:              addr.Port,
-		Initiator:         ntlmInit,
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only, // SMB 2.1 keeps the negotiate path simple
-		DialTimeout:       2 * time.Second,
+		Host:           "127.0.0.1",
+		Port:           addr.Port,
+		Initiator:      ntlmInit,
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only, // SMB 2.1 keeps the negotiate path simple
+		DialTimeout:    2 * time.Second,
 	}
 	_, err := smb.NewConnection(opts)
 	if err == nil {
@@ -119,13 +119,13 @@ func TestSessionSetupAnonymous(t *testing.T) {
 	conn.Close()
 
 	opts := smb.Options{
-		Host:              "127.0.0.1",
-		Port:              addr.Port,
-		ManualLogin:       true,
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           "127.0.0.1",
+		Port:           addr.Port,
+		ManualLogin:    true,
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	c, err := smb.NewConnection(opts)
 	if err != nil {
@@ -171,13 +171,13 @@ func TestSessionSetupMapAuthSuccess(t *testing.T) {
 	defer shutdown()
 
 	opts := smb.Options{
-		Host:              "127.0.0.1",
-		Port:              addr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           "127.0.0.1",
+		Port:           addr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	c, err := smb.NewConnection(opts)
 	if err != nil {
@@ -220,14 +220,14 @@ func TestSessionSetupRawNTLMSSP(t *testing.T) {
 	defer shutdown()
 
 	opts := smb.Options{
-		Host:              "127.0.0.1",
-		Port:              addr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		RawNTLMSSP:        true,
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           "127.0.0.1",
+		Port:           addr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		RawNTLMSSP:     true,
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	c, err := smb.NewConnection(opts)
 	if err != nil {

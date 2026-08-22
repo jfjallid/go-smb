@@ -111,7 +111,7 @@ func TestPreauthAntiDowngrade(t *testing.T) {
 			Port:                  addr.Port,
 			Initiator:             &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
 			RequireMessageSigning: true,
-			DisableEncryption:     true,
+			Encryption:            smb.EncryptionDisabled,
 			DialTimeout:           2 * time.Second,
 		}
 		c, err := smb.NewConnection(opts)

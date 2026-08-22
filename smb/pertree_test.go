@@ -70,8 +70,8 @@ func TestTreeConnectAttributesAndEncryptLookup(t *testing.T) {
 
 // TestCanEncrypt pins the exact condition under which the client will engage
 // per-tree encryption: encryption must be supported, not opted out via
-// DisableEncryption, and an encrypter must be initialized. The
-// DisableEncryption case is the important one — supportsEncryption can be true
+// EncryptionDisabled, and an encrypter must be initialized. The
+// EncryptionDisabled case is the important one — supportsEncryption can be true
 // from the negotiate context alone, but the server derives no decrypter unless
 // the client advertised GlobalCapEncryption, so encrypting anyway would produce
 // undecryptable traffic.
@@ -99,7 +99,9 @@ func TestCanEncrypt(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &Session{supportsEncryption: tc.supports}
-			s.options.DisableEncryption = tc.disabled
+			if tc.disabled {
+				s.options.Encryption = EncryptionDisabled
+			}
 			if tc.hasEnc {
 				s.encrypter = enc
 			}

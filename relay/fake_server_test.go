@@ -81,13 +81,13 @@ func TestFakeServerRoundTrip(t *testing.T) {
 	relayAddr := rs.SMBAddr().(*net.TCPAddr)
 
 	opts := smb.Options{
-		Host:              relayAddr.IP.String(),
-		Port:              relayAddr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           relayAddr.IP.String(),
+		Port:           relayAddr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	conn, err := smb.NewConnection(opts)
 	if err != nil {
@@ -203,13 +203,13 @@ func TestFakeServerReadOnly(t *testing.T) {
 	relayAddr := rs.SMBAddr().(*net.TCPAddr)
 
 	opts := smb.Options{
-		Host:              relayAddr.IP.String(),
-		Port:              relayAddr.Port,
-		Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-		DisableSigning:    true,
-		DisableEncryption: true,
-		Dialects:          smb.DialectsSMB2Only,
-		DialTimeout:       2 * time.Second,
+		Host:           relayAddr.IP.String(),
+		Port:           relayAddr.Port,
+		Initiator:      &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+		DisableSigning: true,
+		Encryption:     smb.EncryptionDisabled,
+		Dialects:       smb.DialectsSMB2Only,
+		DialTimeout:    2 * time.Second,
 	}
 	conn, err := smb.NewConnection(opts)
 	if err != nil {

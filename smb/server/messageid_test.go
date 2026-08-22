@@ -119,12 +119,12 @@ func TestClientMessageIDAdvancesAfterNegotiate(t *testing.T) {
 			defer shutdown()
 
 			opts := smb.Options{
-				Host:              "127.0.0.1",
-				Port:              addr.Port,
-				Initiator:         &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
-				DisableEncryption: true, // signing path is fine; SMB 3.1.1 refuses both off
-				Dialects:          tc.dialects,
-				DialTimeout:       2 * time.Second,
+				Host:        "127.0.0.1",
+				Port:        addr.Port,
+				Initiator:   &spnego.NTLMInitiator{User: user, Password: password, Domain: domain},
+				Encryption:  smb.EncryptionDisabled, // signing path is fine; SMB 3.1.1 refuses both off
+				Dialects:    tc.dialects,
+				DialTimeout: 2 * time.Second,
 			}
 			c, err := smb.NewConnection(opts)
 			if err != nil {

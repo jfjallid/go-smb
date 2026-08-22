@@ -11,13 +11,22 @@ at release time it is renamed to the new version and a fresh
 
 Headline items this cycle are a batch of SMB 2.1–3.1.1 client protocol
 conformance work (SMB 3.0/3.0.2 dialects, credit-based flow control with the
-Windows request/grow/split strategy, per-share encryption, and oplock-break /
-CANCEL handling), an explicit NTLM authentication mode, reliable detection of
-accepted guest/null sessions, and the removal of the long-unused credential
-fields on `smb.Options`. This cycle also retires the reflection-based
+Windows request/grow/split strategy, a four-state client encryption policy, and
+oplock-break / CANCEL handling), SMB2/3 compression on both sides of the
+connection,
+`context.Context` variants for the blocking client calls, and server-side
+durable handles and CHANGE_NOTIFY served on a new asynchronous request path.
+Authentication gains an explicit NTLM mode, reliable detection of accepted
+guest/null sessions, and raw (non-SPNEGO) NTLMSSP so the Linux kernel CIFS
+client can mount a go-smb share. This cycle also retires the reflection-based
 `smb/encoder` engine in favour of hand-written `MarshalBinary` /
 `UnmarshalBinary` methods, which changes the marshalling API without changing
-the bytes on the wire.
+the bytes on the wire, and removes the long-unused credential fields on
+`smb.Options`.
+
+Everything added this cycle was driven against a live Windows Server 2022
+domain controller rather than only against the in-repo server, which is what
+surfaced several of the correctness fixes listed below.
 
 ### SMB2/3 client protocol conformance
 
@@ -198,7 +207,32 @@ expresses directly. Set `Dialects: smb.DialectsSMB2Only` to pin the legacy 2.1
 path — see *SMB2/3 client protocol conformance* above for the difference in
 negotiate behaviour.
 
-**5. Behavioural changes that can break working code.**
+**5. `Options.DisableEncryption` and `Options.RequireEncryption` removed.**
+
+Both booleans are gone, replaced by the single `Options.Encryption` field of
+type `smb.EncryptionPolicy`. Two booleans could express states that contradict
+each other, and the old resolution — `DisableEncryption` silently wins — is
+exactly the class of quiet downgrade this release set out to remove.
+
+```go
+// Before
+opts := smb.Options{Host: host, Initiator: init, RequireEncryption: true}
+opts := smb.Options{Host: host, Initiator: init, DisableEncryption: true}
+
+// After
+opts := smb.Options{Host: host, Initiator: init, Encryption: smb.EncryptionRequired}
+opts := smb.Options{Host: host, Initiator: init, Encryption: smb.EncryptionDisabled}
+```
+
+Code setting either field no longer compiles. The mapping is mechanical:
+`RequireEncryption: true` → `Encryption: smb.EncryptionRequired`,
+`DisableEncryption: true` → `Encryption: smb.EncryptionDisabled`, and leaving
+both false → leave `Encryption` unset, **but note that the default's meaning
+changed** (see the next item and "Client encryption" below). Code that wants
+the pre-0.12.0 default behaviour back must say so explicitly with
+`Encryption: smb.EncryptionServerDirected`.
+
+**6. Behavioural changes that can break working code.**
 
 None of these alter a signature, so they compile silently:
 
@@ -213,6 +247,20 @@ None of these alter a signature, so they compile silently:
 - **Awaiting a response on a connection being torn down returns an error**
   rather than `(nil, nil)`. Callers that special-cased the nil/nil pair can drop
   that branch; callers that ignored it now get a real error.
+- **`NewConnection` can now fail where it previously succeeded**, with
+  `smb.ErrEncryptionNotNegotiated`, when `Options.Encryption` is
+  `EncryptionRequired` and the server negotiates no encryption or establishes a
+  guest/anonymous session. Callers that demanded encryption against a pre-3.0 or
+  non-encrypting server were getting a plaintext connection and no diagnostic;
+  they now get an error and must either relax the policy or fix the server.
+  `EncryptionRequired` with an `Options.Dialects` list offering no SMB 3.x
+  dialect is rejected before dialing.
+- **The default now encrypts more traffic than before.** A connection that
+  negotiates a cipher encrypts session-wide even when neither the server nor the
+  target share asked for it. Bulk transfers to unflagged shares pay AEAD cost
+  they did not previously. Set `Encryption: smb.EncryptionServerDirected` for
+  the previous behaviour, which encrypts only what the server and its shares
+  ask for.
 
 ### New features
 
@@ -279,16 +327,92 @@ error. Dialect revisions are logged as friendly version strings.
 
 ### Client encryption
 
-- **`Options.RequireEncryption`.** Opts the whole session into encrypt-all:
-  every request is wrapped in a TransformHeader regardless of the server's or
-  share's flags. Mutually exclusive with `DisableEncryption` (which wins).
-- **The server's encryption verdict is now honored (MS-SMB2 §3.2.5.3.1).**
-  Previously the client forced session-wide encryption whenever it merely
-  *supported* it. It now only encrypts session-wide when the server sets
-  `SMB2_SESSION_FLAG_ENCRYPT_DATA` (including when the server asserts it only on
-  the final SessionSetup response) or the caller set `RequireEncryption`;
-  otherwise per-tree enforcement encrypts individual `ENCRYPT_DATA` shares while
-  plaintext shares stay unwrapped.
+Client encryption is now a single four-state policy, `Options.Encryption`,
+replacing two booleans that could contradict each other and, in one direction,
+did nothing at all. The old `RequireEncryption` was a no-op whenever it
+mattered most: it was consulted in exactly one place, in a branch that also
+required encryption to have been negotiated already, so a connection that could
+*not* encrypt fell through it silently and ran in plaintext — no error, no
+warning. That covers a 2.0.2/2.1 dialect (which has no encryption at all), a
+3.0/3.0.2 server that did not answer with `SMB2_GLOBAL_CAP_ENCRYPTION`, and a
+3.1.1 server that answered the `EncryptionCapabilities` context with
+`SMB2_ENCRYPTION_NONE` because it shared no cipher with the client's offer.
+
+```go
+opts := smb.Options{
+    Host:       host,
+    Initiator:  initiator,
+    Encryption: smb.EncryptionServerDirected,
+}
+```
+
+The four policies, in ascending order of insistence:
+
+- **`EncryptionDisabled`** removes encryption from the negotiation entirely.
+  The old `DisableEncryption` suppressed `SMB2_GLOBAL_CAP_ENCRYPTION` but
+  still sent an `EncryptionCapabilities` context, so a cipher was selected and
+  keys derived on both sides for a session that would never use them. The
+  context is now omitted along with the capability, so no cipher is negotiated
+  at all. The mandatory preauth-integrity and signing contexts are unaffected. A
+  share flagged `ENCRYPT_DATA` fails its TreeConnect with
+  `ErrShareRequiresEncryption`, because this policy cannot reach it.
+- **`EncryptionServerDirected`** encrypts only what the peer asks for: a session
+  the server flagged `SMB2_SESSION_FLAG_ENCRYPT_DATA` (MS-SMB2 §3.2.5.3.1) and
+  shares flagged `SMB2_SHAREFLAG_ENCRYPT_DATA` (§3.2.5.5). Everything else
+  travels as signed plaintext. This is how a Windows client behaves, which makes
+  it the choice when the traffic should look ordinary, or when a plaintext
+  capture is wanted without losing access to encrypt-only shares — a cipher is
+  still negotiated, so unlike `EncryptionDisabled` those shares stay reachable.
+  It is also the closest match to the pre-0.12.0 default.
+- **`EncryptionPreferred`** (the default, and the zero value) encrypts every
+  request whenever a cipher was negotiated end-to-end, and falls back to signed
+  plaintext when none was. Note that this encrypts more than the peer asks for:
+  per-share enforcement is subsumed on any connection that *can* encrypt, so
+  traffic to unflagged shares is encrypted too, which costs throughput on bulk
+  transfers. Choose `EncryptionServerDirected` to get the old behaviour back.
+- **`EncryptionRequired`** encrypts everything and refuses any connection that
+  cannot. `NewConnection` returns the new `smb.ErrEncryptionNotNegotiated`,
+  naming the negotiated dialect, instead of handing back a working plaintext
+  connection. The check runs at the end of NEGOTIATE, before authenticating:
+  encryption is not retrofittable onto an established session, so there is
+  nothing to gain by continuing. `SessionSetup` fails the same way if the server
+  establishes a guest or anonymous session, which has no key to encrypt with —
+  matching the rule already applied to signing. A policy that cannot be
+  satisfied by the dialect offer at all (`EncryptionRequired` with an
+  `Options.Dialects` list containing no SMB 3.x dialect) is rejected by
+  `validateOptions` before a socket is opened.
+
+The two booleans this replaces, `Options.DisableEncryption` and
+`Options.RequireEncryption`, are **removed** rather than deprecated — see
+breaking change 5 above for the migration.
+
+A server demand the client cannot satisfy is now an error too. When the server
+sets `SMB2_SESSION_FLAG_ENCRYPT_DATA` but no cipher was negotiated, the client
+used to clear the flag and carry on in plaintext; the server requires every
+subsequent request to be encrypted (MS-SMB2 §3.3.5.2.9) and rejects them, so
+that only deferred the failure to a point where the cause was no longer visible.
+
+Two defects surfaced while implementing the above, each masked by the old
+behaviour:
+
+- **The client no longer trusts `SMB2_GLOBAL_CAP_ENCRYPTION` on SMB 3.1.1.**
+  MS-SMB2 §3.2.5.2 establishes `Connection.SupportsEncryption` from that
+  capability bit only for dialects 3.0 and 3.0.2; 3.1.1 negotiates encryption
+  solely through the `EncryptionCapabilities` context. A 3.1.1 server that set
+  the bit anyway marked the connection encryption-capable with no cipher ever
+  selected, and key derivation then failed the session outright with "cipher
+  algorithm (0) not implemented". Previously unreachable only because the client
+  always sent a cipher context, so a cipher always came back.
+- **A server with `ServerConfig.RequireEncryption` could be talked out of it.**
+  In `smb/server`, the "no cipher selected" early return in
+  `deriveEncryptionKeys` ran *before* the requirement check, so a client that simply
+  omitted the `EncryptionCapabilities` context got an unencrypted session out of
+  a server configured to require encryption. The requirement is now checked
+  first and covers all three ways a client can be unencryptable: a pre-3.0
+  dialect, no capability bit, or no cipher.
+
+Also in this area:
+
 - **Encrypted responses are no longer wrongly rejected by the signing check.**
   On a signing-required session negotiating a pre-3.1.1 dialect with encryption,
   the reader ran the plaintext signature check on encrypted PDUs (which carry
@@ -346,6 +470,12 @@ error. Dialect revisions are logged as friendly version strings.
 
 ### Client correctness and robustness
 
+- **`NewConnection` leaked a socket and two goroutines on every error return.**
+  It starts its sender and receiver goroutines before NEGOTIATE and hands back a
+  half-built `*Connection` alongside the error, which no caller can be expected
+  to `Close`. Failed connections now unwind themselves — which matters for
+  anything that sweeps many hosts, and became easy to hit once
+  `EncryptionRequired` could refuse a connection outright.
 - **`ParseAccessMask` never reported `GENERIC_WRITE`.** The lookup table's key
   was `0x4000000` — one zero short of `0x40000000` — so the bit was never
   matched, and the reserved bit `0x04000000` was reported as `GENERIC_WRITE`
@@ -523,6 +653,17 @@ accepts the AP-REQ outright and authentication completes in a single leg:
   without a usable session key".
 
 ### Correctness fixes
+
+- **`DSNAME.SetName` counts UTF-16 code units, not UTF-8 bytes.** `NameLen` is a
+  WCHAR count but was set from `len(name)`, the Go string's byte length. The two
+  agree only for ASCII; for any other character `NameLen` came out too large, so
+  the `[size_is(NameLen+1)]` conformant array declared more code units than
+  `StringName` actually held. A `DRSGetNCChanges` request built from such a
+  DSNAME is rejected by the DC with a DCERPC fault carrying
+  `RPC_X_BAD_STUB_DATA` (0x6f7), so no object whose DN contained a non-ASCII
+  character could be replicated. The count is now derived from the encoded
+  `StringName`. Note that `len([]rune(name))` would not be correct either: a
+  character outside the BMP is one rune but two UTF-16 code units.
 
 - **`NetrServerDiskEnum` (MS-SRVS opnum 23) now decodes.** `DISK_INFO.Disk` is
   declared `WCHAR Disk[3]` but carries the `[string]` attribute, so NDR puts a

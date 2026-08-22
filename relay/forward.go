@@ -75,7 +75,7 @@ func newSMBForwarder(t Target, opts smb.Options, logger server.Logger) (*smbForw
 	opts.ManualLogin = true
 	opts.Dialects = smb.DialectsSMB2Only
 	opts.DisableSigning = true
-	opts.DisableEncryption = true
+	opts.Encryption = smb.EncryptionDisabled
 	return &smbForwarder{target: t, opts: opts, logger: logger}, nil
 }
 
