@@ -6,7 +6,13 @@ an SMB2/3 client with support for interacting with various RPC endpoints using
 DCERPC over named pipes or raw TCP connections.
 This project was created as a way to learn how to interact remotely with Windows
 services and the remote registry, but has evolved to include support for more
-RPC services.
+RPC services, each in its own package under `dcerpc/`: service control
+(MS-SCMR), the remote registry (MS-RRP), server and workstation information
+(MS-SRVS, MS-WKST), SAM and LSA (MS-SAMR, MS-LSAD), the task scheduler
+(MS-TSCH), DCOM and WMI (MS-DCOM), directory replication (MS-DRSR), the
+endpoint mapper (EPM), Active Directory Certificate Services enrollment and
+administration (MS-ICPR, MS-WCCE, MS-CSRA), and minimal MS-EVEN and MS-RPRN for
+authentication coercion.
 
 It is based upon the work of https://github.com/stacktitan/smb but has seen a
 lot of changes to add support for SMB3, DCERPC, MSRRP and other RPC services

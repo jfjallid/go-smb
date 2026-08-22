@@ -9,6 +9,10 @@ at release time it is renamed to the new version and a fresh
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.12.0] — 2026-08-22
+
 Headline items this cycle are a batch of SMB 2.1–3.1.1 client protocol
 conformance work (SMB 3.0/3.0.2 dialects, credit-based flow control with the
 Windows request/grow/split strategy, a four-state client encryption policy, and
@@ -16,6 +20,9 @@ oplock-break / CANCEL handling), SMB2/3 compression on both sides of the
 connection,
 `context.Context` variants for the blocking client calls, and server-side
 durable handles and CHANGE_NOTIFY served on a new asynchronous request path.
+On the RPC side this cycle adds `dcerpc/msicpr`, a client for Active Directory
+Certificate Services covering certificate enrollment (MS-ICPR over the named
+pipe or TCP, MS-WCCE over DCOM) and CA administration (MS-CSRA).
 Authentication gains an explicit NTLM mode, reliable detection of accepted
 guest/null sessions, and raw (non-SPNEGO) NTLMSSP so the Linux kernel CIFS
 client can mount a go-smb share. This cycle also retires the reflection-based
@@ -299,6 +306,59 @@ None of these alter a signature, so they compile silently:
   what was actually negotiated rather than on what was offered, which is the
   only way to catch a silent dialect downgrade or a compression context the
   server declined.
+
+### New DCERPC service client: AD CS (`dcerpc/msicpr`)
+
+A new client for the three protocols an Active Directory Certificate Services
+CA exposes, covering certificate enrollment and CA administration. The package
+is named for the first of them, the only one that needs no DCOM:
+
+- **MS-ICPR (`ICertPassage`)** — enrollment over the `\pipe\cert` named pipe or
+  a dynamic TCP endpoint via `epm`. `RPCCon.CertServerRequest` submits a PKCS#10
+  or CMC request and retrieves an issued or pending certificate, returning a
+  decoded `CertResponse` (request id, `CR_DISP_*` disposition, the CA's status
+  message, the DER leaf and the PKCS#7 chain).
+- **MS-WCCE (`ICertRequestD`)** — the same enrollment call over DCOM/ORPC
+  (opnum 3), for hosts where the named pipe is filtered but DCOM is reachable.
+  It takes an object activated through `msdcom.DCOMConnection.CreateInstance`
+  and returns the same `CertResponse`, so the two transports are drop-in
+  alternatives behind one interface.
+- **MS-CSRA (`ICertAdminD` / `ICertAdminD2`)** — CA administration over DCOM:
+  `ResubmitRequest` and `DenyRequest` to approve or reject a pending request,
+  `GetCAProperty`/`SetCAProperty` (with `GetTemplateList`/`SetTemplateList`
+  over `CR_PROP_TEMPLATES`) to read and write the CA's enabled-template list,
+  and `GetCASecurity`/`SetCASecurity` to read and write the CA security
+  descriptor carrying the ManageCA and ManageCertificates roles.
+  `AddTemplate`/`RemoveTemplate` edit the template list by name and OID: the
+  raw list ends with the terminator the CA keeps after the final newline, so
+  appending to what `GetTemplateList` returns writes entries the CA will not
+  read back.
+
+A refused call keeps the CA's own account of why. `ResponseCodeMap` maps the
+`CERTSRV_E_*` range and the generic access/argument failures — in both their
+Win32 (ICPR) and HRESULT (DCOM) spellings — to sentinels matchable with
+`errors.Is`, and a failing enrollment returns the decoded `CertResponse`
+alongside the error, because the CA's reason ("Denied by Policy Module
+0x80094800, The request was for a certificate template that is not supported")
+arrives in the disposition message rather than in the status word. That message
+is appended to the error text as well.
+
+Two implementation notes worth knowing when using it:
+
+- **Per-parameter NDR deferral.** Every pointer parameter is tagged `toplevel`,
+  so its referents are emitted inside its own deferral scope rather than being
+  deferred to the end of the stub. This is the layout Windows' MIDL-generated
+  server stubs expect; without it the CA rejects the call with DCERPC fault
+  `0x000006f7` (`nca_s_fault_ndr`). Each stub has a byte-exact layout test.
+- **`ICertAdmin` activates its two interfaces lazily, one per call.** Opnums
+  3–30 dispatch on `ICertAdminD` and 31+ on `ICertAdminD2`, so each has its own
+  IPID and is activated separately — but only on first use. Activating both up
+  front works over NTLM yet makes a Kerberos-authenticated session fail its
+  second `RemoteCreateInstance` with `RPC_S_SEC_PKG_ERROR` (`0x721`). The
+  activation cache is mutex-guarded, and `Close` releases every interface taken.
+
+The package was validated end to end against a live Windows CA over both NTLM
+and Kerberos, across all three transports.
 
 ### Server interoperability fixes
 
