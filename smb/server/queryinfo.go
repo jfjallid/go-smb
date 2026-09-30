@@ -86,10 +86,15 @@ func (c *Conn) handleQueryInfo(ctx pduCtx, raw []byte, h *smb.Header) error {
 func (c *Conn) queryFileInfo(ctx pduCtx, h *smb.Header, tree *Tree, hndl Handle, req *smb.QueryInfoReq) error {
 	logger := c.logger()
 	// Defer to VFS first; it may return a serialized buffer or struct.
-	out, status, err := tree.Share.VFS.QueryFileInfo(context.Background(), hndl, req.FileInfoClass)
-	if err != nil {
-		logger.Errorf("VFS.QueryFileInfo class=0x%02x: %v", req.FileInfoClass, err)
-		return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
+	var err error
+	var out any
+	status := smb.StatusNotSupported
+	if tree.Share.VFS != nil {
+		out, status, err = tree.Share.VFS.QueryFileInfo(context.Background(), hndl, req.FileInfoClass)
+		if err != nil {
+			logger.Errorf("VFS.QueryFileInfo class=0x%02x: %v", req.FileInfoClass, err)
+			return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
+		}
 	}
 	var buf []byte
 	if status == smb.StatusNotSupported {
@@ -119,10 +124,15 @@ func (c *Conn) queryFileInfo(ctx pduCtx, h *smb.Header, tree *Tree, hndl Handle,
 
 func (c *Conn) queryFsInfo(ctx pduCtx, h *smb.Header, tree *Tree, req *smb.QueryInfoReq) error {
 	logger := c.logger()
-	out, status, err := tree.Share.VFS.QueryFSInfo(context.Background(), req.FileInfoClass)
-	if err != nil {
-		logger.Errorf("VFS.QueryFSInfo class=0x%02x: %v", req.FileInfoClass, err)
-		return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
+	var err error
+	var out any
+	status := smb.StatusNotSupported
+	if tree.Share.VFS != nil {
+		out, status, err = tree.Share.VFS.QueryFSInfo(context.Background(), req.FileInfoClass)
+		if err != nil {
+			logger.Errorf("VFS.QueryFSInfo class=0x%02x: %v", req.FileInfoClass, err)
+			return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
+		}
 	}
 	var buf []byte
 	if status == smb.StatusNotSupported {
@@ -146,10 +156,15 @@ func (c *Conn) queryFsInfo(ctx pduCtx, h *smb.Header, tree *Tree, req *smb.Query
 
 func (c *Conn) querySecurityInfo(ctx pduCtx, h *smb.Header, tree *Tree, hndl Handle, req *smb.QueryInfoReq) error {
 	logger := c.logger()
-	buf, status, err := tree.Share.VFS.QuerySecurity(context.Background(), hndl, req.AdditionalInformation)
-	if err != nil {
-		logger.Errorf("VFS.QuerySecurity addInfo=0x%08x: %v", req.AdditionalInformation, err)
-		return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
+	var err error
+	var buf []byte
+	status := smb.StatusNotSupported
+	if tree.Share.VFS != nil {
+		buf, status, err = tree.Share.VFS.QuerySecurity(context.Background(), hndl, req.AdditionalInformation)
+		if err != nil {
+			logger.Errorf("VFS.QuerySecurity addInfo=0x%08x: %v", req.AdditionalInformation, err)
+			return c.writeRawError(ctx, h, smb.StatusInvalidParameter)
+		}
 	}
 	if status == smb.StatusNotSupported {
 		// Default world-readable SD: Owner=Group=Everyone, no DACL/SACL.
