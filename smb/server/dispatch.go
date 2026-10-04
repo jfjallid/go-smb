@@ -204,6 +204,7 @@ func (c *Conn) dispatchSMB2Inner(raw []byte, ctx pduCtx) error {
 	// after signature verification (which uses the wire bytes verbatim) but
 	// before handler dispatch. We work on a copy so the signature path keeps
 	// seeing the as-received buffer.
+	wire := raw
 	if !ctx.encrypted && h.Flags&smb.SMB2_FLAGS_RELATED_OPERATIONS != 0 && ctx.chain != nil {
 		patched := make([]byte, len(raw))
 		copy(patched, raw)
@@ -252,7 +253,7 @@ func (c *Conn) dispatchSMB2Inner(raw []byte, ctx pduCtx) error {
 					}
 					return fmt.Errorf("disconnecting %s: signing required but inbound PDU was unsigned", c.RemoteAddr)
 				}
-			} else if !sess.verifyPDU(raw) {
+			} else if !sess.verifyPDU(wire) {
 				c.logger().Errorf("inbound signature mismatch (cmd=0x%x)", h.Command)
 				if err := c.writeRawError(ctx, &h, smb.StatusAccessDenied); err != nil {
 					return err
